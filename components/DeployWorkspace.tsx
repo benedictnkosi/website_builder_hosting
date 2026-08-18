@@ -277,7 +277,7 @@ export default function DeployWorkspace({
                 className="mt-4 inline-flex w-full items-center justify-center rounded-full bg-teal-800 px-5 py-3 text-sm font-semibold text-white transition hover:bg-teal-700 disabled:cursor-not-allowed disabled:bg-stone-400 sm:w-auto"
               >
                 {deployStatus === "deploying"
-                  ? "Registering and publishing..."
+                  ? "Registering and publishing.."
                   : `Publish  ${result.domain}`}
               </button>
             ) : null}
