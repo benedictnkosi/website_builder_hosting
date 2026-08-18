@@ -15,7 +15,7 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "AI Website Builder",
+  title: "Lulaweb",
   description: "Describe your business in a chat and get a live website you can edit and deploy.",
 };
 

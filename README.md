@@ -1,4 +1,4 @@
-# AI Website Builder
+# Lulaweb
 
 Proof of concept for an AI-powered website generator. Enter a business description, and the app uses OpenAI `gpt-5.5` to produce a static HTML, CSS, and JavaScript website. Generated files are saved locally and shown in the UI.
 

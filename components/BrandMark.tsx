@@ -4,7 +4,7 @@ export default function BrandMark({
   compact?: boolean;
 }) {
   return (
-    <span className="inline-flex items-center gap-2.5">
+    <span className="inline-flex items-center gap-2.5" aria-label="Lulaweb">
       <span className="flex h-8 w-8 items-center justify-center rounded-xl bg-teal-800 text-white shadow-sm">
         <svg
           aria-hidden="true"
@@ -21,7 +21,7 @@ export default function BrandMark({
       </span>
       {compact ? null : (
         <span className="text-sm font-semibold tracking-tight text-stone-900">
-          AI Website Builder
+          Lulaweb
         </span>
       )}
     </span>

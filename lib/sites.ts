@@ -226,7 +226,12 @@ async function listDiskOwnedWebsites(user: AuthUser): Promise<ManagedWebsite[]> 
   for (const websiteId of await listWebsiteIds()) {
     const meta = await readDiskMeta(websiteId);
     if (meta?.ownerUid !== user.uid) continue;
-    const subscription = await readSubscription(websiteId);
+    let subscription: WebsiteSubscription | null = null;
+    try {
+      subscription = await readSubscription(websiteId);
+    } catch (error) {
+      console.warn("Could not read subscription:", error);
+    }
     const site = await toManagedWebsite(websiteId, meta, subscription, user.idToken);
     if (site) sites.push(site);
   }
@@ -256,8 +261,12 @@ export async function listManagedWebsites(user: AuthUser): Promise<ManagedWebsit
   const sitesById = new Map<string, ManagedWebsite>();
 
   for (const record of records) {
-    const subscription =
-      (await readSubscription(record.websiteId)) ?? record.subscription ?? null;
+    let subscription = record.subscription ?? null;
+    try {
+      subscription = (await readSubscription(record.websiteId)) ?? subscription;
+    } catch (error) {
+      console.warn("Could not read subscription:", error);
+    }
     if (subscription && subscription.updatedAt !== record.subscription?.updatedAt) {
       try {
         await writeWebsiteMeta(record, user, subscription);

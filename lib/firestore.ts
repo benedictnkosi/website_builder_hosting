@@ -1,6 +1,7 @@
 import "server-only";
 
 import type { AuthUser } from "@/lib/auth-server";
+import { getAdminFirestore, isFirebaseAdminConfigured } from "@/lib/firebase-admin";
 import type { WebsiteSubscription } from "@/lib/subscription";
 
 export class FirestoreError extends Error {
@@ -141,10 +142,24 @@ async function firestoreRequest(
   });
 }
 
+function definedFields(data: Record<string, unknown>): Record<string, unknown> {
+  const payload: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(data)) {
+    if (value !== undefined) payload[key] = value;
+  }
+  return payload;
+}
+
 async function getDocument(
   path: string,
   idToken: string,
 ): Promise<Record<string, unknown> | null> {
+  if (isFirebaseAdminConfigured()) {
+    const snap = await getAdminFirestore().doc(path).get();
+    if (!snap.exists) return null;
+    return (snap.data() ?? {}) as Record<string, unknown>;
+  }
+
   const response = await firestoreRequest(documentUrl(path), idToken, {
     method: "GET",
   });
@@ -161,6 +176,11 @@ async function setDocument(
   idToken: string,
   data: Record<string, unknown>,
 ): Promise<void> {
+  if (isFirebaseAdminConfigured()) {
+    await getAdminFirestore().doc(path).set(definedFields(data), { merge: true });
+    return;
+  }
+
   const fieldPaths = Object.keys(data).filter((key) => data[key] !== undefined);
   const params = new URLSearchParams();
   for (const field of fieldPaths) {
@@ -182,6 +202,11 @@ async function setDocument(
 }
 
 async function deleteDocument(path: string, idToken: string): Promise<void> {
+  if (isFirebaseAdminConfigured()) {
+    await getAdminFirestore().doc(path).delete();
+    return;
+  }
+
   const response = await firestoreRequest(documentUrl(path), idToken, {
     method: "DELETE",
   });
@@ -193,6 +218,11 @@ async function listDocuments(
   path: string,
   idToken: string,
 ): Promise<Record<string, unknown>[]> {
+  if (isFirebaseAdminConfigured()) {
+    const snap = await getAdminFirestore().collection(path).get();
+    return snap.docs.map((document) => (document.data() ?? {}) as Record<string, unknown>);
+  }
+
   const response = await firestoreRequest(documentUrl(path), idToken, {
     method: "GET",
   });

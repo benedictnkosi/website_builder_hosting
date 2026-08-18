@@ -1,11 +1,11 @@
 # Website Deployment Agent
 
-A secure Spring Boot deployment agent that receives static websites from a central AI website builder, writes files to the filesystem, manages Caddy site configuration, validates the configuration, and reloads Caddy.
+A secure Spring Boot deployment agent that receives static websites from Lulaweb, writes files to the filesystem, manages Caddy site configuration, validates the configuration, and reloads Caddy.
 
 ## Architecture
 
 ```text
-Central Website Builder
+Lulaweb
         |
         | HTTPS + API key
         v
@@ -57,7 +57,7 @@ sudo ./scripts/start-caddy.sh
 ./scripts/start-springboot.sh
 ```
 
-Point DNS A records at the VPS public IP, then deploy with a domain from the website builder.
+Point DNS A records at the VPS public IP, then deploy with a domain from Lulaweb.
 
 ## Run locally
 
