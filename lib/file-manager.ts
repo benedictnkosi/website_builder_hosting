@@ -38,6 +38,16 @@ const TEXT_EXTENSIONS = new Set([
 const STAMP_EXTENSIONS = new Set([".html", ".css", ".js"]);
 
 export function getGeneratedSitesRoot(): string {
+  const configured = process.env.GENERATED_SITES_DIR?.trim();
+  if (configured) {
+    return path.resolve(configured);
+  }
+
+  // Vercel/Lambda only allow writes under /tmp.
+  if (process.env.VERCEL || process.env.AWS_LAMBDA_FUNCTION_NAME) {
+    return path.join("/tmp", GENERATED_SITES_DIR);
+  }
+
   return path.join(process.cwd(), GENERATED_SITES_DIR);
 }
 

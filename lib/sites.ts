@@ -90,7 +90,12 @@ export async function writeWebsiteMeta(
   user?: AuthUser,
   subscription?: WebsiteSubscription | null,
 ): Promise<void> {
-  await writeDiskMeta(meta);
+  try {
+    await writeDiskMeta(meta);
+  } catch (error) {
+    if (!user) throw error;
+    console.warn("Local website meta cache write failed:", error);
+  }
   if (user) {
     await writeSiteRecord(user, meta, subscription);
   }
