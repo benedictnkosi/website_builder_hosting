@@ -4,6 +4,7 @@ import { FormEvent, useEffect, useState } from "react";
 import { formatZar, MONTHLY_SUBSCRIPTION_ZAR, SUBSCRIPTION_TLD } from "@/lib/pricing";
 import { useAuth } from "@/components/AuthProvider";
 import { trackBeginCheckout } from "@/lib/analytics";
+import { submitPayfastForm } from "@/lib/payfast-browser";
 
 type DomainResult = {
   domain: string;
@@ -28,24 +29,6 @@ function SearchIcon() {
       <path d="M20 20l-3.5-3.5" strokeLinecap="round" />
     </svg>
   );
-}
-
-function submitPayfastForm(processUrl: string, fields: Record<string, string>) {
-  const form = document.createElement("form");
-  form.method = "POST";
-  form.action = processUrl;
-
-  for (const [name, value] of Object.entries(fields)) {
-    if (!value) continue;
-    const input = document.createElement("input");
-    input.type = "hidden";
-    input.name = name;
-    input.value = value;
-    form.appendChild(input);
-  }
-
-  document.body.appendChild(form);
-  form.submit();
 }
 
 type PaywallCardProps = {

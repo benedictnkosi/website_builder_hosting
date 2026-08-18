@@ -34,6 +34,8 @@ import {
   trackPaywallView,
   trackPurchase,
 } from "@/lib/analytics";
+import { notifyTokensChanged, openTokenTopup } from "@/lib/token-events";
+import { formatZar, TOKEN_TOPUP_ZAR } from "@/lib/pricing";
 
 type GenerationStatus = "idle" | "chatting" | "generating" | "success" | "error";
 type ChatPhase = "intake" | "edit";
@@ -42,7 +44,7 @@ const WELCOME_MESSAGE =
   "Hi! I'm here to help build your website. Tell me about your business.";
 
 const READY_MESSAGE =
-  "Your website is ready. Preview it for free. Subscribe to describe changes or deploy it live.";
+  "Your website is ready. Preview it, describe any changes, and subscribe when you want to deploy it live.";
 
 function sleep(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -108,7 +110,7 @@ export default function WebsiteBuilder() {
     isEditing ||
     showAddressModal;
   const previewUrl = websiteId ? `/api/preview/${websiteId}/index.html` : null;
-  const editLocked = chatPhase === "edit" && !isSubscribed;
+  const tokenShortage = Boolean(error?.toLowerCase().includes("token"));
   const suggestedDomainName = slugifyDomainName(
     businessName || extractBusinessName(businessDescription),
   );
@@ -204,8 +206,9 @@ export default function WebsiteBuilder() {
           setCheckoutNotice(null);
           if (poll && data.subscription?.domain) {
             trackPurchase(data.subscription.domain);
+            notifyTokensChanged();
             addAssistantMessage(
-              `You're subscribed. Describe a change, or deploy ${data.subscription.domain}.`,
+              `You're subscribed. Another 20,000 tokens were added to your balance. Describe a change, or deploy ${data.subscription.domain}.`,
             );
           }
           return;
@@ -283,6 +286,7 @@ export default function WebsiteBuilder() {
               businessDescription: session?.businessDescription ?? "",
             });
             addAssistantMessage(READY_MESSAGE);
+            notifyTokensChanged();
           } else if (job.kind === "edit") {
             setIframeKey((key) => key + 1);
             trackEditSuccess();
@@ -291,7 +295,8 @@ export default function WebsiteBuilder() {
               businessName: session?.businessName ?? "",
               businessDescription: session?.businessDescription ?? "",
             });
-            addAssistantMessage("Changes applied. Open the preview to see them.");
+            addAssistantMessage("Changes applied.");
+            notifyTokensChanged();
           }
           clearJobView();
           setIsEditing(false);
@@ -331,7 +336,7 @@ export default function WebsiteBuilder() {
 
     if (checkout === "cancel") {
       setCheckoutNotice(
-        "Payment was cancelled. Subscribe when you're ready to edit or deploy.",
+        "Payment was cancelled. Subscribe when you're ready to deploy.",
       );
       setShowPaywall(true);
       trackCheckoutCancel();
@@ -436,6 +441,7 @@ Use these details on the website where they fit. Do not invent extras beyond wha
         success?: boolean;
         jobId?: string;
         error?: string;
+        tokenTopup?: boolean;
       };
 
       if (isStaleRun(epoch)) return;
@@ -446,9 +452,16 @@ Use these details on the website where they fit. Do not invent extras beyond wha
         setError(message);
         clearJobView();
         trackGenerateFail();
-        addAssistantMessage(
-          "Something went wrong while generating your website. Please try again.",
-        );
+        if (data.tokenTopup) {
+          openTokenTopup();
+          addAssistantMessage(
+            "You've used your building tokens. Buy more tokens to generate this website.",
+          );
+        } else {
+          addAssistantMessage(
+            "Something went wrong while generating your website. Please try again.",
+          );
+        }
         return;
       }
 
@@ -484,6 +497,7 @@ Use these details on the website where they fit. Do not invent extras beyond wha
         businessDescription: description,
       });
       addAssistantMessage(READY_MESSAGE);
+      notifyTokensChanged();
     } catch (error) {
       if (isStaleRun(epoch)) return;
       if (error instanceof Error && error.message === "cancelled") return;
@@ -515,15 +529,21 @@ Use these details on the website where they fit. Do not invent extras beyond wha
       const data = (await response.json()) as {
         success?: boolean;
         error?: string;
+        tokenTopup?: boolean;
       } & Partial<IntakeChatResult>;
 
       if (isStaleRun(epoch)) return;
 
       if (!response.ok || !data.success || !data.reply || !data.intake) {
+        if (data.tokenTopup) {
+          openTokenTopup();
+          throw new Error(data.error || "You don't have enough tokens to continue.");
+        }
         throw new Error(data.error || "Chat request failed.");
       }
 
       addAssistantMessage(data.reply);
+      notifyTokensChanged();
 
       if (data.complete) {
         setPendingIntake(data.intake);
@@ -534,11 +554,19 @@ Use these details on the website where they fit. Do not invent extras beyond wha
       }
 
       setStatus("idle");
-    } catch {
+    } catch (error) {
       if (isStaleRun(epoch)) return;
       setStatus("error");
-      setError("Could not continue the conversation. Please try again.");
-      addAssistantMessage("I couldn't reply just now. Please try again.");
+      const message =
+        error instanceof Error && error.message
+          ? error.message
+          : "Could not continue the conversation. Please try again.";
+      setError(message);
+      addAssistantMessage(
+        message.includes("tokens")
+          ? "You've used your building tokens. Buy more tokens to keep chatting."
+          : "I couldn't reply just now. Please try again.",
+      );
     }
   }
 
@@ -563,14 +591,14 @@ Use these details on the website where they fit. Do not invent extras beyond wha
         success?: boolean;
         jobId?: string;
         error?: string;
+        tokenTopup?: boolean;
       };
 
       if (isStaleRun(epoch)) return;
 
       if (!response.ok || !data.success || !data.jobId) {
-        if (response.status === 402) {
-          setIsSubscribed(false);
-          setShowPaywall(true);
+        if (data.tokenTopup || response.status === 402) {
+          openTokenTopup();
         }
         setError(data.error || "Failed to apply changes.");
         clearJobView();
@@ -597,7 +625,8 @@ Use these details on the website where they fit. Do not invent extras beyond wha
         businessName,
         businessDescription,
       });
-      addAssistantMessage("Changes applied. Open the preview to see them.");
+      addAssistantMessage("Changes applied.");
+      notifyTokensChanged();
     } catch (error) {
       if (isStaleRun(epoch)) return;
       if (error instanceof Error && error.message === "cancelled") return;
@@ -620,11 +649,6 @@ Use these details on the website where they fit. Do not invent extras beyond wha
 
     const text = chatInput.trim();
     if (isBusy) return;
-
-    if (chatPhase === "edit" && !isSubscribed) {
-      setShowPaywall(true);
-      return;
-    }
 
     if (!text) return;
 
@@ -661,8 +685,9 @@ Use these details on the website where they fit. Do not invent extras beyond wha
     setShowPaywall(false);
     setCheckoutNotice(null);
     trackPurchase(domain);
+    notifyTokensChanged();
     addAssistantMessage(
-      `You're subscribed. Describe a change, or deploy ${domain}.`,
+      `You're subscribed. Another 20,000 tokens were added to your balance. Describe a change, or deploy ${domain}.`,
     );
   }
 
@@ -805,9 +830,18 @@ Use these details on the website where they fit. Do not invent extras beyond wha
                     onClick={openDeployCard}
                     className="inline-flex flex-1 items-center justify-center rounded-full border border-stone-300 bg-white px-4 py-2.5 text-sm font-semibold text-stone-700 transition hover:bg-stone-50"
                   >
-                    Deploy
+                    🚀 Publish Website
                   </button>
                 </div>
+              ) : null}
+              {tokenShortage ? (
+                <button
+                  type="button"
+                  onClick={() => openTokenTopup()}
+                  className="inline-flex max-w-[92%] items-center justify-center rounded-full bg-teal-800 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-teal-700"
+                >
+                  Buy tokens · {formatZar(TOKEN_TOPUP_ZAR)}
+                </button>
               ) : null}
               <div ref={messagesEndRef} />
             </div>
@@ -819,28 +853,15 @@ Use these details on the website where they fit. Do not invent extras beyond wha
                     type="text"
                     value={chatInput}
                     onChange={(event) => setChatInput(event.target.value)}
-                    onFocus={() => {
-                      if (editLocked) {
-                        setShowPaywall(true);
-                      }
-                    }}
-                    onClick={() => {
-                      if (editLocked) {
-                        setShowPaywall(true);
-                      }
-                    }}
-                    readOnly={editLocked}
                     placeholder={
                       chatPhase === "edit" ? "Describe a change..." : "Message..."
                     }
                     disabled={isBusy}
-                    className={`w-full rounded-full border border-stone-300 bg-white px-4 py-2.5 text-sm text-stone-800 outline-none transition placeholder:text-stone-400 focus:border-teal-700 focus:ring-2 focus:ring-teal-700/20 disabled:bg-stone-100 ${
-                      editLocked ? "cursor-pointer" : ""
-                    }`}
+                    className="w-full rounded-full border border-stone-300 bg-white px-4 py-2.5 text-sm text-stone-800 outline-none transition placeholder:text-stone-400 focus:border-teal-700 focus:ring-2 focus:ring-teal-700/20 disabled:bg-stone-100"
                   />
                   <button
                     type="submit"
-                    disabled={isBusy || (!editLocked && !chatInput.trim())}
+                    disabled={isBusy || !chatInput.trim()}
                     className="shrink-0 rounded-full bg-teal-800 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-teal-700 disabled:cursor-not-allowed disabled:bg-stone-400"
                   >
                     Send
@@ -860,7 +881,18 @@ Use these details on the website where they fit. Do not invent extras beyond wha
                 />
               </form>
               {error ? (
-                <p className="mt-2 text-xs text-red-700">{error}</p>
+                <div className="mt-2 flex flex-col gap-2">
+                  <p className="text-xs text-red-700">{error}</p>
+                  {tokenShortage ? (
+                    <button
+                      type="button"
+                      onClick={() => openTokenTopup()}
+                      className="self-start rounded-full bg-teal-800 px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-teal-700"
+                    >
+                      Buy tokens
+                    </button>
+                  ) : null}
+                </div>
               ) : null}
             </div>
           </aside>

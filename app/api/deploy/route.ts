@@ -11,16 +11,6 @@ export const maxDuration = 120;
 
 const DEFAULT_AGENT_URL = "http://localhost:8080";
 
-function isLocalhostRequest(request: Request): boolean {
-  const hostname = new URL(request.url).hostname.toLowerCase();
-  return (
-    hostname === "localhost" ||
-    hostname === "127.0.0.1" ||
-    hostname === "::1" ||
-    hostname === "[::1]"
-  );
-}
-
 export async function POST(request: Request) {
   let body: unknown;
 
@@ -93,7 +83,6 @@ export async function POST(request: Request) {
     );
   }
 
-  const skipDomainApi = isLocalhostRequest(request);
   const agentUrl = (process.env.DEPLOYMENT_AGENT_URL || DEFAULT_AGENT_URL).replace(
     /\/$/,
     "",
@@ -101,26 +90,20 @@ export async function POST(request: Request) {
   const apiKey = process.env.DEPLOYMENT_API_KEY?.trim() || "";
 
   if (!apiKey) {
-    if (!skipDomainApi) {
-      return NextResponse.json(
-        { success: false, error: "DEPLOYMENT_API_KEY is not configured." },
-        { status: 500 },
-      );
-    }
+    return NextResponse.json(
+      { success: false, error: "DEPLOYMENT_API_KEY is not configured." },
+      { status: 500 },
+    );
   }
 
-  const deployKey = apiKey || (skipDomainApi ? "development-key" : "");
-
-  if (!skipDomainApi) {
-    try {
-      await provisionDomain(domain);
-    } catch (error) {
-      const message =
-        error instanceof Error
-          ? error.message
-          : "Could not register the domain or update DNS.";
-      return NextResponse.json({ success: false, error: message }, { status: 502 });
-    }
+  try {
+    await provisionDomain(domain);
+  } catch (error) {
+    const message =
+      error instanceof Error
+        ? error.message
+        : "Could not register the domain or update DNS.";
+    return NextResponse.json({ success: false, error: message }, { status: 502 });
   }
 
   let files;
@@ -138,7 +121,7 @@ export async function POST(request: Request) {
     const response = await fetch(`${agentUrl}/api/v1/deploy`, {
       method: "POST",
       headers: {
-        Authorization: `Bearer ${deployKey}`,
+        Authorization: `Bearer ${apiKey}`,
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
@@ -172,10 +155,7 @@ export async function POST(request: Request) {
       websiteId: data.websiteId || websiteId,
       domain: data.domain || domain,
       url: `https://${data.domain || domain}`,
-      skippedDomainProvisioning: skipDomainApi,
-      message: skipDomainApi
-        ? data.message || "Website deployed. Domain registration was skipped on localhost."
-        : data.message || "Website deployed successfully",
+      message: data.message || "Website deployed successfully",
     });
   } catch (error) {
     const aborted =

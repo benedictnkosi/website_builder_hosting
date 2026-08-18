@@ -50,16 +50,19 @@ export type PayfastCheckoutFields = {
   amount: string;
   item_name: string;
   item_description: string;
-  subscription_type: string;
-  recurring_amount: string;
-  frequency: string;
-  cycles: string;
+  subscription_type?: string;
+  recurring_amount?: string;
+  frequency?: string;
+  cycles?: string;
+  payment_method?: string;
   name_first?: string;
   name_last?: string;
   email_address?: string;
   custom_str1?: string;
   custom_str2?: string;
   custom_str3?: string;
+  custom_str4?: string;
+  custom_str5?: string;
   signature: string;
 };
 
@@ -279,6 +282,62 @@ export function buildPayfastSubscriptionCheckout(input: {
     custom_str1: input.websiteId,
     custom_str2: input.domain,
     custom_str3: input.paymentId,
+    custom_str4: "subscription",
+    ...(firstName ? { name_first: firstName.slice(0, 100) } : {}),
+    ...(lastName ? { name_last: lastName.slice(0, 100) } : {}),
+    ...(input.email ? { email_address: input.email.slice(0, 100) } : {}),
+  };
+
+  const payload = orderedCheckoutPayload(unordered);
+  const signature = generatePayfastSignature(payload, passphrase);
+
+  return {
+    processUrl: getPayfastProcessUrl(),
+    fields: {
+      ...(payload as Omit<PayfastCheckoutFields, "signature">),
+      signature,
+    },
+  };
+}
+
+export function buildPayfastTokenTopupCheckout(input: {
+  origin: string;
+  returnPath: string;
+  paymentId: string;
+  uid: string;
+  amountZar: number;
+  tokens: number;
+  email?: string;
+  name?: string;
+}): { processUrl: string; fields: PayfastCheckoutFields } {
+  const merchantId = getPayfastMerchantId();
+  const merchantKey = getPayfastMerchantKey();
+  const passphrase = getPayfastPassphrase();
+
+  if (!merchantId || !merchantKey || !passphrase) {
+    throw new Error("PayFast is not configured.");
+  }
+
+  const amount = payfastAmount(input.amountZar);
+  const [firstName, ...lastParts] = (input.name ?? "").trim().split(/\s+/);
+  const lastName = lastParts.join(" ");
+  const returnPath = input.returnPath.startsWith("/") ? input.returnPath : `/${input.returnPath}`;
+  const separator = returnPath.includes("?") ? "&" : "?";
+
+  const unordered: Omit<PayfastCheckoutFields, "signature"> = {
+    merchant_id: merchantId,
+    merchant_key: merchantKey,
+    return_url: `${input.origin}${returnPath}${separator}tokens=return`,
+    cancel_url: `${input.origin}${returnPath}${separator}tokens=cancel`,
+    notify_url: `${input.origin}/api/payfast/notify`,
+    m_payment_id: input.paymentId,
+    amount,
+    item_name: "Lulaweb token top-up",
+    item_description: `${input.tokens.toLocaleString("en-ZA")} website building tokens`,
+    payment_method: "cc",
+    custom_str1: input.uid,
+    custom_str2: input.paymentId,
+    custom_str4: "tokens",
     ...(firstName ? { name_first: firstName.slice(0, 100) } : {}),
     ...(lastName ? { name_last: lastName.slice(0, 100) } : {}),
     ...(input.email ? { email_address: input.email.slice(0, 100) } : {}),

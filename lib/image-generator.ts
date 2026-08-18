@@ -2,6 +2,7 @@ import { GeneratorError, isSafeRelativePath, normalizeRelativePath } from "./val
 import { getPeopleEthnicityOption } from "./people-ethnicity";
 import type { WebsiteFile, WebsiteImageRequest } from "./types";
 import { isMockAiEnabled, mockDelay, mockGenerateImages } from "./mock-ai";
+import { chargeOpenAIUsage, chargeTokens, FALLBACK_TOKEN_USAGE, MOCK_TOKEN_USAGE } from "./tokens";
 
 const OPENAI_IMAGES_URL = "https://api.openai.com/v1/images/generations";
 const IMAGE_MODEL = "gpt-image-1-mini";
@@ -107,7 +108,9 @@ async function generateImage(prompt: string): Promise<string> {
 
   const payload = (await response.json()) as {
     data?: Array<{ b64_json?: string }>;
+    usage?: unknown;
   };
+  await chargeOpenAIUsage(payload, FALLBACK_TOKEN_USAGE.image);
 
   const b64 = payload.data?.[0]?.b64_json;
 
@@ -143,6 +146,7 @@ export async function generateWebsiteImages(
   if (isMockAiEnabled()) {
     console.log("[mock-ai] Generating mock images");
     await mockDelay(400);
+    await chargeTokens(MOCK_TOKEN_USAGE.image * unique.length);
     return mockGenerateImages(unique);
   }
 
@@ -161,6 +165,15 @@ export async function generateWebsiteImageFile(
 ): Promise<WebsiteFile> {
   const validated = validateImageRequest(request);
   console.log(`Generating image: ${validated.path}`);
+  if (isMockAiEnabled()) {
+    await mockDelay(400);
+    await chargeTokens(MOCK_TOKEN_USAGE.image);
+    const [file] = mockGenerateImages([validated]);
+    if (!file) {
+      throw new GeneratorError("Mock image generation failed.", 502);
+    }
+    return file;
+  }
   const b64 = await generateImage(
     withPeopleDirection(validated.prompt, peopleEthnicity),
   );

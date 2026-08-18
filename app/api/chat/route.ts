@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { jsonAuthError, requireUser } from "@/lib/auth-server";
 import { clientKey, consumeRateLimit, jsonRateLimitError } from "@/lib/rate-limit";
 import { normalizeChatMessages, runIntakeChat } from "@/lib/intake-chat";
+import { assertChatTokens, jsonTokenError, runWithTokenSpend } from "@/lib/tokens";
 import { GeneratorError } from "@/lib/validation";
 
 export const runtime = "nodejs";
@@ -11,9 +12,12 @@ export async function POST(request: Request) {
   try {
     user = await requireUser(request);
     consumeRateLimit(`chat:${clientKey(request, user.uid)}`, 40, 10 * 60 * 1000);
+    await assertChatTokens(user);
   } catch (error) {
     const limited = jsonRateLimitError(error);
     if (limited) return limited;
+    const tokenResponse = jsonTokenError(error);
+    if (tokenResponse) return tokenResponse;
     const authResponse = jsonAuthError(error);
     if (authResponse) return authResponse;
     return NextResponse.json(
@@ -46,7 +50,7 @@ export async function POST(request: Request) {
   }
 
   try {
-    const result = await runIntakeChat(messages);
+    const result = await runWithTokenSpend(user.uid, () => runIntakeChat(messages));
     return NextResponse.json({ success: true, ...result });
   } catch (error) {
     console.error("Intake chat error:", error);

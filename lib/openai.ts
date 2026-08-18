@@ -1,6 +1,7 @@
 import { GeneratorError, REQUIRED_FILES } from "./validation";
 import type { GeneratedWebsite } from "./types";
 import { isMockAiEnabled, mockDelay, mockGenerateWebsite } from "./mock-ai";
+import { chargeOpenAIUsage, chargeTokens, FALLBACK_TOKEN_USAGE, MOCK_TOKEN_USAGE } from "./tokens";
 
 const OPENAI_RESPONSES_URL = "https://api.openai.com/v1/responses";
 const OPENAI_MODEL = "gpt-5.5";
@@ -44,7 +45,22 @@ If the user asks for a Contact Us form:
 - Never include API keys, Resend secrets, or server-side code in the generated files.
 - Do not use mailto: as the primary form submit method.
 
-Create a professional, responsive and mobile-friendly website.`;
+Create a professional, responsive and mobile-friendly website.
+
+Aggressive on-page SEO is required in index.html:
+- Set <html lang> to en-ZA when the business is in South Africa, otherwise the matching language.
+- Unique <title> of 50-60 characters: business name, primary service, and city/area if known.
+- <meta name="description"> of 140-160 characters with the main service, location, and a clear call to action. Do not invent claims.
+- <meta name="robots" content="index, follow">
+- Open Graph tags: og:title, og:description, og:type=website, og:locale=en_ZA (if South Africa), og:image pointing at the hero image relative path.
+- Twitter card summary_large_image with twitter:title, twitter:description, and twitter:image.
+- Semantic HTML: header, nav, main, section, footer. Exactly one h1. Logical h2/h3 headings that include real services and the location when known.
+- Descriptive alt text on every image. Never empty alt on meaningful photos.
+- Visible click-to-call tel: links and WhatsApp links when those details exist.
+- A JSON-LD <script type="application/ld+json"> LocalBusiness (or a more specific subtype such as Plumber, HairSalon, Restaurant, ProfessionalService) with name, description, telephone, address, areaServed, and url omitted if unknown. Add FAQPage JSON-LD only if the page includes a real FAQ section.
+- Include a short FAQ section when the prompt has enough service information. Do not invent reviews, star ratings, prices, licences, or credentials.
+- Use internal in-page links (#services, #contact, #faq) in the nav.
+- Do not keyword-stuff, hide text, or repeat the same phrase unnaturally.`;
 
 const WEBSITE_JSON_SCHEMA = {
   type: "object",
@@ -124,6 +140,11 @@ interface OpenAIResponsesPayload {
   output_text?: string;
   output?: OpenAIOutputItem[];
   incomplete_details?: { reason?: string };
+  usage?: {
+    input_tokens?: number;
+    output_tokens?: number;
+    total_tokens?: number;
+  };
 }
 
 function getApiKey(): string {
@@ -243,6 +264,7 @@ export async function generateWebsiteFromOpenAI(
   if (isMockAiEnabled()) {
     console.log("[mock-ai] Generating mock website");
     await mockDelay(900);
+    await chargeTokens(MOCK_TOKEN_USAGE.generate);
     return mockGenerateWebsite(prompt);
   }
 
@@ -307,6 +329,7 @@ export async function generateWebsiteFromOpenAI(
 
   const payload = (await response.json()) as OpenAIResponsesPayload;
   console.log("OpenAI response:", JSON.stringify(payload, null, 2));
+  await chargeOpenAIUsage(payload, FALLBACK_TOKEN_USAGE.generate);
 
   if (payload.error?.message) {
     throw new GeneratorError(payload.error.message, 502);
@@ -439,6 +462,7 @@ export async function startBackgroundStructuredResponse(input: {
   }
 
   if (result?.status === "completed") {
+    await chargeOpenAIUsage(result, 0);
     return { id, outputText: collectOutputText(result) };
   }
 
@@ -507,6 +531,7 @@ export async function runForegroundStructuredResponse(input: {
     );
   }
 
+  await chargeOpenAIUsage(result, FALLBACK_TOKEN_USAGE.edit);
   return collectOutputText(result);
 }
 
@@ -570,6 +595,7 @@ export async function retrieveBackgroundStructuredResponse(
   }
 
   try {
+    await chargeOpenAIUsage(payload, 0);
     return { status: "complete", outputText: collectOutputText(payload) };
   } catch (error) {
     return {

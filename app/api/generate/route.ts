@@ -3,6 +3,7 @@ import { jsonAuthError, requireUser } from "@/lib/auth-server";
 import { createGenerateJob, jobJsonHeaders, scheduleJobTick, toJobView } from "@/lib/jobs";
 import { getPeopleEthnicityOption } from "@/lib/people-ethnicity";
 import { clientKey, consumeRateLimit, jsonRateLimitError } from "@/lib/rate-limit";
+import { assertGenerateTokens, jsonTokenError } from "@/lib/tokens";
 
 export const runtime = "nodejs";
 export const maxDuration = 30;
@@ -12,9 +13,12 @@ export async function POST(request: Request) {
   try {
     user = await requireUser(request);
     consumeRateLimit(`generate:${clientKey(request, user.uid)}`, 8, 60 * 60 * 1000);
+    await assertGenerateTokens(user);
   } catch (error) {
     const limited = jsonRateLimitError(error);
     if (limited) return limited;
+    const tokenResponse = jsonTokenError(error);
+    if (tokenResponse) return tokenResponse;
     const authResponse = jsonAuthError(error);
     if (authResponse) return authResponse;
     return NextResponse.json(

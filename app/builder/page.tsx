@@ -1,7 +1,17 @@
+import type { Metadata } from "next";
 import { Suspense } from "react";
 import AppHeader from "@/components/AppHeader";
 import AuthGuard from "@/components/AuthGuard";
 import WebsiteBuilderEntry from "@/components/WebsiteBuilderEntry";
+
+export const metadata: Metadata = {
+  title: "Website builder",
+  robots: {
+    index: false,
+    follow: false,
+    googleBot: { index: false, follow: false },
+  },
+};
 
 export default function BuilderPage() {
   return (

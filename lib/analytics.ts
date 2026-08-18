@@ -9,7 +9,7 @@ import {
   type Analytics,
 } from "firebase/analytics";
 import { getFirebaseApp, isFirebaseClientConfigured } from "@/lib/firebase";
-import { MONTHLY_SUBSCRIPTION_ZAR } from "@/lib/pricing";
+import { MONTHLY_SUBSCRIPTION_ZAR, TOKEN_TOPUP_ZAR } from "@/lib/pricing";
 
 type EventParams = Record<string, string | number | boolean | undefined>;
 
@@ -118,6 +118,22 @@ export function trackPurchase(domain: string) {
     currency: "ZAR",
     value: MONTHLY_SUBSCRIPTION_ZAR,
     domain,
+  });
+}
+
+export function trackTokenTopupStart() {
+  trackEvent("begin_checkout", {
+    currency: "ZAR",
+    value: TOKEN_TOPUP_ZAR,
+    item_name: "tokens",
+  });
+}
+
+export function trackTokenTopupSuccess() {
+  trackEvent("purchase", {
+    currency: "ZAR",
+    value: TOKEN_TOPUP_ZAR,
+    item_name: "tokens",
   });
 }
 

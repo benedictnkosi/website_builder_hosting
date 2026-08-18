@@ -11,6 +11,7 @@ export type SubscriptionStatus = "pending" | "active" | "cancelled";
 
 export type WebsiteSubscription = {
   websiteId: string;
+  ownerUid?: string;
   paymentId: string;
   domain: string;
   sld: string;
@@ -30,6 +31,7 @@ export type WebsiteSubscription = {
   processedNotifyIds?: string[];
   lastPaymentStatus?: string;
   paidAt?: string;
+  tokensGranted?: boolean;
 };
 
 const SUBSCRIPTION_FILE = ".subscription.json";
@@ -59,6 +61,7 @@ function asSubscription(
 
   return {
     websiteId,
+    ownerUid: typeof data.ownerUid === "string" ? data.ownerUid : undefined,
     paymentId: data.paymentId,
     domain: data.domain,
     sld: typeof data.sld === "string" ? data.sld : "",
@@ -82,6 +85,7 @@ function asSubscription(
     lastPaymentStatus:
       typeof data.lastPaymentStatus === "string" ? data.lastPaymentStatus : undefined,
     paidAt: typeof data.paidAt === "string" ? data.paidAt : undefined,
+    tokensGranted: Boolean(data.tokensGranted),
   };
 }
 

@@ -3,7 +3,14 @@ import "server-only";
 import { parseDomainQuery } from "@/lib/domain-name";
 import { SUBSCRIPTION_TLD } from "@/lib/pricing";
 
-const API_BASE = "https://api.domains.co.za/api";
+const LIVE_API_BASE = "https://api.domains.co.za/api";
+const DEV_API_BASE = "https://lapi-dev.domains.co.za/api";
+
+function getApiBase(): string {
+  const configured = process.env.DOMAINS_CO_ZA_API_BASE?.trim().replace(/\/$/, "");
+  if (configured) return configured;
+  return process.env.NODE_ENV === "development" ? DEV_API_BASE : LIVE_API_BASE;
+}
 
 export type DomainAvailability = {
   domain: string;
@@ -78,7 +85,7 @@ async function login(): Promise<string> {
     formBody.append("code", code);
   }
 
-  const response = await fetch(`${API_BASE}/login`, {
+  const response = await fetch(`${getApiBase()}/login`, {
     method: "POST",
     headers: {
       Accept: "application/json",
@@ -130,7 +137,7 @@ async function authorizedRequest(
   const token = await login();
   const query =
     method === "GET" && params && params.size > 0 ? `?${params.toString()}` : "";
-  const response = await fetch(`${API_BASE}/${path}${query}`, {
+  const response = await fetch(`${getApiBase()}/${path}${query}`, {
     method,
     headers: {
       Accept: "application/json",

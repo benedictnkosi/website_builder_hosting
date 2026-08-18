@@ -2,7 +2,22 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
     match /users/{uid} {
-      allow read, write: if request.auth != null && request.auth.uid == uid;
+      allow read: if request.auth != null && request.auth.uid == uid;
+      allow create: if request.auth != null
+        && request.auth.uid == uid
+        && !request.resource.data.keys().hasAny([
+          "tokenBalance",
+          "tokensGrantedSignup",
+          "processedTokenGrants",
+        ]);
+      allow update: if request.auth != null
+        && request.auth.uid == uid
+        && !request.resource.data.diff(resource.data).affectedKeys().hasAny([
+          "tokenBalance",
+          "tokensGrantedSignup",
+          "processedTokenGrants",
+        ]);
+      allow delete: if request.auth != null && request.auth.uid == uid;
 
       match /sites/{siteId} {
         allow read, write: if request.auth != null && request.auth.uid == uid;
@@ -23,6 +38,10 @@ service cloud.firestore {
     }
 
     match /subscriptions/{websiteId} {
+      allow read, write: if false;
+    }
+
+    match /tokenTopups/{paymentId} {
       allow read, write: if false;
     }
   }

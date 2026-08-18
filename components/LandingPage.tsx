@@ -1,56 +1,13 @@
-"use client";
-
-import { useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
+import Link from "next/link";
 import BrandMark from "@/components/BrandMark";
-import { useAuth } from "@/components/AuthProvider";
-
-function GoogleIcon() {
-  return (
-    <svg aria-hidden="true" viewBox="0 0 24 24" className="h-5 w-5">
-      <path
-        fill="#4285F4"
-        d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"
-      />
-      <path
-        fill="#34A853"
-        d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"
-      />
-      <path
-        fill="#FBBC05"
-        d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"
-      />
-      <path
-        fill="#EA4335"
-        d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"
-      />
-    </svg>
-  );
-}
-
-function GoogleButton({
-  signingIn,
-  onClick,
-  className = "",
-}: {
-  signingIn: boolean;
-  onClick: () => void;
-  className?: string;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      disabled={signingIn}
-      className={`inline-flex items-center justify-center gap-3 rounded-full bg-teal-800 px-5 py-3 text-sm font-semibold text-white shadow-[0_10px_24px_rgba(17,94,89,0.28)] transition hover:bg-teal-700 disabled:cursor-not-allowed disabled:opacity-60 ${className}`}
-    >
-      <span className="flex h-6 w-6 items-center justify-center rounded-full bg-white">
-        <GoogleIcon />
-      </span>
-      {signingIn ? "Signing in..." : "Continue with Google"}
-    </button>
-  );
-}
+import {
+  LandingCtaSignIn,
+  LandingHeaderSignIn,
+  LandingHeroSignIn,
+  LandingSignedInRedirect,
+} from "@/components/LandingAuth";
+import { HOME_FAQ } from "@/lib/seo";
+import { formatZar, MONTHLY_SUBSCRIPTION_ZAR } from "@/lib/pricing";
 
 function ProductPreview() {
   return (
@@ -60,7 +17,7 @@ function ProductPreview() {
         <span className="h-2.5 w-2.5 rounded-full bg-stone-300" />
         <span className="h-2.5 w-2.5 rounded-full bg-stone-300" />
         <div className="ml-3 flex-1 rounded-full bg-white px-3 py-1 text-center text-[11px] text-stone-400 ring-1 ring-stone-200">
-          thandoplumbing.co.za
+          Preview · Thando Plumbing
         </div>
       </div>
       <div className="grid min-h-[22rem] lg:grid-cols-[18rem_1fr]">
@@ -72,43 +29,73 @@ function ProductPreview() {
             Tell me about your business — name, services, and phone number.
           </div>
           <div className="ml-auto max-w-[88%] rounded-2xl rounded-tr-md bg-teal-800 px-3 py-2.5 text-xs leading-relaxed text-white">
-            Thando Plumbing in Durban. Geyser repairs, blocked drains, 082 123 4567.
+            Thando Plumbing in Durban. Geyser repairs, blocked drains, 082 123
+            4567.
           </div>
           <div className="max-w-[92%] rounded-2xl rounded-tl-md bg-white px-3 py-2.5 text-xs leading-relaxed text-stone-700 shadow-sm ring-1 ring-stone-200/80">
             Got it. Building your website and images...
           </div>
+          <div className="max-w-[92%] rounded-2xl rounded-tl-md bg-white px-3 py-2.5 text-xs leading-relaxed text-stone-700 shadow-sm ring-1 ring-stone-200/80">
+            Your preview is ready.
+          </div>
         </div>
         <div className="relative overflow-hidden bg-[#f7f3ea] p-5">
           <div className="absolute -right-10 -top-10 h-32 w-32 rounded-full bg-teal-700/10" />
-          <div className="relative rounded-2xl bg-white p-5 shadow-sm ring-1 ring-stone-200/70">
-            <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-teal-800">
-              Durban
-            </p>
-            <h3 className="mt-2 text-2xl font-semibold tracking-tight text-stone-900">
-              Thando Plumbing
-            </h3>
-            <p className="mt-2 max-w-sm text-sm leading-relaxed text-stone-600">
-              Fast geyser repairs, blocked drains, and leak detection. Call or WhatsApp
-              today.
-            </p>
-            <div className="mt-4 flex flex-wrap gap-2">
-              <span className="rounded-full bg-teal-800 px-3 py-1.5 text-[11px] font-semibold text-white">
-                Call now
-              </span>
-              <span className="rounded-full border border-stone-300 px-3 py-1.5 text-[11px] font-semibold text-stone-700">
-                WhatsApp
-              </span>
+          <div className="relative overflow-hidden rounded-2xl bg-white shadow-sm ring-1 ring-stone-200/70">
+            <div className="relative h-28 overflow-hidden bg-teal-900">
+              <svg
+                aria-hidden="true"
+                viewBox="0 0 640 180"
+                className="h-full w-full"
+                preserveAspectRatio="xMidYMid slice"
+              >
+                <rect width="640" height="180" fill="#134e4a" />
+                <path d="M0 120h640v60H0z" fill="#0f766e" />
+                <rect x="70" y="48" width="150" height="92" rx="4" fill="#f7f3ea" />
+                <rect x="88" y="64" width="36" height="28" fill="#99f6e4" />
+                <rect x="136" y="64" width="36" height="28" fill="#99f6e4" />
+                <rect x="122" y="108" width="28" height="32" fill="#115e59" />
+                <circle cx="430" cy="92" r="46" fill="#f59e0b" opacity="0.35" />
+                <rect x="320" y="70" width="18" height="70" rx="3" fill="#ccfbf1" />
+                <rect x="348" y="86" width="90" height="14" rx="7" fill="#99f6e4" />
+                <rect x="348" y="108" width="64" height="14" rx="7" fill="#5eead4" />
+              </svg>
+              <p className="absolute bottom-2 left-3 text-[10px] font-medium text-white/90">
+                Geyser repair, Durban
+              </p>
+            </div>
+            <div className="p-5">
+              <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-teal-800">
+                Durban
+              </p>
+              <h3 className="mt-2 text-2xl font-semibold tracking-tight text-stone-900">
+                Thando Plumbing
+              </h3>
+              <p className="mt-2 max-w-sm text-sm leading-relaxed text-stone-600">
+                Fast geyser repairs, blocked drains, and leak detection. Call or
+                WhatsApp today.
+              </p>
+              <div className="mt-4 flex flex-wrap gap-2">
+                <span className="rounded-full bg-teal-800 px-3 py-1.5 text-[11px] font-semibold text-white">
+                  Call now
+                </span>
+                <span className="rounded-full border border-stone-300 px-3 py-1.5 text-[11px] font-semibold text-stone-700">
+                  WhatsApp
+                </span>
+              </div>
             </div>
           </div>
           <div className="relative mt-3 grid grid-cols-3 gap-2">
-            {["Geyser repairs", "Blocked drains", "Leak detection"].map((item) => (
-              <div
-                key={item}
-                className="rounded-xl bg-white px-3 py-3 text-[11px] font-medium text-stone-700 shadow-sm ring-1 ring-stone-200/70"
-              >
-                {item}
-              </div>
-            ))}
+            {["Geyser repairs", "Blocked drains", "Leak detection"].map(
+              (item) => (
+                <div
+                  key={item}
+                  className="rounded-xl bg-white px-3 py-3 text-[11px] font-medium text-stone-700 shadow-sm ring-1 ring-stone-200/70"
+                >
+                  {item}
+                </div>
+              ),
+            )}
           </div>
         </div>
       </div>
@@ -117,134 +104,285 @@ function ProductPreview() {
 }
 
 export default function LandingPage() {
-  const { user, loading, signInWithGoogle } = useAuth();
-  const router = useRouter();
-  const [signingIn, setSigningIn] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    if (!loading && user) {
-      router.replace("/dashboard");
-    }
-  }, [loading, user, router]);
-
-  async function handleGoogleSignIn() {
-    setSigningIn(true);
-    setError(null);
-
-    try {
-      await signInWithGoogle();
-      router.push("/dashboard");
-    } catch (err) {
-      const code =
-        typeof err === "object" && err && "code" in err ? String(err.code) : "";
-
-      if (
-        code === "auth/popup-closed-by-user" ||
-        code === "auth/cancelled-popup-request"
-      ) {
-        setError(null);
-      } else {
-        setError("Could not sign in with Google. Please try again.");
-      }
-    } finally {
-      setSigningIn(false);
-    }
-  }
-
-  if (loading || user) {
-    return (
-      <main className="relative flex flex-1 items-center justify-center overflow-hidden px-4 py-16">
-        <div className="pointer-events-none absolute inset-0">
-          <div className="absolute left-1/2 top-16 h-64 w-64 -translate-x-1/2 rounded-full bg-teal-700/10 blur-3xl" />
-        </div>
-        <div className="flex flex-col items-center gap-3">
-          <BrandMark compact />
-          <p className="text-sm text-stone-500">Loading your workspace...</p>
-        </div>
-      </main>
-    );
-  }
-
   return (
-    <main className="relative isolate min-h-full overflow-x-hidden">
-      <div className="pointer-events-none absolute inset-0 -z-10">
-        <div className="absolute left-1/2 top-[-8rem] h-[28rem] w-[28rem] -translate-x-1/2 rounded-full bg-teal-700/15 blur-3xl" />
-        <div className="absolute right-[-6rem] top-40 h-72 w-72 rounded-full bg-amber-300/30 blur-3xl" />
-        <div className="absolute bottom-[-4rem] left-[-5rem] h-80 w-80 rounded-full bg-teal-900/10 blur-3xl" />
-      </div>
-
+    <>
+      <LandingSignedInRedirect />
+      <a
+        href="#main"
+        className="sr-only focus:not-sr-only focus:absolute focus:left-4 focus:top-4 focus:z-50 focus:rounded-full focus:bg-white focus:px-4 focus:py-2 focus:text-sm focus:font-semibold focus:text-teal-800"
+      >
+        Skip to content
+      </a>
       <header className="mx-auto flex w-full max-w-6xl items-center justify-between px-4 py-5 sm:px-6 lg:px-8">
-        <BrandMark />
-        <GoogleButton
-          signingIn={signingIn}
-          onClick={handleGoogleSignIn}
-          className="hidden sm:inline-flex"
-        />
+        <Link href="/" aria-label="Lulaweb home">
+          <BrandMark />
+        </Link>
+        <nav aria-label="Primary" className="hidden items-center gap-6 text-sm font-medium text-stone-600 md:flex">
+          <a href="#how-it-works" className="hover:text-stone-900">
+            How it works
+          </a>
+          <a href="#pricing" className="hover:text-stone-900">
+            Pricing
+          </a>
+          <a href="#faq" className="hover:text-stone-900">
+            FAQ
+          </a>
+        </nav>
+        <LandingHeaderSignIn />
       </header>
 
-      <div className="mx-auto flex w-full max-w-6xl flex-col px-4 pb-16 pt-6 sm:px-6 lg:px-8">
-        <section className="mx-auto max-w-3xl text-center">
-          <p className="mb-4 text-xs font-semibold uppercase tracking-[0.24em] text-teal-800">
-            Built in one conversation
-          </p>
-          <h1 className="text-4xl font-semibold tracking-tight text-stone-900 sm:text-6xl sm:leading-[1.05]">
-            Describe your business.
-            <span className="mt-1 block text-teal-800">Get a website.</span>
-          </h1>
-          <p className="mx-auto mt-5 max-w-xl text-lg leading-relaxed text-stone-600">
-          Chat about your services, contact details, and location. We write the
-          copy, design the pages, and give you a live preview. Subscribe when you
-          want to edit or publish.
-          </p>
-          <div className="mt-8 flex flex-col items-center gap-3">
-            <GoogleButton signingIn={signingIn} onClick={handleGoogleSignIn} />
-            <p className="text-sm text-stone-500">
-              Sign in to start. No credit card needed.
+      <main id="main" className="relative isolate min-h-full overflow-x-hidden">
+        <div className="pointer-events-none absolute inset-0 -z-10">
+          <div className="absolute left-1/2 top-[-8rem] h-[28rem] w-[28rem] -translate-x-1/2 rounded-full bg-teal-700/15 blur-3xl" />
+          <div className="absolute right-[-6rem] top-40 h-72 w-72 rounded-full bg-amber-300/30 blur-3xl" />
+          <div className="absolute bottom-[-4rem] left-[-5rem] h-80 w-80 rounded-full bg-teal-900/10 blur-3xl" />
+        </div>
+
+        <div className="mx-auto flex w-full max-w-6xl flex-col px-4 pb-16 pt-6 sm:px-6 lg:px-8">
+          <section className="mx-auto max-w-3xl text-center">
+            <p className="mb-4 text-xs font-semibold uppercase tracking-[0.14em] text-teal-800">
+              A website from one chat. Live in minutes.
             </p>
-            {error ? <p className="text-sm text-red-700">{error}</p> : null}
-          </div>
-        </section>
+            <h1 className="text-4xl font-semibold tracking-tight text-stone-900 sm:text-6xl sm:leading-[1.05]">
+              Describe your business.
+              <span className="mt-1 block text-teal-800">Get a website.</span>
+            </h1>
+            <p className="mt-8">
+              <span className="block text-6xl font-semibold tracking-tight text-teal-800 sm:text-8xl">
+                R{MONTHLY_SUBSCRIPTION_ZAR}
+              </span>
+              <span className="mt-2 block text-lg font-medium text-stone-800 sm:text-2xl">
+                per month, including hosting
+              </span>
+            </p>
+            <p className="mx-auto mt-5 max-w-xl text-lg leading-relaxed text-stone-600">
+              We write the copy, design the pages, and put WhatsApp and your
+              phone on a live preview — built for South African businesses.
+              Preview is free. Publish to a .co.za when you are ready.
+            </p>
+            <LandingHeroSignIn />
+          </section>
 
-        <section className="mx-auto mt-14 w-full max-w-5xl">
-          <ProductPreview />
-        </section>
+          <section className="mx-auto mt-14 w-full max-w-5xl" aria-label="Product preview">
+            <ProductPreview />
+          </section>
 
-        <section className="mx-auto mt-14 grid w-full max-w-5xl gap-4 sm:grid-cols-3">
-          {[
-            {
-              step: "01",
-              title: "Chat to build",
-              body: "Tell us what you do in plain language. No templates or long forms.",
-            },
-            {
-              step: "02",
-              title: "Preview instantly",
-              body: "See a live site for free. Editing copy, phone numbers, and layout needs a subscription.",
-            },
-            {
-              step: "03",
-              title: "Host your website when ready",
-              body: "Subscribe, then publish to your .co.za domain when the site looks right.",
-            },
-          ].map((item) => (
-            <article
-              key={item.step}
-              className="rounded-2xl border border-stone-200/80 bg-white/80 p-5 shadow-sm backdrop-blur-sm"
-            >
-              <p className="text-xs font-semibold tracking-[0.18em] text-teal-800">
-                {item.step}
+          <section
+            id="how-it-works"
+            className="mx-auto mt-16 w-full max-w-5xl scroll-mt-24"
+          >
+            <h2 className="text-center text-2xl font-semibold tracking-tight text-stone-900">
+              How to create a website with Lulaweb
+            </h2>
+            <p className="mx-auto mt-3 max-w-2xl text-center text-sm leading-relaxed text-stone-600">
+              No templates, agencies, or long forms. Tell us what you do in
+              plain language and get a mobile-friendly South African business
+              website.
+            </p>
+            <div className="mt-8 grid gap-4 sm:grid-cols-3">
+              {[
+                {
+                  step: "01",
+                  title: "Chat to build",
+                  body: "Tell us what you do in plain language. No templates or long forms.",
+                },
+                {
+                  step: "02",
+                  title: "Preview instantly",
+                  body: "Preview is free. Use your tokens to tweak the site, then subscribe to publish.",
+                },
+                {
+                  step: "03",
+                  title: "Publish on a .co.za",
+                  body: `Domain and hosting, ${formatZar(MONTHLY_SUBSCRIPTION_ZAR)} a month, when the site looks right.`,
+                  featured: true,
+                },
+              ].map((item) => (
+                <article
+                  key={item.step}
+                  className={
+                    item.featured
+                      ? "rounded-2xl border border-teal-800/25 bg-teal-50/70 p-5 shadow-sm"
+                      : "rounded-2xl border border-stone-200/80 bg-white/80 p-5 shadow-sm backdrop-blur-sm"
+                  }
+                >
+                  <p className="text-xs font-semibold tracking-[0.18em] text-teal-800">
+                    {item.step}
+                  </p>
+                  <h3 className="mt-3 text-base font-semibold text-stone-900">
+                    {item.title}
+                  </h3>
+                  <p className="mt-2 text-sm leading-relaxed text-stone-600">
+                    {item.body}
+                  </p>
+                </article>
+              ))}
+            </div>
+          </section>
+
+          <section
+            id="who-its-for"
+            className="mx-auto mt-16 w-full max-w-5xl scroll-mt-24"
+          >
+            <h2 className="text-center text-2xl font-semibold tracking-tight text-stone-900">
+              A cheap website for local South African businesses
+            </h2>
+            <p className="mx-auto mt-3 max-w-2xl text-center text-sm leading-relaxed text-stone-600">
+              Built for trades and local services that need to be found on
+              Google, called from a phone, or messaged on WhatsApp — not for
+              giant ecommerce catalogues.
+            </p>
+            <ul className="mt-8 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+              {[
+                "Plumbers, electricians, and handymen",
+                "Hair salons, barbers, and beauty studios",
+                "Clinics, dentists, and therapists",
+                "Restaurants, bakeries, and caterers",
+                "Consultants, coaches, and accountants",
+                "Churches, NPOs, and community groups",
+              ].map((item) => (
+                <li
+                  key={item}
+                  className="rounded-2xl border border-stone-200/80 bg-white/80 px-4 py-4 text-sm font-medium text-stone-800 shadow-sm"
+                >
+                  {item}
+                </li>
+              ))}
+            </ul>
+          </section>
+
+          <section
+            id="features"
+            className="mx-auto mt-16 w-full max-w-5xl scroll-mt-24"
+          >
+            <h2 className="text-center text-2xl font-semibold tracking-tight text-stone-900">
+              What your Lulaweb site includes
+            </h2>
+            <div className="mt-8 grid gap-4 sm:grid-cols-2">
+              {[
+                {
+                  title: "AI-written copy and layout",
+                  body: "Pages are generated from your chat, with headings, service lists, and a clear call to action instead of a blank template.",
+                },
+                {
+                  title: "Click-to-call and WhatsApp",
+                  body: "Customers can phone or WhatsApp you from their phone. Contact details stay visible on every page.",
+                },
+                {
+                  title: ".co.za domain and hosting",
+                  body: `Search an available .co.za name at checkout. Lulaweb hosts the site and publishes it when you subscribe for ${formatZar(MONTHLY_SUBSCRIPTION_ZAR)} a month.`,
+                },
+                {
+                  title: "South Africa first",
+                  body: "Address lookup, PayFast billing, and .co.za domains are built for local businesses — not a generic overseas website builder.",
+                },
+              ].map((item) => (
+                <article
+                  key={item.title}
+                  className="rounded-2xl border border-stone-200/80 bg-white/80 p-5 shadow-sm"
+                >
+                  <h3 className="text-base font-semibold text-stone-900">
+                    {item.title}
+                  </h3>
+                  <p className="mt-2 text-sm leading-relaxed text-stone-600">
+                    {item.body}
+                  </p>
+                </article>
+              ))}
+            </div>
+          </section>
+
+          <section
+            id="pricing"
+            className="mx-auto mt-16 w-full max-w-3xl scroll-mt-24 text-center"
+          >
+            <h2 className="text-2xl font-semibold tracking-tight text-stone-900">
+              Simple website pricing in South Africa
+            </h2>
+            <p className="mx-auto mt-3 max-w-xl text-sm leading-relaxed text-stone-600">
+              Preview is free. {formatZar(MONTHLY_SUBSCRIPTION_ZAR)}/month · .co.za
+              included when you go live.
+            </p>
+            <article className="mt-8 rounded-[1.6rem] border border-stone-200/80 bg-white p-8 text-left shadow-[0_24px_80px_rgba(28,25,23,0.08)]">
+              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-teal-800">
+                Monthly website + domain
               </p>
-              <h2 className="mt-3 text-base font-semibold text-stone-900">
-                {item.title}
-              </h2>
-              <p className="mt-2 text-sm leading-relaxed text-stone-600">
-                {item.body}
+              <p className="mt-3 text-4xl font-semibold tracking-tight text-stone-900">
+                {formatZar(MONTHLY_SUBSCRIPTION_ZAR)}
+                <span className="ml-2 text-base font-medium text-stone-500">
+                  / month
+                </span>
               </p>
+              <ul className="mt-5 space-y-2 text-sm leading-relaxed text-stone-600">
+                <li>Live website hosted by Lulaweb</li>
+                <li>.co.za domain bound at checkout</li>
+                <li>Chat-based edits while you have tokens</li>
+                <li>Free preview before you pay</li>
+              </ul>
+              <div className="mt-6">
+                <LandingCtaSignIn />
+              </div>
             </article>
-          ))}
-        </section>
-      </div>
-    </main>
+          </section>
+
+          <section id="faq" className="mx-auto mt-16 w-full max-w-3xl scroll-mt-24">
+            <h2 className="text-center text-2xl font-semibold tracking-tight text-stone-900">
+              Frequently asked questions
+            </h2>
+            <div className="mt-8 space-y-3">
+              {HOME_FAQ.map((item) => (
+                <details
+                  key={item.question}
+                  className="group rounded-2xl border border-stone-200/80 bg-white/80 px-5 py-4 shadow-sm open:bg-white"
+                >
+                  <summary className="flex cursor-pointer list-none items-center justify-between gap-4 text-base font-semibold text-stone-900 [&::-webkit-details-marker]:hidden">
+                    {item.question}
+                    <span aria-hidden="true" className="text-lg leading-none text-teal-800">
+                      <span className="group-open:hidden">+</span>
+                      <span className="hidden group-open:inline">−</span>
+                    </span>
+                  </summary>
+                  <p className="mt-3 text-sm leading-relaxed text-stone-600">
+                    {item.answer}
+                  </p>
+                </details>
+              ))}
+            </div>
+          </section>
+        </div>
+      </main>
+
+      <footer className="border-t border-stone-200/80 bg-white/60">
+        <div className="mx-auto flex w-full max-w-6xl flex-col gap-6 px-4 py-10 sm:px-6 lg:flex-row lg:items-start lg:justify-between lg:px-8">
+          <div>
+            <Link href="/" aria-label="Lulaweb home">
+              <BrandMark />
+            </Link>
+            <p className="mt-3 max-w-sm text-sm leading-relaxed text-stone-600">
+              AI website builder for South African businesses. Create a
+              professional .co.za website in one conversation.
+            </p>
+          </div>
+          <nav aria-label="Footer" className="flex flex-wrap gap-x-6 gap-y-2 text-sm text-stone-600">
+            <a href="#how-it-works" className="hover:text-stone-900">
+              How it works
+            </a>
+            <a href="#pricing" className="hover:text-stone-900">
+              Pricing
+            </a>
+            <a href="#faq" className="hover:text-stone-900">
+              FAQ
+            </a>
+            <Link href="/privacy" className="hover:text-stone-900">
+              Privacy
+            </Link>
+          </nav>
+        </div>
+        <p className="border-t border-stone-200/70 px-4 py-4 text-center text-xs text-stone-500">
+          © 2026 Lulaweb. Websites and .co.za hosting for
+          South African small businesses.
+        </p>
+      </footer>
+    </>
   );
 }

@@ -12,11 +12,12 @@ import {
   type PeopleEthnicityId,
 } from "./people-ethnicity";
 import { GeneratorError } from "./validation";
+import { chargeOpenAIUsage, FALLBACK_TOKEN_USAGE } from "./tokens";
 
 export type { ChatMessage, IntakeChatResult, WebsiteIntake } from "./intake";
 
 const OPENAI_RESPONSES_URL = "https://api.openai.com/v1/responses";
-const OPENAI_MODEL = "gpt-5.5";
+const OPENAI_MODEL = "gpt-4o-mini";
 
 const ETHNICITY_IDS = PEOPLE_ETHNICITY_OPTIONS.map((option) => option.id);
 
@@ -316,6 +317,7 @@ export async function runIntakeChat(messages: ChatMessage[]): Promise<IntakeChat
 
   const payload = await response.json();
   console.log("Intake chat response:", JSON.stringify(payload, null, 2));
+  await chargeOpenAIUsage(payload, FALLBACK_TOKEN_USAGE.chat);
 
   if (payload.error?.message) {
     throw new GeneratorError(payload.error.message, 502);

@@ -13,6 +13,7 @@ import {
   startBackgroundStructuredResponse,
 } from "@/lib/openai";
 import type { WebsiteFile } from "@/lib/types";
+import { chargeTokens, MOCK_TOKEN_USAGE } from "@/lib/tokens";
 import { GeneratorError, normalizeRelativePath } from "@/lib/validation";
 
 const OPENAI_MODEL = "gpt-5.5";
@@ -46,6 +47,8 @@ const EDIT_SCHEMA = {
 const SYSTEM_INSTRUCTION = `You are an expert web developer. You will be given only the website files that likely need to change (HTML, CSS, and/or JS) and a user request. Apply the requested change and return ONLY the files that were modified with their full updated content. Do not return files that were not changed.
 
 Do not modify or return image files. Image paths in HTML should stay as they are unless the user explicitly asks to change them.
+
+Preserve existing SEO unless the user asks to change it: title, meta description, Open Graph tags, Twitter tags, JSON-LD, heading structure, and image alt text. If the requested edit changes the business name, services, phone, address, or location, update those SEO fields so they stay accurate. Do not invent reviews, ratings, or credentials.
 
 If adding or updating a contact form, submit with fetch() POST JSON to the existing contact API endpoint. Send websiteId, name, email, phone, message, and businessName. Never send a recipient "to" address, API keys, Resend secrets, or server-side code.
 
@@ -160,6 +163,7 @@ export async function applyMockWebsiteEdit(
 ): Promise<WebsiteFile[]> {
   console.log("[mock-ai] Applying mock edit");
   await mockDelay(700);
+  await chargeTokens(MOCK_TOKEN_USAGE.edit);
   const updatedFiles = mockEditWebsite(filesToEdit, instruction);
   await updateWebsiteFiles(websiteId, updatedFiles, idToken);
   return updatedFiles;

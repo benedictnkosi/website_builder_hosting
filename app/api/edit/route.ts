@@ -3,7 +3,7 @@ import { jsonAuthError, type AuthUser } from "@/lib/auth-server";
 import { createEditJob, jobJsonHeaders, scheduleJobTick, toJobView } from "@/lib/jobs";
 import { clientKey, consumeRateLimit, jsonRateLimitError } from "@/lib/rate-limit";
 import { requireOwnedSite } from "@/lib/sites";
-import { hasActiveSubscription } from "@/lib/subscription";
+import { assertEditTokens, jsonTokenError } from "@/lib/tokens";
 import { isValidWebsiteId } from "@/lib/validation";
 
 export const runtime = "nodejs";
@@ -41,25 +41,17 @@ export async function POST(request: Request) {
   try {
     ({ user } = await requireOwnedSite(request, websiteId));
     consumeRateLimit(`edit:${clientKey(request, user.uid)}`, 20, 60 * 60 * 1000);
+    await assertEditTokens(user);
   } catch (error) {
     const limited = jsonRateLimitError(error);
     if (limited) return limited;
+    const tokenResponse = jsonTokenError(error);
+    if (tokenResponse) return tokenResponse;
     const authResponse = jsonAuthError(error);
     if (authResponse) return authResponse;
     return NextResponse.json(
       { success: false, error: "Sign in to continue." },
       { status: 401 },
-    );
-  }
-
-  if (!(await hasActiveSubscription(websiteId))) {
-    return NextResponse.json(
-      {
-        success: false,
-        error: "Subscribe to make changes to your website.",
-        paywall: true,
-      },
-      { status: 402 },
     );
   }
 

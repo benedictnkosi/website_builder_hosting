@@ -5,13 +5,19 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/components/AuthProvider";
 import { saveBuilderSession } from "@/lib/builder-session";
-import { formatZar } from "@/lib/pricing";
 import {
   trackCancelSubscription,
   trackDeleteWebsite,
   trackOpenSite,
   trackStartBuilder,
 } from "@/lib/analytics";
+import { openTokenTopup } from "@/lib/token-events";
+import {
+  formatTokenCount,
+  formatZar,
+  TOKEN_TOPUP_TOKENS,
+  TOKEN_TOPUP_ZAR,
+} from "@/lib/pricing";
 
 type SubscriptionStatus = "pending" | "active" | "cancelled";
 
@@ -173,13 +179,22 @@ export default function UserDashboard() {
             longer need.
           </p>
         </div>
-        <Link
-          href="/builder?new=1"
-          onClick={() => trackStartBuilder("dashboard")}
-          className="inline-flex items-center justify-center rounded-full bg-teal-800 px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-teal-700"
-        >
-          New website
-        </Link>
+        <div className="flex flex-col gap-2 sm:items-end">
+          <button
+            type="button"
+            onClick={() => openTokenTopup()}
+            className="inline-flex items-center justify-center rounded-full border border-stone-300 bg-white px-5 py-2.5 text-sm font-semibold text-stone-700 transition hover:bg-stone-50"
+          >
+            Buy {formatTokenCount(TOKEN_TOPUP_TOKENS)} tokens · {formatZar(TOKEN_TOPUP_ZAR)}
+          </button>
+          <Link
+            href="/builder?new=1"
+            onClick={() => trackStartBuilder("dashboard")}
+            className="inline-flex items-center justify-center rounded-full bg-teal-800 px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-teal-700"
+          >
+            New website
+          </Link>
+        </div>
       </div>
 
       {error ? (
@@ -204,8 +219,8 @@ export default function UserDashboard() {
             Create your first website
           </h2>
           <p className="mx-auto mt-2 max-w-md text-sm leading-relaxed text-stone-600">
-            Chat about your business, preview the site for free, then subscribe when
-            you want to edit or deploy.
+            Chat about your business, preview the site, then subscribe when
+            you want to deploy.
           </p>
           <Link
             href="/builder?new=1"
@@ -318,7 +333,7 @@ export default function UserDashboard() {
             </h2>
             <p className="mt-2 text-sm leading-relaxed text-stone-600">
               {confirm.type === "cancel"
-                ? `This stops future PayFast charges${confirm.site.domain ? ` for ${confirm.site.domain}` : ""}. You can still preview the site, but editing and deploying stay locked until you subscribe again.`
+                ? `This stops future PayFast charges${confirm.site.domain ? ` for ${confirm.site.domain}` : ""}. You can still preview and edit the site with tokens. Deploying stays locked until you subscribe again.`
                 : `This permanently removes ${confirm.site.businessName} and its files.${
                     confirm.site.subscriptionStatus === "active" ||
                     confirm.site.subscriptionStatus === "pending"

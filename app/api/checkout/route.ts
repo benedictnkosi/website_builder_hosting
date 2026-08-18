@@ -18,6 +18,7 @@ import {
   writeSubscription,
   type WebsiteSubscription,
 } from "@/lib/subscription";
+import { grantSubscriptionTokens } from "@/lib/tokens";
 import { isValidWebsiteId } from "@/lib/validation";
 
 export const runtime = "nodejs";
@@ -182,6 +183,7 @@ export async function POST(request: Request) {
     const paymentId = existing?.paymentId || createPaymentId();
     const subscription: WebsiteSubscription = {
       websiteId,
+      ownerUid: owner.user.uid,
       paymentId,
       domain: result.domain,
       sld,
@@ -210,12 +212,18 @@ export async function POST(request: Request) {
       subscription.status = "active";
       subscription.mocked = true;
       subscription.paidAt = now;
+      subscription.tokensGranted = true;
       await writeSubscription(subscription);
       await writeWebsiteMeta(
         { ...owner.meta, updatedAt: subscription.updatedAt },
         owner.user,
         subscription,
       );
+      try {
+        await grantSubscriptionTokens(owner.user.uid, websiteId);
+      } catch (error) {
+        console.error("Could not grant subscription tokens:", error);
+      }
       return NextResponse.json({
         success: true,
         paid: true,

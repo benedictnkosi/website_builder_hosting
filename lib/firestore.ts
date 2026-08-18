@@ -270,6 +270,24 @@ function asStoredSite(data: Record<string, unknown>): StoredSite | null {
   return { ...meta, subscription };
 }
 
+export async function readSiteOwnerUid(websiteId: string): Promise<string | null> {
+  if (!websiteId || !isFirebaseAdminConfigured()) return null;
+  const snap = await getAdminFirestore().collection("sites").doc(websiteId).get();
+  const uid = snap.get("ownerUid");
+  return typeof uid === "string" && uid ? uid : null;
+}
+
+export async function readUserProfile(
+  user: AuthUser,
+): Promise<Record<string, unknown> | null> {
+  try {
+    return await getDocument(`users/${user.uid}`, user.idToken);
+  } catch (error) {
+    if (isFirestorePermissionError(error)) return null;
+    throw error;
+  }
+}
+
 export async function upsertUserProfile(user: AuthUser): Promise<void> {
   const now = new Date().toISOString();
   let existing: Record<string, unknown> | null = null;

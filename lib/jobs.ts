@@ -23,7 +23,7 @@ import {
   startWebsiteGenerationBackground,
 } from "@/lib/openai";
 import { createOwnedWebsite } from "@/lib/sites";
-import { hasActiveSubscription } from "@/lib/subscription";
+import { runWithTokenSpend } from "@/lib/tokens";
 import type {
   SiteJobKind,
   SiteJobStatus,
@@ -607,10 +607,6 @@ async function saveJobResult(user: AuthUser, job: SiteJob): Promise<SiteJob> {
     return completeJob(user, job, job.websiteId, "Website ready!");
   }
 
-  if (!(await hasActiveSubscription(job.websiteId))) {
-    throw new GeneratorError("Subscribe to make changes to your website.", 402);
-  }
-
   await updateWebsiteFiles(job.websiteId, job.files, user.idToken);
   return completeJob(user, job, job.websiteId, "Changes applied!");
 }
@@ -686,7 +682,7 @@ export async function tickJob(
   }
 
   try {
-    await advanceJob(user, job, allowSlow);
+    await runWithTokenSpend(user.uid, () => advanceJob(user, job, allowSlow));
   } catch (error) {
     const latest = (await readJob(user, jobId)) ?? job;
     return failJob(user, latest, error);

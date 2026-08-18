@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import BrandMark from "@/components/BrandMark";
+import TokenControls from "@/components/TokenControls";
 import { useAuth } from "@/components/AuthProvider";
 import { trackStartBuilder } from "@/lib/analytics";
 
@@ -41,6 +42,7 @@ export default function AppHeader() {
           >
             New site
           </Link>
+          <TokenControls />
           <span className="hidden max-w-[16rem] truncate text-sm text-stone-600 lg:inline">
             {user?.displayName || user?.email}
           </span>

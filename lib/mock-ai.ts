@@ -123,28 +123,60 @@ export function mockGenerateWebsite(prompt: string): GeneratedWebsite {
   </section>`
       : "";
 
+  const title = `${businessName} | Services in South Africa`;
+  const description = `${businessName} offers local services in South Africa. Call ${phone} to book or ask a question.`;
+  const jsonLd = JSON.stringify({
+    "@context": "https://schema.org",
+    "@type": "LocalBusiness",
+    name: businessName,
+    description,
+    telephone: phone,
+  });
   const indexHtml = `<!DOCTYPE html>
-<html lang="en">
+<html lang="en-ZA">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>${businessName}</title>
+  <title>${title}</title>
+  <meta name="description" content="${description}">
+  <meta name="robots" content="index, follow">
+  <meta property="og:title" content="${title}">
+  <meta property="og:description" content="${description}">
+  <meta property="og:type" content="website">
+  <meta property="og:locale" content="en_ZA">
+  <meta property="og:image" content="images/hero.png">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="${title}">
+  <meta name="twitter:description" content="${description}">
+  <meta name="twitter:image" content="images/hero.png">
   <link rel="stylesheet" href="styles.css">
+  <script type="application/ld+json">${jsonLd}</script>
 </head>
 <body>
   <header>
+    <nav>
+      <a href="#services">Services</a>
+      <a href="#contact">Contact</a>
+    </nav>
     <h1>${businessName}</h1>
     <p>Mock website generated locally for testing.</p>
   </header>
   <main>
     <section class="hero">
-      <img src="images/hero.png" alt="${businessName}">
+      <img src="images/hero.png" alt="${businessName} in South Africa">
       <p>Phone: <a href="tel:${phone.replace(/\s/g, "")}">${phone}</a></p>
       ${whatsappButton}
+    </section>
+    <section id="services">
+      <h2>Services</h2>
+      <p>Local services for South African customers.</p>
     </section>
     ${mapSection}
     ${contactSection}
   </main>
+  <footer>
+    <p>${businessName} · South Africa</p>
+  </footer>
   <script src="script.js"></script>
 </body>
 </html>`;

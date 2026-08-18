@@ -59,16 +59,6 @@ export default function DeployWorkspace({
   const [deployStatus, setDeployStatus] = useState<DeployStatus>("idle");
   const [deployError, setDeployError] = useState<string | null>(null);
   const [deployedUrl, setDeployedUrl] = useState<string | null>(null);
-  const [skippedDomainProvisioning, setSkippedDomainProvisioning] =
-    useState(false);
-  const [isLocalhost, setIsLocalhost] = useState(false);
-
-  useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- detect localhost after mount
-    setIsLocalhost(
-      ["localhost", "127.0.0.1", "[::1]"].includes(window.location.hostname),
-    );
-  }, []);
 
   useEffect(() => {
     if (subscribedDomain) {
@@ -147,7 +137,6 @@ export default function DeployWorkspace({
 
     setDeployStatus("deploying");
     setDeployError(null);
-    setSkippedDomainProvisioning(false);
     trackDeployStart(result.domain);
 
     try {
@@ -163,7 +152,6 @@ export default function DeployWorkspace({
         success?: boolean;
         url?: string;
         error?: string;
-        skippedDomainProvisioning?: boolean;
       };
 
       if (!response.ok || !data.success) {
@@ -174,7 +162,6 @@ export default function DeployWorkspace({
       }
 
       setDeployStatus("success");
-      setSkippedDomainProvisioning(Boolean(data.skippedDomainProvisioning));
       setDeployedUrl(data.url || `https://${result.domain}`);
       trackDeploySuccess(result.domain);
     } catch {
@@ -289,9 +276,7 @@ export default function DeployWorkspace({
                 className="mt-4 inline-flex w-full items-center justify-center rounded-full bg-teal-800 px-5 py-3 text-sm font-semibold text-white transition hover:bg-teal-700 disabled:cursor-not-allowed disabled:bg-stone-400 sm:w-auto"
               >
                 {deployStatus === "deploying"
-                  ? isLocalhost
-                    ? "Deploying..."
-                    : "Registering and deploying..."
+                  ? "Registering and deploying..."
                   : `Deploy ${result.domain}`}
               </button>
             ) : (
@@ -302,9 +287,7 @@ export default function DeployWorkspace({
 
             {deployStatus === "deploying" ? (
               <p className="mt-3 text-sm text-stone-600">
-                {isLocalhost
-                  ? "Deploying files. Domain registration is skipped on localhost."
-                  : "Registering the domain, pointing DNS at the server, then deploying. This can take a minute."}
+                Registering the domain, pointing DNS at the server, then deploying. This can take a minute.
               </p>
             ) : null}
 
@@ -313,9 +296,7 @@ export default function DeployWorkspace({
             ) : null}
             {deployStatus === "success" && deployedUrl ? (
               <p className="mt-3 text-sm text-teal-800">
-                {skippedDomainProvisioning
-                  ? "Website deployed. Domain registration was skipped on localhost. Available at "
-                  : "Website available at "}
+                Website available at 
                 <a
                   href={deployedUrl}
                   target="_blank"
