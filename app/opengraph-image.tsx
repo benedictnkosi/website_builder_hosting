@@ -47,11 +47,14 @@ export default function Image() {
           >
             L
           </div>
-          <div style={{ fontSize: 32, fontWeight: 600 }}>Lulaweb</div>
+          <div style={{ display: "flex", fontSize: 32, fontWeight: 600 }}>
+            Lulaweb
+          </div>
         </div>
         <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
           <div
             style={{
+              display: "flex",
               fontSize: 64,
               fontWeight: 700,
               lineHeight: 1.08,
@@ -61,9 +64,15 @@ export default function Image() {
           >
             AI website builder for South African businesses
           </div>
-          <div style={{ fontSize: 28, color: "#44403c", maxWidth: 820 }}>
-            Chat about your business. Get a live website and a .co.za domain
-            from R{MONTHLY_SUBSCRIPTION_ZAR}/month.
+          <div
+            style={{
+              display: "flex",
+              fontSize: 28,
+              color: "#44403c",
+              maxWidth: 820,
+            }}
+          >
+            {`Chat about your business. Get a live website and a .co.za domain from R${MONTHLY_SUBSCRIPTION_ZAR}/month.`}
           </div>
         </div>
         <div
