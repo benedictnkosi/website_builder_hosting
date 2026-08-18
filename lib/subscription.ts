@@ -158,7 +158,7 @@ async function writeFirestoreSubscription(
   if (!isFirebaseAdminConfigured()) {
     if (process.env.NODE_ENV === "production") {
       throw new Error(
-        "Firebase Admin is required to save billing state. Set FIREBASE_SERVICE_ACCOUNT_PATH.",
+        "Firebase Admin is required to save billing state. Paste the service account JSON into FIREBASE_SERVICE_ACCOUNT.",
       );
     }
     return;

@@ -15,7 +15,11 @@ import {
   signOut as firebaseSignOut,
   type User,
 } from "firebase/auth";
-import { auth, googleProvider } from "@/lib/firebase";
+import {
+  getFirebaseAuth,
+  getGoogleProvider,
+  isFirebaseClientConfigured,
+} from "@/lib/firebase";
 import { clearBuilderSession } from "@/lib/builder-session";
 import { trackLogin, trackLoginFailed, trackLogout } from "@/lib/analytics";
 
@@ -48,20 +52,30 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, (nextUser) => {
-      void (async () => {
-        try {
-          await syncSessionCookie(nextUser);
-        } catch {
-          // Cookie sync failure still leaves Bearer auth available.
-        } finally {
-          setUser(nextUser);
-          setLoading(false);
-        }
-      })();
-    });
+    if (!isFirebaseClientConfigured()) {
+      setLoading(false);
+      return;
+    }
 
-    return unsubscribe;
+    try {
+      const unsubscribe = onAuthStateChanged(getFirebaseAuth(), (nextUser) => {
+        void (async () => {
+          try {
+            await syncSessionCookie(nextUser);
+          } catch {
+            // Cookie sync failure still leaves Bearer auth available.
+          } finally {
+            setUser(nextUser);
+            setLoading(false);
+          }
+        })();
+      });
+
+      return unsubscribe;
+    } catch {
+      setLoading(false);
+      return;
+    }
   }, []);
 
   const value = useMemo<AuthContextValue>(
@@ -70,7 +84,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       loading,
       async signInWithGoogle() {
         try {
-          const result = await signInWithPopup(auth, googleProvider);
+          const result = await signInWithPopup(
+            getFirebaseAuth(),
+            getGoogleProvider(),
+          );
           trackLogin(Boolean(getAdditionalUserInfo(result)?.isNewUser));
           await syncSessionCookie(result.user);
         } catch (err) {
@@ -91,7 +108,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         trackLogout();
         clearBuilderSession();
         await syncSessionCookie(null);
-        await firebaseSignOut(auth);
+        await firebaseSignOut(getFirebaseAuth());
       },
       async getIdToken() {
         return user ? user.getIdToken() : null;

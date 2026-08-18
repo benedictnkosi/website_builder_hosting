@@ -22,7 +22,26 @@ type ServiceAccountFile = {
 };
 
 function resolveCredentialPath(filePath: string): string {
-  return path.isAbsolute(filePath) ? filePath : path.join(process.cwd(), filePath);
+  if (path.isAbsolute(filePath)) return filePath;
+  return path.join(/* turbopackIgnore: true */ process.cwd(), filePath);
+}
+
+const DEFAULT_SERVICE_ACCOUNT_FILE = path.join(
+  process.cwd(),
+  "secrets",
+  "firebase-adminsdk.json",
+);
+
+function firstEnv(...keys: string[]): string {
+  for (const key of keys) {
+    const value = process.env[key]?.trim();
+    if (value) return value;
+  }
+  return "";
+}
+
+function looksLikeJsonObject(raw: string): boolean {
+  return raw.trim().replace(/^['"]|['"]$/g, "").startsWith("{");
 }
 
 function decodePossiblyBase64(raw: string): string {
@@ -38,23 +57,39 @@ function decodePossiblyBase64(raw: string): string {
 }
 
 function readServiceAccount(): ServiceAccount | null {
-  const inline =
-    process.env.FIREBASE_SERVICE_ACCOUNT?.trim() ||
-    process.env.FIREBASE_SERVICE_ACCOUNT_BASE64?.trim();
+  const inline = firstEnv(
+    "FIREBASE_SERVICE_ACCOUNT",
+    "FIREBASE_SERVICE_ACCOUNT_JSON",
+    "FIREBASE_SERVICE_ACCOUNT_BASE64",
+  );
+  const pathOrJson = firstEnv(
+    "FIREBASE_SERVICE_ACCOUNT_PATH",
+    "GOOGLE_APPLICATION_CREDENTIALS",
+  );
+
   if (inline) {
     return parseServiceAccount(decodePossiblyBase64(inline));
   }
 
-  const configured =
-    process.env.FIREBASE_SERVICE_ACCOUNT_PATH?.trim() ||
-    process.env.GOOGLE_APPLICATION_CREDENTIALS?.trim();
-  const candidates = [
-    configured,
-    "secrets/firebase-adminsdk.json",
-  ].filter((value): value is string => Boolean(value));
+  // Vercel: people sometimes paste the JSON into *_PATH. Accept that.
+  if (pathOrJson && looksLikeJsonObject(pathOrJson)) {
+    return parseServiceAccount(decodePossiblyBase64(pathOrJson));
+  }
+
+  // Vercel has no gitignored JSON file. Skipping cwd file reads also
+  // stops Turbopack tracing the whole project.
+  if (process.env.VERCEL) {
+    return null;
+  }
+
+  const candidates = [pathOrJson, DEFAULT_SERVICE_ACCOUNT_FILE].filter(
+    (value): value is string => Boolean(value),
+  );
 
   for (const candidate of candidates) {
-    const resolved = resolveCredentialPath(candidate);
+    const resolved = path.isAbsolute(candidate)
+      ? candidate
+      : resolveCredentialPath(candidate);
     if (!existsSync(resolved)) continue;
     return parseServiceAccount(readFileSync(resolved, "utf8"));
   }
@@ -63,7 +98,22 @@ function readServiceAccount(): ServiceAccount | null {
 }
 
 function parseServiceAccount(raw: string): ServiceAccount {
-  const parsed = JSON.parse(raw) as ServiceAccountFile;
+  const json = decodePossiblyBase64(raw);
+  if (!json.startsWith("{")) {
+    throw new Error(
+      "FIREBASE_SERVICE_ACCOUNT must be the JSON file contents, not a file path. On Vercel, paste the full service account JSON into FIREBASE_SERVICE_ACCOUNT.",
+    );
+  }
+
+  let parsed: ServiceAccountFile;
+  try {
+    parsed = JSON.parse(json) as ServiceAccountFile;
+  } catch {
+    throw new Error(
+      "FIREBASE_SERVICE_ACCOUNT is not valid JSON. Paste the full firebase-adminsdk JSON as a single env value.",
+    );
+  }
+
   const projectId = parsed.projectId || parsed.project_id;
   const clientEmail = parsed.clientEmail || parsed.client_email;
   const privateKey = parsed.privateKey || parsed.private_key;
@@ -102,7 +152,7 @@ export function getFirebaseAdminApp(): App {
   const serviceAccount = readServiceAccount();
   if (!serviceAccount) {
     throw new Error(
-      "Firebase Admin is not configured. Set FIREBASE_SERVICE_ACCOUNT_PATH or FIREBASE_SERVICE_ACCOUNT.",
+      "Firebase Admin is not configured. On Vercel, paste the service account JSON into FIREBASE_SERVICE_ACCOUNT.",
     );
   }
 

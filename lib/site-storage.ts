@@ -154,7 +154,7 @@ export async function uploadSiteObject(input: {
 
   if (!input.idToken) {
     throw new GeneratorError(
-      "Firebase Admin is not configured. Add FIREBASE_SERVICE_ACCOUNT_PATH to save website files.",
+      "Firebase Admin is not configured. Paste the service account JSON into FIREBASE_SERVICE_ACCOUNT.",
       500,
     );
   }

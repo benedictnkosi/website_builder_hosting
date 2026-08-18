@@ -8,7 +8,7 @@ import {
   setUserId,
   type Analytics,
 } from "firebase/analytics";
-import { app } from "@/lib/firebase";
+import { getFirebaseApp, isFirebaseClientConfigured } from "@/lib/firebase";
 import { MONTHLY_SUBSCRIPTION_ZAR } from "@/lib/pricing";
 
 type EventParams = Record<string, string | number | boolean | undefined>;
@@ -23,7 +23,8 @@ function getClientAnalytics(): Promise<Analytics | null> {
   if (!analyticsPromise) {
     analyticsPromise = isSupported()
       .then((supported) => {
-        if (!supported) return null;
+        if (!supported || !isFirebaseClientConfigured()) return null;
+        const app = getFirebaseApp();
         try {
           return initializeAnalytics(app, {
             config: { send_page_view: false },
