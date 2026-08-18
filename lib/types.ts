@@ -17,7 +17,7 @@ export interface GeneratedWebsite {
 export interface GenerateWebsiteResult {
   success: true;
   websiteId: string;
-  files: WebsiteFile[];
+  files?: WebsiteFile[];
 }
 
 export interface GenerateWebsiteError {
@@ -28,3 +28,22 @@ export interface GenerateWebsiteError {
 export type GenerateWebsiteResponse =
   | GenerateWebsiteResult
   | GenerateWebsiteError;
+
+export type SiteJobKind = "generate" | "edit";
+
+export type SiteJobStatus =
+  | "queued"
+  | "running"
+  | "complete"
+  | "failed"
+  | "cancelled";
+
+export type SiteJobView = {
+  jobId: string;
+  kind: SiteJobKind;
+  status: SiteJobStatus;
+  progress: number;
+  message: string;
+  websiteId?: string;
+  error?: string;
+};

@@ -175,7 +175,7 @@ header, main { max-width: 960px; margin: 0 auto; padding: 24px; }
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          to: "${contactEmail.replace(/"/g, '\\"')}",
+          websiteId: "__WEBSITE_ID__",
           name: data.get("name"),
           email: data.get("email"),
           phone: data.get("phone") || "",
@@ -220,6 +220,48 @@ export function mockGenerateImages(
   }));
 }
 
+export function mockPlanEditFiles(
+  instruction: string,
+  manifest: Array<{ path: string; type: string }>,
+): string[] {
+  const text = instruction.toLowerCase();
+  const pathsFor = (type: string) =>
+    manifest.filter((entry) => entry.type === type).map((entry) => entry.path);
+
+  const adding = /\b(add|remove|new|create|delete)\b/.test(text);
+  const styleOnly =
+    /\b(colo(?:u)?r|green|blue|red|white|black|background|font|padding|margin|border|hover|shadow|opacity)\b/.test(
+      text,
+    );
+  const behavior =
+    /\b(click|submit|fetch|javascript|animation|toggle|dropdown|scroll|validate)\b/.test(
+      text,
+    );
+
+  if (styleOnly && !adding && !behavior) {
+    const css = pathsFor("css");
+    if (css.length > 0) return css;
+  }
+
+  if (behavior && !adding) {
+    const js = pathsFor("javascript");
+    if (js.length > 0) return js;
+  }
+
+  if (adding) {
+    const selected = [...pathsFor("html"), ...pathsFor("css")];
+    if (behavior) selected.push(...pathsFor("javascript"));
+    if (selected.length > 0) return [...new Set(selected)];
+  }
+
+  const html = pathsFor("html");
+  if (html.length > 0 && !styleOnly && !behavior) {
+    return html;
+  }
+
+  return manifest.map((entry) => entry.path);
+}
+
 export function mockEditWebsite(
   files: WebsiteFile[],
   instruction: string,
@@ -227,46 +269,54 @@ export function mockEditWebsite(
   const phoneMatch =
     instruction.match(/(?:phone|number|it's|is)\s*[:\s]*([+\d][\d\s-]{8,})/i) ??
     instruction.match(/\b(0\d{2}[\s-]?\d{3}[\s-]?\d{4})\b/);
-
+  const wantsGreen = /\bgreen\b/i.test(instruction);
+  const note = instruction.replace(/-->/g, "").replace(/\*\//g, "");
   const updated: WebsiteFile[] = [];
 
   for (const file of files) {
-    if (file.path !== "index.html") {
+    if (file.path.endsWith(".css") && wantsGreen) {
+      let content = file.content;
+      if (/\.whatsapp\s*\{[^}]*background\s*:/i.test(content)) {
+        content = content.replace(
+          /(\.whatsapp\s*\{[^}]*background:\s*)[^;]+/i,
+          "$1#25d366",
+        );
+      } else {
+        content = `${content}\n/* Mock edit applied: ${note} */`;
+      }
+      updated.push({ path: file.path, content });
       continue;
     }
 
-    let content = file.content;
+    if (file.path.endsWith(".html")) {
+      let content = file.content;
 
-    if (phoneMatch) {
-      const phone = phoneMatch[1].trim();
-      const tel = phone.replace(/\s/g, "");
-      content = content.replace(/href="tel:[^"]+"/g, `href="tel:${tel}"`);
-      content = content.replace(
-        /Phone:\s*<a href="tel:[^"]+">[^<]+<\/a>/,
-        `Phone: <a href="tel:${tel}">${phone}</a>`,
-      );
-      content = content.replace(
-        /\b0\d{2}[\s-]?\d{3}[\s-]?\d{4}\b/g,
-        phone,
-      );
-    } else {
-      content = content.replace(
-        "</body>",
-        `  <!-- Mock edit applied: ${instruction.replace(/-->/g, "")} -->\n</body>`,
-      );
+      if (phoneMatch) {
+        const phone = phoneMatch[1].trim();
+        const tel = phone.replace(/\s/g, "");
+        content = content.replace(/href="tel:[^"]+"/g, `href="tel:${tel}"`);
+        content = content.replace(
+          /Phone:\s*<a href="tel:[^"]+">[^<]+<\/a>/,
+          `Phone: <a href="tel:${tel}">${phone}</a>`,
+        );
+        content = content.replace(/\b0\d{2}[\s-]?\d{3}[\s-]?\d{4}\b/g, phone);
+      } else if (content.includes("</body>")) {
+        content = content.replace(
+          "</body>",
+          `  <!-- Mock edit applied: ${note} -->\n</body>`,
+        );
+      } else {
+        content = `${content}\n<!-- Mock edit applied: ${note} -->`;
+      }
+
+      updated.push({ path: file.path, content });
+      continue;
     }
 
-    updated.push({ path: file.path, content });
-  }
-
-  if (updated.length === 0) {
-    const fallback = files.find((file) => file.path.endsWith(".html"));
-    if (fallback) {
-      updated.push({
-        path: fallback.path,
-        content: `${fallback.content}\n<!-- Mock edit: ${instruction} -->`,
-      });
-    }
+    updated.push({
+      path: file.path,
+      content: `${file.content}\n/* Mock edit applied: ${note} */`,
+    });
   }
 
   return updated;

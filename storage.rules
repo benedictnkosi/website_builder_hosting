@@ -1,0 +1,14 @@
+rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    match /sites/{websiteId}/{fileName=**} {
+      allow read: if true;
+      allow write: if request.auth != null
+        && (
+          !firestore.exists(/databases/(default)/documents/sites/$(websiteId))
+          || firestore.get(/databases/(default)/documents/sites/$(websiteId)).data.ownerUid
+            == request.auth.uid
+        );
+    }
+  }
+}

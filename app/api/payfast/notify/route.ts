@@ -42,12 +42,22 @@ export async function POST(request: Request) {
     return new NextResponse("Unknown payment.", { status: 404 });
   }
 
+  const notifyId =
+    data.pf_payment_id?.trim() ||
+    `${paymentId}:${data.payment_status ?? ""}:${data.amount_gross ?? ""}`;
+  if (subscription.processedNotifyIds?.includes(notifyId)) {
+    return new NextResponse("OK", { status: 200 });
+  }
+
   if (!amountsMatch(subscription.amountZar, data.amount_gross)) {
     return new NextResponse("Amount mismatch.", { status: 400 });
   }
 
   const now = new Date().toISOString();
   const status = data.payment_status?.toUpperCase();
+  const processedNotifyIds = [...(subscription.processedNotifyIds ?? []), notifyId].slice(
+    -20,
+  );
 
   if (status === "COMPLETE") {
     await writeSubscription({
@@ -57,6 +67,8 @@ export async function POST(request: Request) {
       token: data.token || subscription.token,
       paidAt: subscription.paidAt ?? now,
       updatedAt: now,
+      lastPaymentStatus: status,
+      processedNotifyIds,
     });
   } else if (status === "CANCELLED") {
     await writeSubscription({
@@ -65,6 +77,22 @@ export async function POST(request: Request) {
       payfastPaymentId: data.pf_payment_id || subscription.payfastPaymentId,
       token: data.token || subscription.token,
       updatedAt: now,
+      lastPaymentStatus: status,
+      processedNotifyIds,
+    });
+  } else if (status === "FAILED") {
+    await writeSubscription({
+      ...subscription,
+      updatedAt: now,
+      lastPaymentStatus: status,
+      processedNotifyIds,
+    });
+  } else {
+    await writeSubscription({
+      ...subscription,
+      updatedAt: now,
+      lastPaymentStatus: status,
+      processedNotifyIds,
     });
   }
 

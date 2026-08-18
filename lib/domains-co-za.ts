@@ -1,23 +1,9 @@
 import "server-only";
 
-import {
-  DEFAULT_TLD,
-  FALLBACK_TLD_GROUPS,
-  FALLBACK_TLDS,
-  flattenTldGroups,
-  parseDomainQuery,
-} from "@/lib/domain-name";
-import {
-  DEFAULT_TLD_PRICE,
-  FALLBACK_TLD_PRICES,
-  buildYearlyPlan,
-  parseMoney,
-  type TldPrice,
-  type YearlyPlanPrice,
-} from "@/lib/pricing";
+import { parseDomainQuery } from "@/lib/domain-name";
+import { SUBSCRIPTION_TLD } from "@/lib/pricing";
 
 const API_BASE = "https://api.domains.co.za/api";
-const TLD_CACHE_MS = 60 * 60 * 1000;
 
 export type DomainAvailability = {
   domain: string;
@@ -41,19 +27,7 @@ type CachedToken = {
   expiresAt: number;
 };
 
-type CachedTlds = {
-  tlds: { tld: string; category: string }[];
-  expiresAt: number;
-};
-
-type CachedPrices = {
-  prices: Record<string, TldPrice>;
-  expiresAt: number;
-};
-
 let cachedToken: CachedToken | null = null;
-let cachedTlds: CachedTlds | null = null;
-let cachedPrices: CachedPrices | null = null;
 
 function hasCredentials(): boolean {
   return Boolean(
@@ -225,131 +199,15 @@ function getServerIp(): string {
 }
 
 export function splitRegisteredDomain(domain: string): { sld: string; tld: string } {
-  const parsed = parseDomainQuery(domain);
-  if (!parsed.sld || !parsed.preferredTld) {
-    throw new Error("A valid domain with an extension is required.");
+  const parsed = parseDomainQuery(domain, [SUBSCRIPTION_TLD]);
+  if (!parsed.sld || parsed.preferredTld !== SUBSCRIPTION_TLD) {
+    throw new Error("A valid .co.za domain is required.");
   }
-  return { sld: parsed.sld, tld: parsed.preferredTld };
-}
-
-function parseTldGroups(value: unknown): Record<string, string[]> {
-  if (!value || typeof value !== "object") {
-    return FALLBACK_TLD_GROUPS;
-  }
-
-  const groups: Record<string, string[]> = {};
-  for (const [category, tlds] of Object.entries(value)) {
-    if (!Array.isArray(tlds)) continue;
-    groups[category] = tlds.filter(
-      (tld): tld is string => typeof tld === "string" && tld.length > 0,
-    );
-  }
-
-  return Object.keys(groups).length > 0 ? groups : FALLBACK_TLD_GROUPS;
+  return { sld: parsed.sld, tld: SUBSCRIPTION_TLD };
 }
 
 export async function listSearchableTlds(): Promise<{ tld: string; category: string }[]> {
-  return getSearchableTlds();
-}
-
-function parseTldPrice(tld: string, value: unknown): TldPrice | null {
-  if (!value || typeof value !== "object") {
-    return null;
-  }
-
-  const row = value as Record<string, unknown>;
-  const registration = parseMoney(row.registration);
-  if (registration <= 0) {
-    return null;
-  }
-
-  return {
-    tld,
-    currency: typeof row.currency === "string" && row.currency.trim() ? row.currency : "ZAR",
-    registration,
-    renewal: parseMoney(row.renewal) || registration,
-    premium: parseMoney(row.premium) || registration,
-  };
-}
-
-async function getResellerPrices(): Promise<Record<string, TldPrice>> {
-  if (isMockDomainSearchEnabled()) {
-    return FALLBACK_TLD_PRICES;
-  }
-
-  if (cachedPrices && Date.now() < cachedPrices.expiresAt) {
-    return cachedPrices.prices;
-  }
-
-  try {
-    const data = await authorizedGet(
-      "reseller/prices",
-      new URLSearchParams({ format: "tld" }),
-    );
-    const arrPrices = data.arrPrices;
-    const prices: Record<string, TldPrice> = {};
-
-    if (arrPrices && typeof arrPrices === "object") {
-      for (const [tld, value] of Object.entries(arrPrices)) {
-        const parsed = parseTldPrice(tld, value);
-        if (parsed) {
-          prices[tld] = parsed;
-        }
-      }
-    }
-
-    if (Object.keys(prices).length > 0) {
-      cachedPrices = {
-        prices,
-        expiresAt: Date.now() + TLD_CACHE_MS,
-      };
-      return prices;
-    }
-  } catch {
-    // Fall through to cached or fallback prices.
-  }
-
-  return cachedPrices?.prices ?? FALLBACK_TLD_PRICES;
-}
-
-export async function getTldPrice(tld: string): Promise<TldPrice> {
-  const prices = await getResellerPrices();
-  return (
-    prices[tld] ?? {
-      ...DEFAULT_TLD_PRICE,
-      tld,
-    }
-  );
-}
-
-export async function getYearlyPlanPrice(
-  tld: string,
-  options?: { premium?: boolean },
-): Promise<YearlyPlanPrice> {
-  const price = await getTldPrice(tld);
-  return buildYearlyPlan(price, options);
-}
-
-async function getSearchableTlds(): Promise<{ tld: string; category: string }[]> {
-  if (isMockDomainSearchEnabled()) {
-    return FALLBACK_TLDS;
-  }
-
-  if (cachedTlds && Date.now() < cachedTlds.expiresAt) {
-    return cachedTlds.tlds;
-  }
-
-  try {
-    const data = await authorizedGet("domain/tlds");
-    const tlds = flattenTldGroups(parseTldGroups(data.arrTLDs));
-    cachedTlds = {
-      tlds,
-      expiresAt: Date.now() + TLD_CACHE_MS,
-    };
-    return tlds;
-  } catch {
-    return FALLBACK_TLDS;
-  }
+  return [{ tld: SUBSCRIPTION_TLD, category: "Common" }];
 }
 
 async function checkLiveDomain(
@@ -395,45 +253,33 @@ function mockAvailability(
 
 export async function searchDomainAvailability(
   query: string,
-  selectedTld = DEFAULT_TLD,
 ): Promise<{
   sld: string;
   results: DomainAvailability[];
   mocked: boolean;
-  price: YearlyPlanPrice;
 }> {
-  const searchableTlds = await getSearchableTlds();
-  const knownTlds = searchableTlds.map((item) => item.tld);
-  const parsed = parseDomainQuery(query, knownTlds);
+  const parsed = parseDomainQuery(query, [SUBSCRIPTION_TLD]);
   const sld = parsed.sld;
-  const tld = selectedTld || parsed.preferredTld || DEFAULT_TLD;
+  const tld = SUBSCRIPTION_TLD;
 
   if (!sld || sld.length < 2) {
     throw new Error("Enter at least 2 letters for the domain name.");
   }
 
-  const match =
-    searchableTlds.find((item) => item.tld === tld) ?? {
-      tld,
-      category: "Common",
-    };
-
   if (isMockDomainSearchEnabled()) {
-    const result = mockAvailability(sld, match.tld, match.category);
+    const result = mockAvailability(sld, tld, "Common");
     return {
       sld,
       mocked: true,
       results: [result],
-      price: await getYearlyPlanPrice(match.tld, { premium: result.premium }),
     };
   }
 
-  const result = await checkLiveDomain(sld, match.tld, match.category);
+  const result = await checkLiveDomain(sld, tld, "Common");
   return {
     sld,
     mocked: false,
     results: [result],
-    price: await getYearlyPlanPrice(match.tld, { premium: result.premium }),
   };
 }
 

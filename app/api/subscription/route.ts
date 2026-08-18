@@ -1,7 +1,8 @@
 import { NextResponse } from "next/server";
-import { websiteExists } from "@/lib/file-manager";
-import { isValidWebsiteId } from "@/lib/validation";
+import { jsonAuthError } from "@/lib/auth-server";
+import { requireOwnedSite } from "@/lib/sites";
 import { readSubscription } from "@/lib/subscription";
+import { isValidWebsiteId } from "@/lib/validation";
 
 export const runtime = "nodejs";
 
@@ -16,10 +17,14 @@ export async function GET(request: Request) {
     );
   }
 
-  if (!(await websiteExists(websiteId))) {
+  try {
+    await requireOwnedSite(request, websiteId);
+  } catch (error) {
+    const authResponse = jsonAuthError(error);
+    if (authResponse) return authResponse;
     return NextResponse.json(
-      { success: false, error: "Website not found." },
-      { status: 404 },
+      { success: false, error: "Sign in to continue." },
+      { status: 401 },
     );
   }
 

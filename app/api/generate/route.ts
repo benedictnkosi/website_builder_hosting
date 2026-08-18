@@ -1,12 +1,28 @@
 import { NextResponse } from "next/server";
-import { generateWebsite } from "@/lib/website-generator";
+import { jsonAuthError, requireUser } from "@/lib/auth-server";
+import { createGenerateJob, jobJsonHeaders, scheduleJobTick, toJobView } from "@/lib/jobs";
 import { getPeopleEthnicityOption } from "@/lib/people-ethnicity";
-import { GeneratorError } from "@/lib/validation";
+import { clientKey, consumeRateLimit, jsonRateLimitError } from "@/lib/rate-limit";
 
 export const runtime = "nodejs";
-export const maxDuration = 120;
+export const maxDuration = 30;
 
 export async function POST(request: Request) {
+  let user;
+  try {
+    user = await requireUser(request);
+    consumeRateLimit(`generate:${clientKey(request, user.uid)}`, 8, 60 * 60 * 1000);
+  } catch (error) {
+    const limited = jsonRateLimitError(error);
+    if (limited) return limited;
+    const authResponse = jsonAuthError(error);
+    if (authResponse) return authResponse;
+    return NextResponse.json(
+      { success: false, error: "Sign in to generate a website." },
+      { status: 401 },
+    );
+  }
+
   let body: unknown;
 
   try {
@@ -34,6 +50,22 @@ export async function POST(request: Request) {
       ? body.peopleEthnicity.trim()
       : "";
 
+  const businessName =
+    typeof body === "object" &&
+    body !== null &&
+    "businessName" in body &&
+    typeof body.businessName === "string"
+      ? body.businessName.trim()
+      : "";
+
+  const contactEmail =
+    typeof body === "object" &&
+    body !== null &&
+    "contactEmail" in body &&
+    typeof body.contactEmail === "string"
+      ? body.contactEmail.trim()
+      : "";
+
   if (!prompt) {
     return NextResponse.json(
       { success: false, error: "A prompt string is required." },
@@ -49,24 +81,27 @@ export async function POST(request: Request) {
   }
 
   try {
-    const result = await generateWebsite(prompt, peopleEthnicity || undefined);
-    return NextResponse.json(result);
+    const job = await createGenerateJob(user, {
+      prompt,
+      peopleEthnicity: peopleEthnicity || undefined,
+      businessName: businessName || undefined,
+      contactEmail: contactEmail || undefined,
+    });
+    scheduleJobTick(user, job.jobId);
+    return NextResponse.json(
+      {
+        success: true,
+        jobId: job.jobId,
+        job: toJobView(job),
+      },
+      { headers: jobJsonHeaders() },
+    );
   } catch (error) {
-    if (error instanceof GeneratorError) {
-      return NextResponse.json(
-        { success: false, error: error.message },
-        { status: error.statusCode },
-      );
-    }
-
     const message =
       error instanceof Error
         ? error.message
-        : "An unexpected error occurred while generating the website.";
+        : "An unexpected error occurred while starting website generation.";
 
-    return NextResponse.json(
-      { success: false, error: message },
-      { status: 500 },
-    );
+    return NextResponse.json({ success: false, error: message }, { status: 500 });
   }
 }

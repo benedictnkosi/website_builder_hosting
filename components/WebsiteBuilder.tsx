@@ -1,7 +1,9 @@
 "use client";
 
-import { FormEvent, useEffect, useRef, useState } from "react";
-import { useSearchParams } from "next/navigation";
+import { FormEvent, useCallback, useEffect, useRef, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
+import AddressModal from "@/components/AddressModal";
+import { useAuth } from "@/components/AuthProvider";
 import DeployWorkspace from "@/components/DeployWorkspace";
 import PaywallCard from "@/components/PaywallCard";
 import GenerationProgressBar from "@/components/GenerationProgressBar";
@@ -11,69 +13,39 @@ import {
   saveBuilderSession,
 } from "@/lib/builder-session";
 import { extractBusinessName, slugifyDomainName } from "@/lib/domain-name";
-import { extractEmail, isValidEmail } from "@/lib/email";
 import {
-  PEOPLE_ETHNICITY_OPTIONS,
-  getPeopleEthnicityOption,
-  type PeopleEthnicityId,
-} from "@/lib/people-ethnicity";
-import type { GenerateWebsiteResponse, WebsiteFile } from "@/lib/types";
+  compileBusinessDescription,
+  type ChatMessage,
+  type IntakeChatResult,
+  type WebsiteIntake,
+} from "@/lib/intake";
+import { getPeopleEthnicityOption } from "@/lib/people-ethnicity";
+import type { SiteJobView, WebsiteFile } from "@/lib/types";
+import {
+  trackAddressChoice,
+  trackCheckoutCancel,
+  trackEditStart,
+  trackEditSuccess,
+  trackGenerateFail,
+  trackGenerateStart,
+  trackGenerateSuccess,
+  trackIntakeComplete,
+  trackIntakeStart,
+  trackPaywallView,
+  trackPurchase,
+} from "@/lib/analytics";
 
-type AddressSuggestion = {
-  description: string;
-  place_id: string;
-};
-
-type GenerationStatus = "idle" | "validating" | "generating" | "success" | "error";
-type ChatStep =
-  | "description"
-  | "whatsapp"
-  | "contact"
-  | "contactEmail"
-  | "address"
-  | "ethnicity"
-  | "edit";
-
-type ChatMessage = {
-  role: "assistant" | "user";
-  content: string;
-};
+type GenerationStatus = "idle" | "chatting" | "generating" | "success" | "error";
+type ChatPhase = "intake" | "edit";
 
 const WELCOME_MESSAGE =
-  "Hi! I'm here to help build your website. Tell me about your business — your business name, the services you offer, and your phone number and if we can use this number for whatsapp";
-
-const WHATSAPP_QUESTION =
-  "Would you like a WhatsApp button on your website so customers can message you directly?";
-
-const ADDRESS_QUESTION =
-  "Would you like to add your business address? If you provide one, we'll add a Google Map to your website. Start typing your address below, or click Skip.";
-
-const ETHNICITY_QUESTION =
-  "If the website photos include people, who should they look like? This helps the images feel like your customers and team.";
-
-const CONTACT_QUESTION =
-  "Would you like a Contact Us form on your website so customers can send you messages?";
-
-const CONTACT_EMAIL_QUESTION =
-  "What email address should we send contact form submissions to?";
+  "Hi! I'm here to help build your website. Tell me about your business.";
 
 const READY_MESSAGE =
   "Your website is ready. Preview it for free. Subscribe to describe changes or deploy it live.";
 
-function isNegative(text: string): boolean {
-  return /\b(no|nah|nope|skip|don't|not)\b/i.test(text);
-}
-
-function isSkipLikeInput(text: string): boolean {
-  const trimmed = text.trim().toLowerCase();
-  if (!trimmed) return false;
-  return ["s", "sk", "ski", "skip", "n", "no", "na", "nah", "nope"].includes(
-    trimmed,
-  );
-}
-
-function shouldUseAddressAutocomplete(text: string): boolean {
-  return text.trim().length >= 3 && !isSkipLikeInput(text);
+function sleep(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 function EmptyPreview({ generating }: { generating: boolean }) {
@@ -91,7 +63,7 @@ function EmptyPreview({ generating }: { generating: boolean }) {
         <p className="mt-2 text-sm leading-relaxed text-stone-600">
           {generating
             ? "We're writing the pages and generating images. The live preview will show up here when it's ready."
-            : "Describe your business in the chat. We'll design the site and show a live preview on this side."}
+            : "Chat about your business. We'll design the site and show a live preview on this side."}
         </p>
       </div>
     </div>
@@ -100,39 +72,43 @@ function EmptyPreview({ generating }: { generating: boolean }) {
 
 export default function WebsiteBuilder() {
   const searchParams = useSearchParams();
+  const router = useRouter();
+  const { authFetch } = useAuth();
   const [messages, setMessages] = useState<ChatMessage[]>([
     { role: "assistant", content: WELCOME_MESSAGE },
   ]);
   const [chatInput, setChatInput] = useState("");
-  const [chatStep, setChatStep] = useState<ChatStep>("description");
+  const [chatPhase, setChatPhase] = useState<ChatPhase>("intake");
+  const [pendingIntake, setPendingIntake] = useState<WebsiteIntake | null>(null);
+  const [showAddressModal, setShowAddressModal] = useState(false);
   const [businessDescription, setBusinessDescription] = useState("");
   const [businessName, setBusinessName] = useState("");
-  const [address, setAddress] = useState("");
-  const [useWhatsApp, setUseWhatsApp] = useState(false);
-  const [whatsappNumber, setWhatsappNumber] = useState("");
-  const [useContactForm, setUseContactForm] = useState(false);
-  const [contactEmail, setContactEmail] = useState("");
-  const [peopleEthnicity, setPeopleEthnicity] = useState<PeopleEthnicityId | "">(
-    "",
-  );
   const [status, setStatus] = useState<GenerationStatus>("idle");
   const [error, setError] = useState<string | null>(null);
   const [websiteId, setWebsiteId] = useState<string | null>(null);
-  const [files, setFiles] = useState<WebsiteFile[]>([]);
+  const [, setFiles] = useState<WebsiteFile[]>([]);
   const [isEditing, setIsEditing] = useState(false);
   const [iframeKey, setIframeKey] = useState(0);
-  const [addressSuggestions, setAddressSuggestions] = useState<AddressSuggestion[]>([]);
-  const [showAddressSuggestions, setShowAddressSuggestions] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const [showDeployCard, setShowDeployCard] = useState(false);
   const [showPaywall, setShowPaywall] = useState(false);
   const [isSubscribed, setIsSubscribed] = useState(false);
   const [subscribedDomain, setSubscribedDomain] = useState<string | null>(null);
   const [checkoutNotice, setCheckoutNotice] = useState<string | null>(null);
+  const [progressBarKey, setProgressBarKey] = useState(0);
+  const [activeJobId, setActiveJobId] = useState<string | null>(null);
+  const [jobProgress, setJobProgress] = useState<number | null>(null);
+  const [jobMessage, setJobMessage] = useState<string | null>(null);
+  const runEpochRef = useRef(0);
+  const intakeStartedRef = useRef(false);
 
-  const isBusy = status === "validating" || status === "generating" || isEditing;
+  const isBusy =
+    status === "chatting" ||
+    status === "generating" ||
+    isEditing ||
+    showAddressModal;
   const previewUrl = websiteId ? `/api/preview/${websiteId}/index.html` : null;
-  const editLocked = chatStep === "edit" && !isSubscribed;
+  const editLocked = chatPhase === "edit" && !isSubscribed;
   const suggestedDomainName = slugifyDomainName(
     businessName || extractBusinessName(businessDescription),
   );
@@ -142,109 +118,76 @@ export default function WebsiteBuilder() {
   }, [messages, status, isEditing, checkoutNotice]);
 
   useEffect(() => {
-    const urlWebsiteId = searchParams.get("websiteId")?.trim() ?? "";
-    const checkout = searchParams.get("checkout");
-    const session = loadBuilderSession();
-    const nextWebsiteId = urlWebsiteId || session?.websiteId || "";
-
-    if (!nextWebsiteId) {
-      return;
+    if (showPaywall && websiteId) {
+      trackPaywallView(websiteId);
     }
-
-    if (session?.websiteId === nextWebsiteId) {
-      setWebsiteId(session.websiteId);
-      setBusinessName(session.businessName);
-      setBusinessDescription(session.businessDescription);
-      setChatStep("edit");
-      setStatus("success");
-      setMessages([
-        { role: "assistant", content: WELCOME_MESSAGE },
-        ...(session.businessDescription
-          ? [{ role: "user" as const, content: session.businessDescription }]
-          : []),
-        { role: "assistant", content: READY_MESSAGE },
-      ]);
-    } else {
-      setWebsiteId(nextWebsiteId);
-      setChatStep("edit");
-      setStatus("success");
-    }
-
-    if (checkout === "cancel") {
-      setCheckoutNotice(
-        "Payment was cancelled. Subscribe when you're ready to edit or deploy.",
-      );
-      setShowPaywall(true);
-    } else if (checkout === "return") {
-      setCheckoutNotice("Confirming your PayFast subscription...");
-    }
-
-    void refreshSubscription(nextWebsiteId, checkout === "return");
-    // Restore once from the return URL / saved session.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  useEffect(() => {
-    if (chatStep !== "address" || !shouldUseAddressAutocomplete(chatInput)) {
-      setAddressSuggestions([]);
-      setShowAddressSuggestions(false);
-      return;
-    }
-
-    const timer = setTimeout(async () => {
-      try {
-        const response = await fetch(
-          `/api/places/autocomplete?input=${encodeURIComponent(chatInput.trim())}`,
-        );
-        const data = (await response.json()) as {
-          predictions?: AddressSuggestion[];
-        };
-
-        if (response.ok && data.predictions) {
-          setAddressSuggestions(data.predictions);
-          setShowAddressSuggestions(data.predictions.length > 0);
-        } else {
-          setAddressSuggestions([]);
-          setShowAddressSuggestions(false);
-        }
-      } catch {
-        setAddressSuggestions([]);
-        setShowAddressSuggestions(false);
-      }
-    }, 300);
-
-    return () => clearTimeout(timer);
-  }, [chatInput, chatStep]);
-
-  async function selectAddressSuggestion(suggestion: AddressSuggestion) {
-    setShowAddressSuggestions(false);
-    setAddressSuggestions([]);
-    setChatInput(suggestion.description);
-
-    try {
-      const response = await fetch(
-        `/api/places/details?placeId=${encodeURIComponent(suggestion.place_id)}`,
-      );
-      const data = (await response.json()) as { formatted_address?: string };
-
-      if (response.ok && data.formatted_address) {
-        setChatInput(data.formatted_address);
-      }
-    } catch {
-      // Keep the autocomplete description if details lookup fails.
-    }
-  }
+  }, [showPaywall, websiteId]);
 
   function addAssistantMessage(content: string) {
     setMessages((prev) => [...prev, { role: "assistant", content }]);
   }
 
-  async function refreshSubscription(id: string, poll = false) {
-    const deadline = Date.now() + (poll ? 25_000 : 0);
+  function isStaleRun(epoch: number) {
+    return epoch !== runEpochRef.current;
+  }
 
-    while (true) {
+  function applyJobView(job: SiteJobView) {
+    setActiveJobId(job.jobId);
+    setJobProgress(job.progress);
+    setJobMessage(job.message);
+  }
+
+  function clearJobView() {
+    setActiveJobId(null);
+    setJobProgress(null);
+    setJobMessage(null);
+  }
+
+  const waitForJob = useCallback(
+    async (jobId: string, epoch: number): Promise<SiteJobView> => {
+      while (!isStaleRun(epoch)) {
+        const response = await authFetch(`/api/jobs/${encodeURIComponent(jobId)}`);
+        const data = (await response.json()) as {
+          success?: boolean;
+          job?: SiteJobView;
+          error?: string;
+        };
+
+        if (isStaleRun(epoch)) {
+          throw new Error("cancelled");
+        }
+
+        if (!response.ok || !data.success || !data.job) {
+          throw new Error(data.error || "Could not check job status.");
+        }
+
+        applyJobView(data.job);
+
+        if (data.job.status === "complete") {
+          return data.job;
+        }
+        if (data.job.status === "failed") {
+          throw new Error(data.job.error || data.job.message || "The job failed.");
+        }
+        if (data.job.status === "cancelled") {
+          throw new Error("cancelled");
+        }
+
+        await sleep(1500);
+      }
+
+      throw new Error("cancelled");
+    },
+    [authFetch],
+  );
+
+  async function refreshSubscription(id: string, poll = false) {
+    const epoch = runEpochRef.current;
+    const deadline = Date.now() + (poll ? 90_000 : 0);
+
+    while (!isStaleRun(epoch)) {
       try {
-        const response = await fetch(
+        const response = await authFetch(
           `/api/subscription?websiteId=${encodeURIComponent(id)}`,
         );
         const data = (await response.json()) as {
@@ -254,11 +197,13 @@ export default function WebsiteBuilder() {
         };
 
         if (response.ok && data.paid) {
+          if (isStaleRun(epoch)) return;
           setIsSubscribed(true);
           setSubscribedDomain(data.subscription?.domain ?? null);
           setShowPaywall(false);
           setCheckoutNotice(null);
           if (poll && data.subscription?.domain) {
+            trackPurchase(data.subscription.domain);
             addAssistantMessage(
               `You're subscribed. Describe a change, or deploy ${data.subscription.domain}.`,
             );
@@ -270,11 +215,10 @@ export default function WebsiteBuilder() {
       }
 
       if (!poll || Date.now() >= deadline) {
-        if (poll) {
+        if (poll && !isStaleRun(epoch)) {
           setCheckoutNotice(
-            "Waiting for PayFast to confirm payment. This can take a few seconds.",
+            "PayFast is still confirming payment. This page unlocks when it completes — you can also check Sites.",
           );
-          setShowPaywall(true);
         }
         return;
       }
@@ -283,284 +227,332 @@ export default function WebsiteBuilder() {
     }
   }
 
-  async function validateDescription(description: string) {
-    const response = await fetch("/api/validate", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ prompt: description }),
-    });
-
-    const data = (await response.json()) as {
-      success: boolean;
-      valid?: boolean;
-      message?: string;
-      business_name?: string;
-      whatsapp_preference?: "yes" | "no" | "unknown";
-      whatsapp_number?: string;
-      error?: string;
-    };
-
-    if (!response.ok || !data.success) {
-      throw new Error(data.error || "Validation failed.");
+  useEffect(() => {
+    if (searchParams.get("new") === "1") {
+      clearBuilderSession();
+      router.replace("/builder");
+      return;
     }
 
-    return data;
-  }
+    const urlWebsiteId = searchParams.get("websiteId")?.trim() ?? "";
+    const checkout = searchParams.get("checkout");
+    const session = loadBuilderSession();
+    const nextWebsiteId = urlWebsiteId || session?.websiteId || "";
+    const resumeJobId = session?.jobId ?? "";
+    const resumeKind = session?.jobKind === "edit" || nextWebsiteId ? "edit" : "generate";
 
-  async function runGeneration(ethnicityId: PeopleEthnicityId | "" = peopleEthnicity) {
-    if (!businessDescription.trim() || isBusy) return;
+    if (session?.businessName) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- restore the saved builder session once on mount
+      setBusinessName(session.businessName);
+    }
+    if (session?.businessDescription) {
+      setBusinessDescription(session.businessDescription);
+    }
 
-    setStatus("generating");
-    setError(null);
-    setWebsiteId(null);
-    setFiles([]);
+    if (resumeJobId && !urlWebsiteId) {
+      setActiveJobId(resumeJobId);
+      if (resumeKind === "edit") {
+        setWebsiteId(nextWebsiteId || session?.websiteId || "");
+        setChatPhase("edit");
+        setStatus("success");
+        setIsEditing(true);
+        setMessages([
+          { role: "assistant", content: WELCOME_MESSAGE },
+          ...(session?.businessDescription
+            ? [{ role: "user" as const, content: session.businessDescription }]
+            : []),
+          { role: "assistant", content: READY_MESSAGE },
+        ]);
+      } else {
+        setStatus("generating");
+        setChatPhase("intake");
+      }
 
-    const promptParts = [businessDescription.trim()];
+      const epoch = runEpochRef.current;
+      void waitForJob(resumeJobId, epoch)
+        .then((job) => {
+          if (isStaleRun(epoch)) return;
+          if (job.kind === "generate" && job.websiteId) {
+            setWebsiteId(job.websiteId);
+            setStatus("success");
+            setChatPhase("edit");
+            trackGenerateSuccess(job.websiteId);
+            saveBuilderSession({
+              websiteId: job.websiteId,
+              businessName: session?.businessName ?? "",
+              businessDescription: session?.businessDescription ?? "",
+            });
+            addAssistantMessage(READY_MESSAGE);
+          } else if (job.kind === "edit") {
+            setIframeKey((key) => key + 1);
+            trackEditSuccess();
+            saveBuilderSession({
+              websiteId: job.websiteId || nextWebsiteId,
+              businessName: session?.businessName ?? "",
+              businessDescription: session?.businessDescription ?? "",
+            });
+            addAssistantMessage("Changes applied. Open the preview to see them.");
+          }
+          clearJobView();
+          setIsEditing(false);
+        })
+        .catch((error: unknown) => {
+          if (isStaleRun(epoch)) return;
+          if (error instanceof Error && error.message === "cancelled") return;
+          setIsEditing(false);
+          setStatus(resumeKind === "generate" ? "error" : "success");
+          setError(error instanceof Error ? error.message : "The previous job failed.");
+          clearJobView();
+        });
+    } else if (!nextWebsiteId) {
+      return;
+    } else if (session?.websiteId === nextWebsiteId) {
+      setWebsiteId(session.websiteId);
+      setBusinessName(session.businessName);
+      setBusinessDescription(session.businessDescription);
+      setChatPhase("edit");
+      setStatus("success");
+      setMessages([
+        { role: "assistant", content: WELCOME_MESSAGE },
+        ...(session.businessDescription
+          ? [{ role: "user" as const, content: session.businessDescription }]
+          : []),
+        { role: "assistant", content: READY_MESSAGE },
+      ]);
+    } else {
+      setWebsiteId(nextWebsiteId);
+      setChatPhase("edit");
+      setStatus("success");
+    }
 
-    if (address.trim()) {
+    if (!nextWebsiteId) {
+      return;
+    }
+
+    if (checkout === "cancel") {
+      setCheckoutNotice(
+        "Payment was cancelled. Subscribe when you're ready to edit or deploy.",
+      );
+      setShowPaywall(true);
+      trackCheckoutCancel();
+    } else if (checkout === "return") {
+      setCheckoutNotice("Confirming your PayFast subscription...");
+    }
+
+    void refreshSubscription(nextWebsiteId, checkout === "return");
+    void authFetch("/api/sites/claim", {
+      method: "POST",
+      body: JSON.stringify({
+        websiteId: nextWebsiteId,
+        businessName: session?.businessName ?? "",
+      }),
+    }).catch(() => {
+      // Keep the builder usable even if claiming fails.
+    });
+    // Restore once from the return URL / saved session.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  function buildGeneratePrompt(intake: WebsiteIntake): string {
+    const promptParts = [compileBusinessDescription(intake)];
+
+    if (intake.address.trim()) {
       promptParts.push(
-        `Business address: ${address.trim()}\nInclude an embedded Google Map on the website showing this location.`,
+        `Business address: ${intake.address.trim()}\nInclude an embedded Google Map on the website showing this location.`,
       );
     }
 
-    if (useWhatsApp) {
-      const number = whatsappNumber.trim();
+    if (intake.use_whatsapp === "yes") {
+      const number = intake.whatsapp_number.trim() || intake.phone.trim();
       if (number) {
         promptParts.push(
           `Add a WhatsApp contact button or link on the website using this WhatsApp number: ${number}. The business phone number for calls may be different — show both correctly if they differ.`,
         );
-      } else {
-        promptParts.push(
-          "Add a WhatsApp contact button or link on the website so customers can message the business via WhatsApp. Use the phone number from the description for the WhatsApp link.",
-        );
       }
     }
 
-    if (useContactForm && contactEmail.trim()) {
+    if (intake.use_contact_form === "yes" && intake.contact_email.trim()) {
       const contactEndpoint = `${window.location.origin}/api/contact`;
       promptParts.push(
         `Include a Contact Us form with name, email, and message fields (phone optional).
 When the form is submitted, send a fetch POST with JSON to this contact API endpoint: ${contactEndpoint}
-JSON body fields: to, name, email, phone, message, businessName.
-Set "to" to "${contactEmail.trim()}".
+JSON body fields: websiteId, name, email, phone, message, businessName.
+Set websiteId to "__WEBSITE_ID__". Do not send a recipient "to" address.
 Show success and error messages on the page without a full reload.
 Do not include API keys, Resend secrets, or any server-side code in the website files.
 Do not use mailto: as the primary submit method.`,
       );
     }
 
-    const ethnicity = getPeopleEthnicityOption(ethnicityId);
+    const ethnicity = getPeopleEthnicityOption(intake.people_ethnicity);
     if (ethnicity) {
       promptParts.push(
         `People in website photos: ${ethnicity.prompt}. If an image includes people, they should be ${ethnicity.prompt}. Include this in every image prompt that depicts people.`,
       );
     }
 
-    const fullPrompt = promptParts.join("\n\n");
+    if (intake.design_preference.trim()) {
+      promptParts.push(
+        `Design preference: ${intake.design_preference.trim()}
+Follow this closely in layout, colours, typography, and overall mood. If an instruction conflicts with keeping the site professional and usable, keep it usable and still honour the preference as far as possible.`,
+      );
+    }
+
+    if (intake.extra_details.trim()) {
+      promptParts.push(
+        `Additional details from the customer:\n${intake.extra_details.trim()}
+Use these details on the website where they fit. Do not invent extras beyond what they provided.`,
+      );
+    }
+
+    return promptParts.join("\n\n");
+  }
+
+  async function runGeneration(intake: WebsiteIntake) {
+    const epoch = runEpochRef.current;
+    const description = compileBusinessDescription(intake);
+    const name = intake.business_name.trim() || extractBusinessName(description);
+
+    setBusinessDescription(description);
+    setBusinessName(name);
+    setStatus("generating");
+    setError(null);
+    setWebsiteId(null);
+    setFiles([]);
+    trackGenerateStart();
 
     try {
-      const response = await fetch("/api/generate", {
+      const response = await authFetch("/api/generate", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          prompt: fullPrompt,
-          peopleEthnicity: ethnicityId || undefined,
+          prompt: buildGeneratePrompt(intake),
+          peopleEthnicity: intake.people_ethnicity || undefined,
+          businessName: name,
+          contactEmail: intake.contact_email || undefined,
         }),
       });
 
-      const data = (await response.json()) as GenerateWebsiteResponse;
+      const data = (await response.json()) as {
+        success?: boolean;
+        jobId?: string;
+        error?: string;
+      };
 
-      if (!response.ok || !data.success) {
-        const message =
-          "error" in data && data.error ? data.error : "Website generation failed.";
+      if (isStaleRun(epoch)) return;
+
+      if (!response.ok || !data.success || !data.jobId) {
+        const message = data.error || "Website generation failed.";
         setStatus("error");
         setError(message);
+        clearJobView();
+        trackGenerateFail();
         addAssistantMessage(
           "Something went wrong while generating your website. Please try again.",
         );
         return;
       }
 
-      setWebsiteId(data.websiteId);
-      setFiles(data.files);
+      saveBuilderSession({
+        websiteId: "",
+        businessName: name,
+        businessDescription: description,
+        jobId: data.jobId,
+        jobKind: "generate",
+      });
+
+      const job = await waitForJob(data.jobId, epoch);
+      if (isStaleRun(epoch)) return;
+
+      const nextWebsiteId = job.websiteId;
+      if (!nextWebsiteId) {
+        throw new Error("Generation finished without a website id.");
+      }
+
+      setWebsiteId(nextWebsiteId);
+      setFiles([]);
       setStatus("success");
-      setChatStep("edit");
+      setChatPhase("edit");
+      setPendingIntake(null);
+      setShowAddressModal(false);
       setIsSubscribed(false);
       setSubscribedDomain(null);
+      clearJobView();
+      trackGenerateSuccess(nextWebsiteId);
       saveBuilderSession({
-        websiteId: data.websiteId,
-        businessName,
-        businessDescription,
+        websiteId: nextWebsiteId,
+        businessName: name,
+        businessDescription: description,
       });
       addAssistantMessage(READY_MESSAGE);
-    } catch {
+    } catch (error) {
+      if (isStaleRun(epoch)) return;
+      if (error instanceof Error && error.message === "cancelled") return;
       setStatus("error");
-      setError("Could not reach the generate API. Please try again.");
+      setError(
+        error instanceof Error && error.message
+          ? error.message
+          : "Could not reach the generate API. Please try again.",
+      );
+      clearJobView();
+      trackGenerateFail();
       addAssistantMessage(
         "Could not reach the server. Please try again in a moment.",
       );
     }
   }
 
-  function askEthnicity() {
-    setChatStep("ethnicity");
-    addAssistantMessage(ETHNICITY_QUESTION);
-  }
-
-  async function completeAddressStep(text: string) {
-    if (!isSkipLikeInput(text) && !isNegative(text)) {
-      setAddress(text);
-    }
-    askEthnicity();
-  }
-
-  async function handleEthnicityChoice(id: PeopleEthnicityId) {
-    if (isBusy || chatStep !== "ethnicity") return;
-
-    const option = getPeopleEthnicityOption(id);
-    if (!option) return;
-
-    setPeopleEthnicity(id);
-    setMessages((prev) => [...prev, { role: "user", content: option.label }]);
-    addAssistantMessage("Got it. Building your website and images...");
-    await runGeneration(id);
-  }
-
-  function askAddress() {
-    setChatStep("address");
-    addAssistantMessage(ADDRESS_QUESTION);
-  }
-
-  function askContactForm() {
-    setChatStep("contact");
-    addAssistantMessage(CONTACT_QUESTION);
-  }
-
-  function proceedAfterDescriptionValid(
-    result: {
-      whatsapp_preference?: "yes" | "no" | "unknown";
-      whatsapp_number?: string;
-    },
-  ) {
-    const preference = result.whatsapp_preference ?? "unknown";
-    const extractedNumber = result.whatsapp_number?.trim() ?? "";
-
-    if (preference === "yes") {
-      setUseWhatsApp(true);
-      if (extractedNumber) {
-        setWhatsappNumber(extractedNumber);
-      }
-      if (extractedNumber) {
-        addAssistantMessage(
-          `Got it — we'll add WhatsApp using ${extractedNumber}.`,
-        );
-      }
-      askContactForm();
-      return;
-    }
-
-    if (preference === "no") {
-      setUseWhatsApp(false);
-      setWhatsappNumber("");
-      askContactForm();
-      return;
-    }
-
-    setChatStep("whatsapp");
-    addAssistantMessage(WHATSAPP_QUESTION);
-  }
-
-  async function handleWhatsAppChoice(wantsWhatsApp: boolean) {
-    if (isBusy || chatStep !== "whatsapp") return;
-
-    setUseWhatsApp(wantsWhatsApp);
-    if (!wantsWhatsApp) {
-      setWhatsappNumber("");
-    }
-    setMessages((prev) => [
-      ...prev,
-      { role: "user", content: wantsWhatsApp ? "Yes" : "No" },
-    ]);
-    askContactForm();
-  }
-
-  function handleContactChoice(wantsContactForm: boolean) {
-    if (isBusy || chatStep !== "contact") return;
-
-    setMessages((prev) => [
-      ...prev,
-      { role: "user", content: wantsContactForm ? "Yes" : "No" },
-    ]);
-
-    if (!wantsContactForm) {
-      setUseContactForm(false);
-      setContactEmail("");
-      askAddress();
-      return;
-    }
-
-    setUseContactForm(true);
-    const extracted = extractEmail(businessDescription);
-    if (extracted) {
-      setContactEmail(extracted);
-      addAssistantMessage(`We'll send form submissions to ${extracted}.`);
-      askAddress();
-      return;
-    }
-
-    setChatStep("contactEmail");
-    addAssistantMessage(CONTACT_EMAIL_QUESTION);
-  }
-
-  function completeContactEmailStep(text: string) {
-    if (isSkipLikeInput(text) || isNegative(text)) {
-      setUseContactForm(false);
-      setContactEmail("");
-      askAddress();
-      return;
-    }
-
-    const parsed = extractEmail(text) || (isValidEmail(text) ? text.trim() : "");
-    if (!parsed) {
-      addAssistantMessage("Please enter a valid email address, or click Skip.");
-      return;
-    }
-
-    setUseContactForm(true);
-    setContactEmail(parsed);
-    addAssistantMessage(`Got it — submissions will go to ${parsed}.`);
-    askAddress();
-  }
-
-  async function handleSkipContactEmail() {
-    if (isBusy || chatStep !== "contactEmail") return;
-
-    setMessages((prev) => [...prev, { role: "user", content: "Skip contact form" }]);
-    setChatInput("");
-    setUseContactForm(false);
-    setContactEmail("");
-    askAddress();
-  }
-
-  async function handleSkipAddress() {
-    if (isBusy || chatStep !== "address") return;
-
-    setMessages((prev) => [...prev, { role: "user", content: "Skip address" }]);
-    setChatInput("");
+  async function continueIntake(history: ChatMessage[]) {
+    const epoch = runEpochRef.current;
+    setStatus("chatting");
     setError(null);
-    await completeAddressStep("skip");
+
+    try {
+      const response = await authFetch("/api/chat", {
+        method: "POST",
+        body: JSON.stringify({ messages: history }),
+      });
+
+      const data = (await response.json()) as {
+        success?: boolean;
+        error?: string;
+      } & Partial<IntakeChatResult>;
+
+      if (isStaleRun(epoch)) return;
+
+      if (!response.ok || !data.success || !data.reply || !data.intake) {
+        throw new Error(data.error || "Chat request failed.");
+      }
+
+      addAssistantMessage(data.reply);
+
+      if (data.complete) {
+        setPendingIntake(data.intake);
+        setShowAddressModal(true);
+        setStatus("idle");
+        trackIntakeComplete();
+        return;
+      }
+
+      setStatus("idle");
+    } catch {
+      if (isStaleRun(epoch)) return;
+      setStatus("error");
+      setError("Could not continue the conversation. Please try again.");
+      addAssistantMessage("I couldn't reply just now. Please try again.");
+    }
   }
 
   async function applyEdit(instruction: string) {
     if (!instruction.trim() || !websiteId || isEditing) return;
 
+    const epoch = runEpochRef.current;
     setIsEditing(true);
     setError(null);
+    trackEditStart();
 
     try {
-      const response = await fetch("/api/edit", {
+      const response = await authFetch("/api/edit", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           websiteId,
           instruction: instruction.trim(),
@@ -568,43 +560,58 @@ Do not use mailto: as the primary submit method.`,
       });
 
       const data = (await response.json()) as {
-        success: boolean;
-        updatedFiles?: WebsiteFile[];
+        success?: boolean;
+        jobId?: string;
         error?: string;
       };
 
-      if (!response.ok || !data.success) {
+      if (isStaleRun(epoch)) return;
+
+      if (!response.ok || !data.success || !data.jobId) {
         if (response.status === 402) {
           setIsSubscribed(false);
           setShowPaywall(true);
         }
         setError(data.error || "Failed to apply changes.");
+        clearJobView();
         addAssistantMessage(data.error || "I couldn't apply that change. Please try again.");
         return;
       }
 
-      if (data.updatedFiles) {
-        setFiles((prev) => {
-          const updated = [...prev];
-          for (const updatedFile of data.updatedFiles!) {
-            const idx = updated.findIndex((file) => file.path === updatedFile.path);
-            if (idx >= 0) {
-              updated[idx] = updatedFile;
-            } else {
-              updated.push(updatedFile);
-            }
-          }
-          return updated;
-        });
-      }
+      saveBuilderSession({
+        websiteId,
+        businessName,
+        businessDescription,
+        jobId: data.jobId,
+        jobKind: "edit",
+      });
+
+      await waitForJob(data.jobId, epoch);
+      if (isStaleRun(epoch)) return;
 
       setIframeKey((key) => key + 1);
+      trackEditSuccess();
+      clearJobView();
+      saveBuilderSession({
+        websiteId,
+        businessName,
+        businessDescription,
+      });
       addAssistantMessage("Changes applied. Open the preview to see them.");
-    } catch {
-      setError("Could not apply changes. Please try again.");
+    } catch (error) {
+      if (isStaleRun(epoch)) return;
+      if (error instanceof Error && error.message === "cancelled") return;
+      setError(
+        error instanceof Error && error.message
+          ? error.message
+          : "Could not apply changes. Please try again.",
+      );
+      clearJobView();
       addAssistantMessage("Could not apply changes. Please try again.");
     } finally {
-      setIsEditing(false);
+      if (!isStaleRun(epoch)) {
+        setIsEditing(false);
+      }
     }
   }
 
@@ -614,63 +621,29 @@ Do not use mailto: as the primary submit method.`,
     const text = chatInput.trim();
     if (isBusy) return;
 
-    if (chatStep === "edit" && !isSubscribed) {
+    if (chatPhase === "edit" && !isSubscribed) {
       setShowPaywall(true);
       return;
     }
 
     if (!text) return;
 
-    setMessages((prev) => [...prev, { role: "user", content: text }]);
+    const nextMessages: ChatMessage[] = [...messages, { role: "user", content: text }];
+    setMessages(nextMessages);
     setChatInput("");
     setError(null);
 
-    if (chatStep === "edit") {
+    if (chatPhase === "edit") {
       await applyEdit(text);
       return;
     }
 
-    if (chatStep === "description") {
-      const updatedDescription = businessDescription
-        ? `${businessDescription}\n${text}`
-        : text;
-      setBusinessDescription(updatedDescription);
-      setStatus("validating");
-
-      try {
-        const result = await validateDescription(updatedDescription);
-
-        if (!result.valid) {
-          setStatus("idle");
-          addAssistantMessage(
-            result.message ||
-              "Please provide your business name, the services you offer, and your phone number.",
-          );
-          return;
-        }
-
-        setStatus("idle");
-        const extractedName = result.business_name?.trim();
-        setBusinessName(
-          extractedName || extractBusinessName(updatedDescription),
-        );
-        proceedAfterDescriptionValid(result);
-      } catch {
-        setStatus("error");
-        setError("Could not validate your description. Please try again.");
-        addAssistantMessage("I couldn't check your details right now. Please try again.");
-      }
-      return;
+    if (!intakeStartedRef.current) {
+      intakeStartedRef.current = true;
+      trackIntakeStart();
     }
 
-    if (chatStep === "contactEmail") {
-      completeContactEmailStep(text);
-      return;
-    }
-
-    if (chatStep === "address") {
-      await completeAddressStep(text);
-    }
+    await continueIntake(nextMessages);
   }
 
   function openDeployCard() {
@@ -687,38 +660,69 @@ Do not use mailto: as the primary submit method.`,
     setSubscribedDomain(domain);
     setShowPaywall(false);
     setCheckoutNotice(null);
+    trackPurchase(domain);
     addAssistantMessage(
       `You're subscribed. Describe a change, or deploy ${domain}.`,
     );
   }
 
+  function handleAddressChoice(address: string) {
+    if (!pendingIntake || status === "generating") return;
+
+    setShowAddressModal(false);
+    trackAddressChoice(Boolean(address.trim()));
+    void runGeneration({ ...pendingIntake, address });
+  }
+
   function handleStartOver() {
+    const jobId = activeJobId;
+    runEpochRef.current += 1;
+    intakeStartedRef.current = false;
+    if (jobId) {
+      void authFetch(`/api/jobs/${encodeURIComponent(jobId)}/cancel`, {
+        method: "POST",
+      }).catch(() => undefined);
+    }
     setMessages([{ role: "assistant", content: WELCOME_MESSAGE }]);
     setChatInput("");
-    setChatStep("description");
+    setChatPhase("intake");
+    setPendingIntake(null);
+    setShowAddressModal(false);
     setBusinessDescription("");
     setBusinessName("");
-    setAddress("");
-    setUseWhatsApp(false);
-    setWhatsappNumber("");
-    setUseContactForm(false);
-    setContactEmail("");
-    setPeopleEthnicity("");
     setStatus("idle");
     setError(null);
     setWebsiteId(null);
     setFiles([]);
+    setIsEditing(false);
+    setIframeKey((key) => key + 1);
+    setProgressBarKey((key) => key + 1);
     setShowDeployCard(false);
     setShowPaywall(false);
     setIsSubscribed(false);
     setSubscribedDomain(null);
     setCheckoutNotice(null);
+    clearJobView();
     clearBuilderSession();
   }
 
   return (
     <div className="mx-auto flex min-h-0 w-full max-w-[90rem] flex-1 flex-col px-3 pb-3 pt-3 sm:px-4 sm:pb-4">
       <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden rounded-[1.6rem] border border-stone-200/80 bg-white shadow-[0_24px_80px_rgba(28,25,23,0.12)]">
+        {showAddressModal && pendingIntake ? (
+          <AddressModal
+            businessName={pendingIntake.business_name}
+            onSkip={() => handleAddressChoice("")}
+            onSubmit={handleAddressChoice}
+            onBack={() => {
+              setShowAddressModal(false);
+              setStatus("idle");
+              addAssistantMessage(
+                "No problem. Tell me what to change, or say you're ready to generate.",
+              );
+            }}
+          />
+        ) : null}
         {showPaywall && websiteId ? (
           <PaywallCard
             websiteId={websiteId}
@@ -771,9 +775,9 @@ Do not use mailto: as the primary submit method.`,
                   {message.content}
                 </div>
               ))}
-              {status === "validating" ? (
+              {status === "chatting" ? (
                 <div className="max-w-[92%] rounded-2xl rounded-tl-md bg-white px-3.5 py-2.5 text-sm text-stone-500 shadow-sm ring-1 ring-stone-200/80">
-                  Checking your details...
+                  ...
                 </div>
               ) : null}
               {checkoutNotice ? (
@@ -786,13 +790,13 @@ Do not use mailto: as the primary submit method.`,
                   Applying your changes...
                 </div>
               ) : null}
-              {previewUrl && chatStep === "edit" ? (
+              {previewUrl && chatPhase === "edit" ? (
                 <div className="flex max-w-[92%] gap-2">
                   <a
                     href={previewUrl}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="inline-flex flex-1 items-center justify-center rounded-full bg-teal-800 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-teal-700"
+                    className="inline-flex flex-1 items-center justify-center rounded-full bg-teal-800 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-teal-700 lg:hidden"
                   >
                     Preview
                   </a>
@@ -809,134 +813,52 @@ Do not use mailto: as the primary submit method.`,
             </div>
 
             <div className="border-t border-stone-200/80 bg-[#f6f4ef] p-3">
-              {chatStep === "ethnicity" ? (
-                <div className="flex flex-wrap gap-2">
-                  {PEOPLE_ETHNICITY_OPTIONS.map((option) => (
-                    <button
-                      key={option.id}
-                      type="button"
-                      onClick={() => handleEthnicityChoice(option.id)}
-                      disabled={isBusy}
-                      className="inline-flex min-w-[46%] flex-1 items-center justify-center rounded-full border border-stone-300 bg-white px-3 py-2.5 text-sm font-semibold text-stone-700 transition hover:bg-stone-50 disabled:cursor-not-allowed disabled:opacity-50"
-                    >
-                      {option.label}
-                    </button>
-                  ))}
-                </div>
-              ) : chatStep === "whatsapp" || chatStep === "contact" ? (
-                <div className="flex gap-2">
-                  <button
-                    type="button"
-                    onClick={() =>
-                      chatStep === "whatsapp"
-                        ? handleWhatsAppChoice(true)
-                        : handleContactChoice(true)
-                    }
-                    disabled={isBusy}
-                    className="inline-flex flex-1 items-center justify-center rounded-full bg-teal-800 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-teal-700 disabled:cursor-not-allowed disabled:bg-stone-400"
-                  >
-                    Yes
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() =>
-                      chatStep === "whatsapp"
-                        ? handleWhatsAppChoice(false)
-                        : handleContactChoice(false)
-                    }
-                    disabled={isBusy}
-                    className="inline-flex flex-1 items-center justify-center rounded-full border border-stone-300 bg-white px-4 py-2.5 text-sm font-semibold text-stone-700 transition hover:bg-stone-50 disabled:cursor-not-allowed disabled:opacity-50"
-                  >
-                    No
-                  </button>
-                </div>
-              ) : (
-                <form onSubmit={handleChatSubmit} className="flex flex-col gap-2">
-                  <div className="relative flex gap-2">
-                    <input
-                      type={chatStep === "contactEmail" ? "email" : "text"}
-                      value={chatInput}
-                      onChange={(event) => setChatInput(event.target.value)}
-                      onFocus={() => {
-                        if (editLocked) {
-                          setShowPaywall(true);
-                          return;
-                        }
-                        if (addressSuggestions.length > 0) {
-                          setShowAddressSuggestions(true);
-                        }
-                      }}
-                      onClick={() => {
-                        if (editLocked) {
-                          setShowPaywall(true);
-                        }
-                      }}
-                      readOnly={editLocked}
-                      placeholder={
-                        chatStep === "address"
-                          ? "Start typing your address..."
-                          : chatStep === "contactEmail"
-                            ? "Enter your email address..."
-                            : chatStep === "edit"
-                              ? "Describe a change..."
-                              : "Describe your business..."
+              <form onSubmit={handleChatSubmit} className="flex flex-col gap-2">
+                <div className="relative flex gap-2">
+                  <input
+                    type="text"
+                    value={chatInput}
+                    onChange={(event) => setChatInput(event.target.value)}
+                    onFocus={() => {
+                      if (editLocked) {
+                        setShowPaywall(true);
                       }
-                      disabled={isBusy}
-                      className={`w-full rounded-full border border-stone-300 bg-white px-4 py-2.5 text-sm text-stone-800 outline-none transition placeholder:text-stone-400 focus:border-teal-700 focus:ring-2 focus:ring-teal-700/20 disabled:bg-stone-100 ${
-                        editLocked ? "cursor-pointer" : ""
-                      }`}
-                    />
-                    {chatStep === "address" || chatStep === "contactEmail" ? (
-                      <button
-                        type="button"
-                        onClick={
-                          chatStep === "contactEmail"
-                            ? handleSkipContactEmail
-                            : handleSkipAddress
-                        }
-                        disabled={isBusy}
-                        className="shrink-0 rounded-full border border-stone-300 bg-white px-3 py-2.5 text-sm font-semibold text-stone-700 transition hover:bg-stone-50 disabled:opacity-50"
-                      >
-                        Skip
-                      </button>
-                    ) : null}
-                    <button
-                      type="submit"
-                      disabled={isBusy || (!editLocked && !chatInput.trim())}
-                      className="shrink-0 rounded-full bg-teal-800 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-teal-700 disabled:cursor-not-allowed disabled:bg-stone-400"
-                    >
-                      Send
-                    </button>
-                    {chatStep === "address" &&
-                    showAddressSuggestions &&
-                    addressSuggestions.length > 0 ? (
-                      <ul className="absolute bottom-full left-0 z-10 mb-2 w-full overflow-hidden rounded-2xl border border-stone-200 bg-white shadow-lg">
-                        {addressSuggestions.map((suggestion) => (
-                          <li key={suggestion.place_id}>
-                            <button
-                              type="button"
-                              onClick={() => selectAddressSuggestion(suggestion)}
-                              className="w-full px-4 py-2.5 text-left text-sm text-stone-800 hover:bg-stone-50"
-                            >
-                              {suggestion.description}
-                            </button>
-                          </li>
-                        ))}
-                      </ul>
-                    ) : null}
-                  </div>
-                  <GenerationProgressBar
-                    active={status === "generating" || isEditing}
-                    durationMs={status === "generating" ? 120_000 : 60_000}
-                    label={
-                      isEditing
-                        ? "Applying your changes..."
-                        : "Building your website and images..."
+                    }}
+                    onClick={() => {
+                      if (editLocked) {
+                        setShowPaywall(true);
+                      }
+                    }}
+                    readOnly={editLocked}
+                    placeholder={
+                      chatPhase === "edit" ? "Describe a change..." : "Message..."
                     }
-                    completeLabel={isEditing ? "Changes applied!" : "Website ready!"}
+                    disabled={isBusy}
+                    className={`w-full rounded-full border border-stone-300 bg-white px-4 py-2.5 text-sm text-stone-800 outline-none transition placeholder:text-stone-400 focus:border-teal-700 focus:ring-2 focus:ring-teal-700/20 disabled:bg-stone-100 ${
+                      editLocked ? "cursor-pointer" : ""
+                    }`}
                   />
-                </form>
-              )}
+                  <button
+                    type="submit"
+                    disabled={isBusy || (!editLocked && !chatInput.trim())}
+                    className="shrink-0 rounded-full bg-teal-800 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-teal-700 disabled:cursor-not-allowed disabled:bg-stone-400"
+                  >
+                    Send
+                  </button>
+                </div>
+                <GenerationProgressBar
+                  key={progressBarKey}
+                  active={status === "generating" || isEditing}
+                  progress={jobProgress}
+                  label={
+                    jobMessage ||
+                    (isEditing
+                      ? "Applying your changes..."
+                      : "Building your website and images...")
+                  }
+                  completeLabel={isEditing ? "Changes applied!" : "Website ready!"}
+                />
+              </form>
               {error ? (
                 <p className="mt-2 text-xs text-red-700">{error}</p>
               ) : null}
@@ -952,7 +874,7 @@ Do not use mailto: as the primary submit method.`,
                 src={previewUrl}
                 title="Website preview"
                 className="relative h-full w-full border-0 bg-white"
-                sandbox="allow-scripts allow-same-origin allow-forms"
+                sandbox="allow-scripts allow-forms"
               />
             ) : (
               <EmptyPreview generating={status === "generating"} />

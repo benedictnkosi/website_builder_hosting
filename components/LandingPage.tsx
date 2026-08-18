@@ -124,7 +124,7 @@ export default function LandingPage() {
 
   useEffect(() => {
     if (!loading && user) {
-      router.replace("/builder");
+      router.replace("/dashboard");
     }
   }, [loading, user, router]);
 
@@ -134,7 +134,7 @@ export default function LandingPage() {
 
     try {
       await signInWithGoogle();
-      router.push("/builder");
+      router.push("/dashboard");
     } catch (err) {
       const code =
         typeof err === "object" && err && "code" in err ? String(err.code) : "";
@@ -193,8 +193,9 @@ export default function LandingPage() {
             <span className="mt-1 block text-teal-800">Get a website.</span>
           </h1>
           <p className="mx-auto mt-5 max-w-xl text-lg leading-relaxed text-stone-600">
-            Chat about your services, contact details, and location. We write the
-            copy, design the pages, and give you a live preview you can edit.
+          Chat about your services, contact details, and location. We write the
+          copy, design the pages, and give you a live preview. Subscribe when you
+          want to edit or publish.
           </p>
           <div className="mt-8 flex flex-col items-center gap-3">
             <GoogleButton signingIn={signingIn} onClick={handleGoogleSignIn} />
@@ -219,12 +220,12 @@ export default function LandingPage() {
             {
               step: "02",
               title: "Preview instantly",
-              body: "See a live site, then ask for changes like phone numbers or copy.",
+              body: "See a live site for free. Editing copy, phone numbers, and layout needs a subscription.",
             },
             {
               step: "03",
-              title: "Deploy when ready",
-              body: "Publish to your domain once the site looks the way you want.",
+              title: "Host your website when ready",
+              body: "Subscribe, then publish to your .co.za domain when the site looks right.",
             },
           ].map((item) => (
             <article

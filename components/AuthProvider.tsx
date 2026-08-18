@@ -9,21 +9,39 @@ import {
   type ReactNode,
 } from "react";
 import {
+  getAdditionalUserInfo,
   onAuthStateChanged,
   signInWithPopup,
   signOut as firebaseSignOut,
   type User,
 } from "firebase/auth";
 import { auth, googleProvider } from "@/lib/firebase";
+import { clearBuilderSession } from "@/lib/builder-session";
+import { trackLogin, trackLoginFailed, trackLogout } from "@/lib/analytics";
 
 type AuthContextValue = {
   user: User | null;
   loading: boolean;
   signInWithGoogle: () => Promise<void>;
   signOut: () => Promise<void>;
+  getIdToken: () => Promise<string | null>;
+  authFetch: (input: string, init?: RequestInit) => Promise<Response>;
 };
 
 const AuthContext = createContext<AuthContextValue | null>(null);
+
+async function syncSessionCookie(user: User | null) {
+  if (!user) {
+    await fetch("/api/session", { method: "DELETE" });
+    return;
+  }
+
+  const token = await user.getIdToken();
+  await fetch("/api/session", {
+    method: "POST",
+    headers: { Authorization: `Bearer ${token}` },
+  });
+}
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
@@ -31,8 +49,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, (nextUser) => {
-      setUser(nextUser);
-      setLoading(false);
+      void (async () => {
+        try {
+          await syncSessionCookie(nextUser);
+        } catch {
+          // Cookie sync failure still leaves Bearer auth available.
+        } finally {
+          setUser(nextUser);
+          setLoading(false);
+        }
+      })();
     });
 
     return unsubscribe;
@@ -43,10 +69,46 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       user,
       loading,
       async signInWithGoogle() {
-        await signInWithPopup(auth, googleProvider);
+        try {
+          const result = await signInWithPopup(auth, googleProvider);
+          trackLogin(Boolean(getAdditionalUserInfo(result)?.isNewUser));
+          await syncSessionCookie(result.user);
+        } catch (err) {
+          const code =
+            typeof err === "object" && err && "code" in err
+              ? String(err.code)
+              : "unknown";
+          if (
+            code !== "auth/popup-closed-by-user" &&
+            code !== "auth/cancelled-popup-request"
+          ) {
+            trackLoginFailed(code);
+          }
+          throw err;
+        }
       },
       async signOut() {
+        trackLogout();
+        clearBuilderSession();
+        await syncSessionCookie(null);
         await firebaseSignOut(auth);
+      },
+      async getIdToken() {
+        return user ? user.getIdToken() : null;
+      },
+      async authFetch(input, init = {}) {
+        const token = user ? await user.getIdToken() : null;
+        if (!token) {
+          throw new Error("Sign in to continue.");
+        }
+
+        const headers = new Headers(init.headers);
+        headers.set("Authorization", `Bearer ${token}`);
+        if (init.body && !headers.has("Content-Type")) {
+          headers.set("Content-Type", "application/json");
+        }
+
+        return fetch(input, { ...init, headers });
       },
     }),
     [user, loading],

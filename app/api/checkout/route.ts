@@ -1,15 +1,17 @@
 import { NextResponse } from "next/server";
+import { jsonAuthError } from "@/lib/auth-server";
 import {
-  getYearlyPlanPrice,
   searchDomainAvailability,
   splitRegisteredDomain,
 } from "@/lib/domains-co-za";
-import { websiteExists } from "@/lib/file-manager";
 import {
   buildPayfastSubscriptionCheckout,
   isPayfastConfigured,
+  isPayfastMockAllowed,
 } from "@/lib/payfast";
-import { WEBSITE_FEE_ZAR } from "@/lib/pricing";
+import { MONTHLY_SUBSCRIPTION_ZAR, SUBSCRIPTION_TLD } from "@/lib/pricing";
+import { clientKey, consumeRateLimit, jsonRateLimitError } from "@/lib/rate-limit";
+import { requireOwnedSite, writeWebsiteMeta } from "@/lib/sites";
 import {
   createPaymentId,
   readSubscription,
@@ -72,10 +74,25 @@ export async function POST(request: Request) {
     );
   }
 
-  if (!(await websiteExists(websiteId))) {
+  let owner;
+  try {
+    owner = await requireOwnedSite(request, websiteId);
+    consumeRateLimit(`checkout:${clientKey(request, owner.user.uid)}`, 10, 60 * 60 * 1000);
+  } catch (error) {
+    const limited = jsonRateLimitError(error);
+    if (limited) return limited;
+    const authResponse = jsonAuthError(error);
+    if (authResponse) return authResponse;
     return NextResponse.json(
-      { success: false, error: "Website not found." },
-      { status: 404 },
+      { success: false, error: "Sign in to continue." },
+      { status: 401 },
+    );
+  }
+
+  if (!owner) {
+    return NextResponse.json(
+      { success: false, error: "Sign in to continue." },
+      { status: 401 },
     );
   }
 
@@ -89,29 +106,80 @@ export async function POST(request: Request) {
     });
   }
 
+  if (existing?.status === "pending") {
+    if (existing.domain !== domain) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: `Checkout for ${existing.domain} is already in progress. Finish that payment or wait before choosing another domain.`,
+          domain: existing.domain,
+        },
+        { status: 409 },
+      );
+    }
+
+    if (!isPayfastConfigured()) {
+      if (!isPayfastMockAllowed()) {
+        return NextResponse.json(
+          { success: false, error: "PayFast is not configured." },
+          { status: 503 },
+        );
+      }
+    } else {
+      const checkout = buildPayfastSubscriptionCheckout({
+        origin: requestOrigin(request),
+        websiteId,
+        paymentId: existing.paymentId,
+        domain: existing.domain,
+        amountZar: existing.amountZar,
+        email: email || existing.email,
+        name: name || undefined,
+      });
+      return NextResponse.json({
+        success: true,
+        paid: false,
+        mocked: false,
+        processUrl: checkout.processUrl,
+        fields: checkout.fields,
+        subscription: {
+          websiteId,
+          domain: existing.domain,
+          amountZar: existing.amountZar,
+          websiteFeeZar: existing.websiteFeeZar,
+        },
+      });
+    }
+  }
+
   let sld: string;
   let tld: string;
   try {
     ({ sld, tld } = splitRegisteredDomain(domain));
   } catch (error) {
     const message =
-      error instanceof Error ? error.message : "A valid domain is required.";
+      error instanceof Error ? error.message : "A valid .co.za domain is required.";
     return NextResponse.json({ success: false, error: message }, { status: 400 });
   }
 
+  if (tld !== SUBSCRIPTION_TLD) {
+    return NextResponse.json(
+      { success: false, error: "Only .co.za domains are available." },
+      { status: 400 },
+    );
+  }
+
   try {
-    const availability = await searchDomainAvailability(sld, tld);
+    const availability = await searchDomainAvailability(sld);
     const result = availability.results[0];
     if (!result?.available) {
       return NextResponse.json(
-        { success: false, error: "That domain is not available. Choose another name or extension." },
+        { success: false, error: "That domain is not available. Choose another name." },
         { status: 409 },
       );
     }
 
-    const price = availability.price ?? (await getYearlyPlanPrice(tld, { premium: result.premium }));
     const now = new Date().toISOString();
-    const paymentId = createPaymentId();
+    const paymentId = existing?.paymentId || createPaymentId();
     const subscription: WebsiteSubscription = {
       websiteId,
       paymentId,
@@ -119,21 +187,35 @@ export async function POST(request: Request) {
       sld,
       tld,
       status: "pending",
-      amountZar: price.yearlyTotal,
-      domainPriceZar: price.registration,
-      websiteFeeZar: WEBSITE_FEE_ZAR,
+      amountZar: MONTHLY_SUBSCRIPTION_ZAR,
+      domainPriceZar: 0,
+      websiteFeeZar: MONTHLY_SUBSCRIPTION_ZAR,
       currency: "ZAR",
-      frequency: "annual",
-      mocked: !isPayfastConfigured(),
-      email: email || undefined,
+      frequency: "monthly",
+      mocked: false,
+      email: email || existing?.email,
       createdAt: existing?.createdAt ?? now,
       updatedAt: now,
+      processedNotifyIds: existing?.processedNotifyIds,
     };
 
     if (!isPayfastConfigured()) {
+      if (!isPayfastMockAllowed()) {
+        return NextResponse.json(
+          { success: false, error: "PayFast is not configured." },
+          { status: 503 },
+        );
+      }
+
       subscription.status = "active";
+      subscription.mocked = true;
       subscription.paidAt = now;
       await writeSubscription(subscription);
+      await writeWebsiteMeta(
+        { ...owner.meta, updatedAt: subscription.updatedAt },
+        owner.user,
+        subscription,
+      );
       return NextResponse.json({
         success: true,
         paid: true,
@@ -143,13 +225,18 @@ export async function POST(request: Request) {
     }
 
     await writeSubscription(subscription);
+    await writeWebsiteMeta(
+      { ...owner.meta, updatedAt: subscription.updatedAt },
+      owner.user,
+      subscription,
+    );
 
     const checkout = buildPayfastSubscriptionCheckout({
       origin: requestOrigin(request),
       websiteId,
       paymentId,
       domain: result.domain,
-      amountZar: price.yearlyTotal,
+      amountZar: MONTHLY_SUBSCRIPTION_ZAR,
       email: email || undefined,
       name: name || undefined,
     });
@@ -163,9 +250,8 @@ export async function POST(request: Request) {
       subscription: {
         websiteId,
         domain: result.domain,
-        amountZar: price.yearlyTotal,
-        domainPriceZar: price.registration,
-        websiteFeeZar: WEBSITE_FEE_ZAR,
+        amountZar: MONTHLY_SUBSCRIPTION_ZAR,
+        websiteFeeZar: MONTHLY_SUBSCRIPTION_ZAR,
       },
     });
   } catch (error) {

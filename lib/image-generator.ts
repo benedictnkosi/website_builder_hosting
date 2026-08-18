@@ -149,16 +149,24 @@ export async function generateWebsiteImages(
   const imageFiles: WebsiteFile[] = [];
 
   for (const request of unique) {
-    console.log(`Generating image: ${request.path}`);
-    const b64 = await generateImage(
-      withPeopleDirection(request.prompt, peopleEthnicity),
-    );
-    imageFiles.push({
-      path: request.path,
-      content: b64,
-      encoding: "base64",
-    });
+    imageFiles.push(await generateWebsiteImageFile(request, peopleEthnicity));
   }
 
   return imageFiles;
+}
+
+export async function generateWebsiteImageFile(
+  request: WebsiteImageRequest,
+  peopleEthnicity?: string,
+): Promise<WebsiteFile> {
+  const validated = validateImageRequest(request);
+  console.log(`Generating image: ${validated.path}`);
+  const b64 = await generateImage(
+    withPeopleDirection(validated.prompt, peopleEthnicity),
+  );
+  return {
+    path: validated.path,
+    content: b64,
+    encoding: "base64",
+  };
 }

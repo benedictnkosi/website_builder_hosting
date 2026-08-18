@@ -2,6 +2,8 @@ export type BuilderSession = {
   websiteId: string;
   businessName: string;
   businessDescription: string;
+  jobId?: string;
+  jobKind?: "generate" | "edit";
 };
 
 const SESSION_KEY = "website-builder-session";
@@ -22,13 +24,20 @@ export function loadBuilderSession(): BuilderSession | null {
 
   try {
     const data = JSON.parse(raw) as BuilderSession;
+    const jobId = typeof data?.jobId === "string" ? data.jobId : "";
+    const websiteId = typeof data?.websiteId === "string" ? data.websiteId : "";
     if (
-      typeof data?.websiteId === "string" &&
-      data.websiteId &&
-      typeof data.businessName === "string" &&
-      typeof data.businessDescription === "string"
+      typeof data?.businessName === "string" &&
+      typeof data?.businessDescription === "string" &&
+      (websiteId || jobId)
     ) {
-      return data;
+      return {
+        websiteId,
+        businessName: data.businessName,
+        businessDescription: data.businessDescription,
+        jobId: jobId || undefined,
+        jobKind: data.jobKind === "edit" || data.jobKind === "generate" ? data.jobKind : undefined,
+      };
     }
   } catch {
     return null;

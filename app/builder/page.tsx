@@ -1,7 +1,7 @@
 import { Suspense } from "react";
 import AppHeader from "@/components/AppHeader";
 import AuthGuard from "@/components/AuthGuard";
-import WebsiteBuilder from "@/components/WebsiteBuilder";
+import WebsiteBuilderEntry from "@/components/WebsiteBuilderEntry";
 
 export default function BuilderPage() {
   return (
@@ -15,7 +15,7 @@ export default function BuilderPage() {
             </div>
           }
         >
-          <WebsiteBuilder />
+          <WebsiteBuilderEntry />
         </Suspense>
       </main>
     </AuthGuard>

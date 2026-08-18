@@ -1,7 +1,13 @@
 "use client";
 
 import { FormEvent, useEffect, useState } from "react";
-import { DEFAULT_TLD, FALLBACK_TLDS } from "@/lib/domain-name";
+import { useAuth } from "@/components/AuthProvider";
+import { SUBSCRIPTION_TLD } from "@/lib/pricing";
+import {
+  trackDeployFail,
+  trackDeployStart,
+  trackDeploySuccess,
+} from "@/lib/analytics";
 
 type DomainResult = {
   domain: string;
@@ -44,9 +50,8 @@ export default function DeployWorkspace({
   subscribedDomain,
   onClose,
 }: DeployWorkspaceProps) {
+  const { authFetch } = useAuth();
   const [query, setQuery] = useState(suggestedName);
-  const [selectedTld, setSelectedTld] = useState(DEFAULT_TLD);
-  const [tlds, setTlds] = useState<string[]>(FALLBACK_TLDS.map((item) => item.tld));
   const [searching, setSearching] = useState(false);
   const [searchError, setSearchError] = useState<string | null>(null);
   const [result, setResult] = useState<DomainResult | null>(null);
@@ -59,49 +64,21 @@ export default function DeployWorkspace({
   const [isLocalhost, setIsLocalhost] = useState(false);
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- detect localhost after mount
     setIsLocalhost(
       ["localhost", "127.0.0.1", "[::1]"].includes(window.location.hostname),
     );
   }, []);
 
   useEffect(() => {
-    let cancelled = false;
-
-    async function loadTlds() {
-      try {
-        const response = await fetch("/api/domains/tlds");
-        const data = (await response.json()) as {
-          success?: boolean;
-          tlds?: string[];
-        };
-        if (!cancelled && response.ok && data.success && data.tlds?.length) {
-          setTlds(data.tlds);
-          if (!data.tlds.includes(selectedTld)) {
-            setSelectedTld(
-              data.tlds.includes(DEFAULT_TLD) ? DEFAULT_TLD : data.tlds[0],
-            );
-          }
-        }
-      } catch {
-        // Keep the fallback TLD list.
-      }
-    }
-
-    void loadTlds();
-    return () => {
-      cancelled = true;
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  useEffect(() => {
     if (subscribedDomain) {
       const parts = subscribedDomain.split(".");
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- bind the subscribed domain into the deploy form
       setQuery(parts[0] ?? subscribedDomain);
       setResult({
         domain: subscribedDomain,
         sld: parts[0] ?? subscribedDomain,
-        tld: parts.slice(1).join(".") || DEFAULT_TLD,
+        tld: parts.slice(1).join(".") || SUBSCRIPTION_TLD,
         available: true,
         premium: false,
         message: "Included in your subscription",
@@ -111,13 +88,13 @@ export default function DeployWorkspace({
 
     if (suggestedName) {
       setQuery(suggestedName);
-      void searchDomains(suggestedName, selectedTld);
+      void searchDomains(suggestedName);
     }
     // Run once for the suggested business name from the builder.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [suggestedName, subscribedDomain]);
 
-  async function searchDomains(name = query, tld = selectedTld) {
+  async function searchDomains(name = query) {
     const trimmed = name.trim();
     if (!trimmed) {
       setSearchError("Enter a domain name to search.");
@@ -135,9 +112,8 @@ export default function DeployWorkspace({
     try {
       const params = new URLSearchParams({
         q: trimmed,
-        tld,
       });
-      const response = await fetch(`/api/domains/search?${params.toString()}`);
+      const response = await authFetch(`/api/domains/search?${params.toString()}`);
       const data = (await response.json()) as {
         success?: boolean;
         results?: DomainResult[];
@@ -172,11 +148,11 @@ export default function DeployWorkspace({
     setDeployStatus("deploying");
     setDeployError(null);
     setSkippedDomainProvisioning(false);
+    trackDeployStart(result.domain);
 
     try {
-      const response = await fetch("/api/deploy", {
+      const response = await authFetch("/api/deploy", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           websiteId,
           domain: result.domain,
@@ -193,15 +169,18 @@ export default function DeployWorkspace({
       if (!response.ok || !data.success) {
         setDeployStatus("error");
         setDeployError(data.error || "Deployment failed.");
+        trackDeployFail();
         return;
       }
 
       setDeployStatus("success");
       setSkippedDomainProvisioning(Boolean(data.skippedDomainProvisioning));
       setDeployedUrl(data.url || `https://${result.domain}`);
+      trackDeploySuccess(result.domain);
     } catch {
       setDeployStatus("error");
       setDeployError("Could not reach the deploy API. Please try again.");
+      trackDeployFail();
     }
   }
 
@@ -239,7 +218,7 @@ export default function DeployWorkspace({
         <p className="mt-2 text-sm text-stone-600">
           {subscribedDomain
             ? `Your subscription includes ${subscribedDomain}. Deploy to make it live.`
-            : "Enter a name and choose the extension you want, starting with .co.za."}
+            : "Enter a name to check a .co.za domain."}
         </p>
 
         {subscribedDomain ? null : (
@@ -257,26 +236,9 @@ export default function DeployWorkspace({
               aria-label="Domain name"
               className="min-w-0 flex-1 border-0 bg-white px-3 py-3 text-base text-stone-800 outline-none placeholder:text-stone-400 disabled:bg-stone-50 sm:px-4"
             />
-            <label className="relative flex items-center bg-teal-50">
-              <span className="sr-only">Domain extension</span>
-              <select
-                value={selectedTld}
-                onChange={(event) => setSelectedTld(event.target.value)}
-                disabled={searching}
-                className="appearance-none bg-transparent py-3 pl-3 pr-8 text-sm font-semibold text-teal-800 outline-none"
-              >
-                {tlds.map((tld) => (
-                  <option key={tld} value={tld}>
-                    .{tld}
-                  </option>
-                ))}
-              </select>
-              <span className="pointer-events-none absolute right-2 text-teal-800">
-                <svg aria-hidden="true" viewBox="0 0 20 20" className="h-4 w-4" fill="currentColor">
-                  <path d="M5.25 7.5L10 12.25 14.75 7.5" />
-                </svg>
-              </span>
-            </label>
+            <span className="flex items-center bg-teal-50 px-3 text-sm font-semibold text-teal-800 sm:px-4">
+              .{SUBSCRIPTION_TLD}
+            </span>
             <button
               type="submit"
               disabled={searching || !query.trim()}
@@ -334,7 +296,7 @@ export default function DeployWorkspace({
               </button>
             ) : (
               <p className="mt-3 text-sm text-stone-600">
-                That name is taken. Try another name or a different extension.
+                That name is taken. Try another name.
               </p>
             )}
 

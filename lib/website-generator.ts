@@ -11,6 +11,7 @@ import { GeneratorError, validateGeneratedWebsite } from "./validation";
 export async function generateWebsite(
   prompt: string,
   peopleEthnicity?: string,
+  idToken?: string,
 ): Promise<GenerateWebsiteResult> {
   const trimmedPrompt = prompt.trim();
 
@@ -25,11 +26,10 @@ export async function generateWebsite(
     peopleEthnicity,
   );
   const allFiles = [...files, ...imageFiles];
-  const websiteId = await writeWebsiteFiles(allFiles);
+  const websiteId = await writeWebsiteFiles(allFiles, idToken);
 
   return {
     success: true,
     websiteId,
-    files: allFiles,
   };
 }

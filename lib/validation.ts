@@ -112,8 +112,20 @@ export function validateGeneratedWebsite(
     };
   });
 
+  const allowedPaths = new Set<string>(REQUIRED_FILES);
+  const unexpected = normalizedFiles.filter((file) => !allowedPaths.has(file.path));
+
+  if (unexpected.length > 0) {
+    console.warn(
+      "Dropping unexpected generated files:",
+      unexpected.map((file) => file.path),
+    );
+  }
+
+  const allowedFiles = normalizedFiles.filter((file) => allowedPaths.has(file.path));
   const seen = new Set<string>();
-  for (const file of normalizedFiles) {
+
+  for (const file of allowedFiles) {
     const key = file.path.toLowerCase();
     if (seen.has(key)) {
       throw new GeneratorError(`Duplicate file path: ${file.path}`);
@@ -121,7 +133,7 @@ export function validateGeneratedWebsite(
     seen.add(key);
   }
 
-  const paths = new Set(normalizedFiles.map((file) => file.path));
+  const paths = new Set(allowedFiles.map((file) => file.path));
   const missing = REQUIRED_FILES.filter((required) => !paths.has(required));
 
   if (missing.length > 0) {
@@ -130,5 +142,7 @@ export function validateGeneratedWebsite(
     );
   }
 
-  return normalizedFiles;
+  return REQUIRED_FILES.map(
+    (requiredPath) => allowedFiles.find((file) => file.path === requiredPath)!,
+  );
 }

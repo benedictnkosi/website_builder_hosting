@@ -1,7 +1,9 @@
 import { NextResponse } from "next/server";
+import { jsonAuthError, type AuthUser } from "@/lib/auth-server";
 import { provisionDomain } from "@/lib/domains-co-za";
 import { readDeployableWebsiteFiles } from "@/lib/file-manager";
 import { GeneratorError, isValidWebsiteId } from "@/lib/validation";
+import { requireOwnedSite } from "@/lib/sites";
 import { requireActiveSubscription } from "@/lib/subscription";
 
 export const runtime = "nodejs";
@@ -54,6 +56,18 @@ export async function POST(request: Request) {
     );
   }
 
+  let user: AuthUser;
+  try {
+    ({ user } = await requireOwnedSite(request, websiteId));
+  } catch (error) {
+    const authResponse = jsonAuthError(error);
+    if (authResponse) return authResponse;
+    return NextResponse.json(
+      { success: false, error: "Sign in to continue." },
+      { status: 401 },
+    );
+  }
+
   let subscription;
   try {
     subscription = await requireActiveSubscription(websiteId);
@@ -80,6 +94,22 @@ export async function POST(request: Request) {
   }
 
   const skipDomainApi = isLocalhostRequest(request);
+  const agentUrl = (process.env.DEPLOYMENT_AGENT_URL || DEFAULT_AGENT_URL).replace(
+    /\/$/,
+    "",
+  );
+  const apiKey = process.env.DEPLOYMENT_API_KEY?.trim() || "";
+
+  if (!apiKey) {
+    if (!skipDomainApi) {
+      return NextResponse.json(
+        { success: false, error: "DEPLOYMENT_API_KEY is not configured." },
+        { status: 500 },
+      );
+    }
+  }
+
+  const deployKey = apiKey || (skipDomainApi ? "development-key" : "");
 
   if (!skipDomainApi) {
     try {
@@ -95,7 +125,7 @@ export async function POST(request: Request) {
 
   let files;
   try {
-    files = await readDeployableWebsiteFiles(websiteId);
+    files = await readDeployableWebsiteFiles(websiteId, user.idToken);
   } catch (error) {
     const message =
       error instanceof GeneratorError
@@ -104,16 +134,11 @@ export async function POST(request: Request) {
     return NextResponse.json({ success: false, error: message }, { status: 404 });
   }
 
-  const agentUrl = (
-    process.env.DEPLOYMENT_AGENT_URL || DEFAULT_AGENT_URL
-  ).replace(/\/$/, "");
-  const apiKey = process.env.DEPLOYMENT_API_KEY || "development-key";
-
   try {
     const response = await fetch(`${agentUrl}/api/v1/deploy`, {
       method: "POST",
       headers: {
-        Authorization: `Bearer ${apiKey}`,
+        Authorization: `Bearer ${deployKey}`,
         "Content-Type": "application/json",
       },
       body: JSON.stringify({

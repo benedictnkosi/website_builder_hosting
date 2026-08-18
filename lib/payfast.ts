@@ -96,10 +96,12 @@ export function isPayfastConfigured(): boolean {
 
 export function isPayfastSandbox(): boolean {
   const value = process.env.PAYFAST_SANDBOX?.trim().toLowerCase();
-  if (value === "false" || value === "0") {
-    return false;
-  }
-  return true;
+  return value === "true" || value === "1" || value === "yes";
+}
+
+export function isPayfastMockAllowed(): boolean {
+  const value = process.env.PAYFAST_ALLOW_MOCK?.trim().toLowerCase();
+  return value === "true" || value === "1" || value === "yes";
 }
 
 export function getPayfastProcessUrl(): string {
@@ -133,6 +135,95 @@ export function generatePayfastSignature(
   }
 
   return createHash("md5").update(paramString).digest("hex");
+}
+
+export function generatePayfastApiSignature(
+  data: Record<string, string>,
+  passphrase: string,
+): string {
+  const payload: Record<string, string> = { ...data, passphrase };
+
+  const pairs = Object.keys(payload)
+    .sort()
+    .filter((key) => payload[key] !== "")
+    .map((key) => `${key}=${phpUrlEncode(payload[key].trim())}`);
+
+  return createHash("md5").update(pairs.join("&")).digest("hex");
+}
+
+function payfastApiTimestamp(date = new Date()): string {
+  const parts = new Intl.DateTimeFormat("sv-SE", {
+    timeZone: "Africa/Johannesburg",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hourCycle: "h23",
+  }).formatToParts(date);
+
+  const value = (type: Intl.DateTimeFormatPartTypes) =>
+    parts.find((part) => part.type === type)?.value ?? "";
+
+  return `${value("year")}-${value("month")}-${value("day")}T${value("hour")}:${value("minute")}:${value("second")}+02:00`;
+}
+
+export async function cancelPayfastSubscription(token: string): Promise<void> {
+  const merchantId = getPayfastMerchantId();
+  const passphrase = getPayfastPassphrase();
+  const trimmedToken = token.trim();
+
+  if (!merchantId || !passphrase) {
+    throw new Error("PayFast is not configured.");
+  }
+
+  if (!trimmedToken) {
+    throw new Error("Missing PayFast subscription token.");
+  }
+
+  const timestamp = payfastApiTimestamp();
+  const signature = generatePayfastApiSignature(
+    {
+      "merchant-id": merchantId,
+      timestamp,
+      version: "v1",
+    },
+    passphrase,
+  );
+
+  const url = new URL(
+    `https://api.payfast.co.za/subscriptions/${encodeURIComponent(trimmedToken)}/cancel`,
+  );
+  if (isPayfastSandbox()) {
+    url.searchParams.set("testing", "true");
+  }
+
+  const response = await fetch(url, {
+    method: "PUT",
+    headers: {
+      "merchant-id": merchantId,
+      version: "v1",
+      timestamp,
+      signature,
+    },
+    signal: AbortSignal.timeout(15_000),
+  });
+
+  const payload = (await response.json().catch(() => null)) as {
+    code?: number;
+    status?: string;
+    data?: { response?: boolean; message?: string };
+    message?: string;
+  } | null;
+
+  if (!response.ok || payload?.status === "failed" || payload?.data?.response === false) {
+    throw new Error(
+      payload?.data?.message ||
+        payload?.message ||
+        "PayFast could not cancel this subscription.",
+    );
+  }
 }
 
 function orderedCheckoutPayload(
@@ -180,10 +271,10 @@ export function buildPayfastSubscriptionCheckout(input: {
     m_payment_id: input.paymentId,
     amount,
     item_name: `Website + ${input.domain}`,
-    item_description: `Annual website and domain subscription for ${input.domain}`,
+    item_description: `Monthly website and domain subscription for ${input.domain}`,
     subscription_type: "1",
     recurring_amount: amount,
-    frequency: "6",
+    frequency: "3",
     cycles: "0",
     custom_str1: input.websiteId,
     custom_str2: input.domain,

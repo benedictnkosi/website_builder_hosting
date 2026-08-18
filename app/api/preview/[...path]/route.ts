@@ -1,19 +1,15 @@
 import { NextResponse } from "next/server";
-import { readFile } from "node:fs/promises";
-import path from "node:path";
-import { getGeneratedSitesRoot } from "@/lib/file-manager";
+import { readWebsitePreviewFile, websiteExists } from "@/lib/file-manager";
+import {
+  isSafeRelativePath,
+  isValidWebsiteId,
+  normalizeRelativePath,
+} from "@/lib/validation";
 
-const MIME_TYPES: Record<string, string> = {
-  ".html": "text/html",
-  ".css": "text/css",
-  ".js": "application/javascript",
-  ".json": "application/json",
-  ".png": "image/png",
-  ".jpg": "image/jpeg",
-  ".jpeg": "image/jpeg",
-  ".gif": "image/gif",
-  ".svg": "image/svg+xml",
-  ".ico": "image/x-icon",
+const PREVIEW_HEADERS = {
+  "Cache-Control": "private, no-store",
+  "X-Content-Type-Options": "nosniff",
+  "Referrer-Policy": "same-origin",
 };
 
 export async function GET(
@@ -27,24 +23,30 @@ export async function GET(
   }
 
   const [websiteId, ...rest] = segments;
+  if (!isValidWebsiteId(websiteId) || !(await websiteExists(websiteId))) {
+    return NextResponse.json({ error: "Not found" }, { status: 404 });
+  }
+
   const filePath = rest.length === 0 ? "index.html" : rest.join("/");
+  const normalized = normalizeRelativePath(filePath);
 
-  const resolved = path.resolve(getGeneratedSitesRoot(), websiteId, filePath);
-  const root = getGeneratedSitesRoot();
-
-  if (!resolved.startsWith(root)) {
+  if (
+    !isSafeRelativePath(filePath) ||
+    !isSafeRelativePath(normalized) ||
+    normalized.split("/").some((segment) => segment.startsWith("."))
+  ) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
-  try {
-    const content = await readFile(resolved);
-    const ext = path.extname(resolved).toLowerCase();
-    const contentType = MIME_TYPES[ext] || "application/octet-stream";
-
-    return new NextResponse(content, {
-      headers: { "Content-Type": contentType },
-    });
-  } catch {
+  const file = await readWebsitePreviewFile(websiteId, normalized);
+  if (!file) {
     return NextResponse.json({ error: "Not found" }, { status: 404 });
   }
+
+  return new NextResponse(new Uint8Array(file.body), {
+    headers: {
+      ...PREVIEW_HEADERS,
+      "Content-Type": file.contentType,
+    },
+  });
 }

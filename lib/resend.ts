@@ -5,12 +5,11 @@ const RESEND_EMAILS_URL = "https://api.resend.com/emails";
 const DEFAULT_FROM = "Website Contact <onboarding@resend.dev>";
 
 export function getResendApiKey(): string {
-  const apiKey =
-    process.env.NEXT_PUBLIC_RESEND_API_KEY || process.env.RESEND_API_KEY;
+  const apiKey = process.env.RESEND_API_KEY?.trim();
 
   if (!apiKey) {
     throw new GeneratorError(
-      "NEXT_PUBLIC_RESEND_API_KEY is not configured. Add it to your .env.local file.",
+      "RESEND_API_KEY is not configured. Add it to your .env.local file.",
       500,
     );
   }
