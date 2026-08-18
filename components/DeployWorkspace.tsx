@@ -97,7 +97,6 @@ export default function DeployWorkspace({
     setDeployStatus("idle");
     setDeployError(null);
     setDeployedUrl(null);
-    setSkippedDomainProvisioning(false);
 
     try {
       const params = new URLSearchParams({
@@ -191,7 +190,7 @@ export default function DeployWorkspace({
               id="domain-card-title"
               className="mt-1 text-2xl font-semibold tracking-tight text-stone-900"
             >
-              {subscribedDomain ? "Deploy your website" : "Find an available domain"}
+              {subscribedDomain ? "Publish your website" : "Find an available domain"}
             </h2>
           </div>
           <button
@@ -204,7 +203,7 @@ export default function DeployWorkspace({
         </div>
         <p className="mt-2 text-sm text-stone-600">
           {subscribedDomain
-            ? `Your subscription includes ${subscribedDomain}. Deploy to make it live.`
+            ? `Your subscription includes ${subscribedDomain}. Publish to make it live.`
             : "Enter a name to check a .co.za domain."}
         </p>
 
@@ -261,14 +260,16 @@ export default function DeployWorkspace({
                 }`}
               >
                 {result.available
-                  ? result.premium
+                  ? deployStatus === "success"
+                    ? "Live"
+                    : result.premium
                     ? "Available · Premium"
                     : "Available"
                   : "Taken"}
               </span>
             </div>
 
-            {result.available ? (
+            {result.available && deployStatus !== "success" ? (
               <button
                 type="button"
                 onClick={handleDeploy}
@@ -276,36 +277,46 @@ export default function DeployWorkspace({
                 className="mt-4 inline-flex w-full items-center justify-center rounded-full bg-teal-800 px-5 py-3 text-sm font-semibold text-white transition hover:bg-teal-700 disabled:cursor-not-allowed disabled:bg-stone-400 sm:w-auto"
               >
                 {deployStatus === "deploying"
-                  ? "Registering and deploying..."
-                  : `Deploy ${result.domain}`}
+                  ? "Registering and publishing..."
+                  : `Publish  ${result.domain}`}
               </button>
-            ) : (
+            ) : null}
+
+            {!result.available ? (
               <p className="mt-3 text-sm text-stone-600">
                 That name is taken. Try another name.
               </p>
-            )}
+            ) : null}
 
             {deployStatus === "deploying" ? (
               <p className="mt-3 text-sm text-stone-600">
-                Registering the domain, pointing DNS at the server, then deploying. This can take a minute.
+                Registering the domain, pointing DNS at the server, then publishing. This can take a minute.
               </p>
             ) : null}
 
             {deployError ? (
               <p className="mt-3 text-sm text-red-700">{deployError}</p>
             ) : null}
+
             {deployStatus === "success" && deployedUrl ? (
-              <p className="mt-3 text-sm text-teal-800">
-                Website available at 
+              <div className="mt-4">
+                <p className="text-base font-semibold text-teal-900">Website is live</p>
                 <a
                   href={deployedUrl}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="font-medium underline"
+                  className="mt-1 block break-all text-lg font-semibold text-teal-800 underline decoration-teal-800/40 underline-offset-2 transition hover:text-teal-700"
                 >
                   {deployedUrl}
                 </a>
-              </p>
+                <button
+                  type="button"
+                  onClick={handleDeploy}
+                  className="mt-4 rounded-full border border-stone-300 bg-white px-3 py-1.5 text-xs font-medium text-stone-600 transition hover:bg-stone-50"
+                >
+                  Publish again
+                </button>
+              </div>
             ) : null}
           </div>
         ) : null}

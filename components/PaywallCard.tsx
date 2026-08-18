@@ -189,7 +189,7 @@ export default function PaywallCard({
           </button>
         </div>
         <p className="mt-2 text-sm text-stone-600">
-          Generating a website is free. Editing and deploying is{" "}
+          Generating a website is free. Editing and publishing is{" "}
           {formatZar(MONTHLY_SUBSCRIPTION_ZAR)} per month, billed through PayFast.
         </p>
 

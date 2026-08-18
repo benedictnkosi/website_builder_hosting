@@ -51,6 +51,35 @@ function isTruthyFlag(value: unknown): boolean {
   return value === true || value === "true" || value === 1 || value === "1";
 }
 
+function redactDomainsPayload(data: Record<string, unknown>): Record<string, unknown> {
+  const redacted: Record<string, unknown> = { ...data };
+  if (typeof redacted.token === "string") {
+    redacted.token = "[redacted]";
+  }
+  return redacted;
+}
+
+function logDomainsResponse(
+  method: string,
+  path: string,
+  httpStatus: number,
+  data: Record<string, unknown>,
+) {
+  console.info("domains.co.za response", {
+    method,
+    path,
+    httpStatus,
+    intReturnCode: data.intReturnCode,
+    strMessage: data.strMessage,
+    strReason: data.strReason,
+    strEppMessage: data.strEppMessage,
+    strEppReason: data.strEppReason,
+    strStatus: data.strStatus,
+    strDomainName: data.strDomainName,
+    body: redactDomainsPayload(data),
+  });
+}
+
 async function readJson(response: Response): Promise<Record<string, unknown>> {
   const text = await response.text();
 
@@ -96,6 +125,7 @@ async function login(): Promise<string> {
   });
 
   const data = (await readJson(response)) as LoginResponse;
+  logDomainsResponse("POST", "login", response.status, data as Record<string, unknown>);
 
   if (!response.ok || data.intReturnCode !== 1 || !data.token) {
     cachedToken = null;
@@ -156,6 +186,7 @@ async function authorizedRequest(
   }
 
   const data = await readJson(response);
+  logDomainsResponse(method, path, response.status, data);
   const code = returnCode(data);
 
   if (!response.ok && code === undefined) {
@@ -178,16 +209,23 @@ function returnCode(data: Record<string, unknown>): number | undefined {
 }
 
 function apiError(data: Record<string, unknown>, fallback: string): string {
-  if (typeof data.strReason === "string" && data.strReason.trim()) {
-    return data.strReason;
-  }
-  if (typeof data.strEppReason === "string" && data.strEppReason.trim()) {
-    return data.strEppReason;
-  }
-  if (typeof data.strMessage === "string" && data.strMessage.trim()) {
-    return data.strMessage;
+  for (const key of ["strReason", "strEppReason", "strMessage"] as const) {
+    const value = data[key];
+    if (typeof value !== "string" || !value.trim()) continue;
+    if (isGenericApiMessage(value)) continue;
+    return value.trim();
   }
   return fallback;
+}
+
+function isGenericApiMessage(value: string): boolean {
+  const normalized = value.trim().toLowerCase();
+  return (
+    normalized === "ok" ||
+    normalized === "success" ||
+    normalized === "successful" ||
+    normalized.startsWith("successful action")
+  );
 }
 
 function sleep(ms: number): Promise<void> {
@@ -290,36 +328,40 @@ export async function searchDomainAvailability(
   };
 }
 
-async function getDefaultRegistrantTemplateId(): Promise<string | null> {
-  const envTemplate = process.env.DOMAINS_CO_ZA_REGISTRANT_TEMPLATE?.trim();
-  if (envTemplate) {
-    return envTemplate;
-  }
+function contactFromTemplateList(templates: unknown): Record<string, string> {
+  if (!Array.isArray(templates)) return {};
+  const records = templates.filter(
+    (item): item is Record<string, unknown> => Boolean(item) && typeof item === "object",
+  );
+  const match =
+    records.find((item) => item.strType === "registrant") ??
+    records.find((item) => item.strType === "all") ??
+    records[0];
+  const contact = match?.arrContact;
+  if (!contact || typeof contact !== "object") return {};
 
-  try {
-    const data = await authorizedGet(
-      "template/contact",
-      new URLSearchParams({
-        default: "true",
-        type: "registrant",
-      }),
-    );
-    const templates = data.arrTemplates;
-    if (!Array.isArray(templates) || templates.length === 0) {
-      return null;
+  const fields = contact as Record<string, unknown>;
+  const mapped: Record<string, string> = {};
+  const pairs: Array<[string, string]> = [
+    ["registrantName", "name"],
+    ["registrantEmail", "email"],
+    ["registrantCountry", "country"],
+    ["registrantProvince", "province"],
+    ["registrantContactNumber", "phone"],
+    ["registrantPostalCode", "postal"],
+    ["registrantAddress1", "address1"],
+    ["registrantCity", "city"],
+  ];
+  for (const [param, key] of pairs) {
+    const value = fields[key];
+    if (typeof value === "string" && value.trim()) {
+      mapped[param] = value.trim();
     }
-    const first = templates[0];
-    if (!first || typeof first !== "object") {
-      return null;
-    }
-    const id = (first as { strTemplateId?: unknown }).strTemplateId;
-    return typeof id === "string" && id.trim() ? id.trim() : null;
-  } catch {
-    return null;
   }
+  return mapped;
 }
 
-function appendRegistrantContact(params: URLSearchParams): void {
+function envRegistrantContact(): Record<string, string> {
   const fields: Record<string, string | undefined> = {
     registrantName: process.env.DOMAINS_CO_ZA_REGISTRANT_NAME,
     registrantEmail: process.env.DOMAINS_CO_ZA_REGISTRANT_EMAIL,
@@ -330,11 +372,50 @@ function appendRegistrantContact(params: URLSearchParams): void {
     registrantAddress1: process.env.DOMAINS_CO_ZA_REGISTRANT_ADDRESS,
     registrantCity: process.env.DOMAINS_CO_ZA_REGISTRANT_CITY,
   };
-
+  const mapped: Record<string, string> = {};
   for (const [key, value] of Object.entries(fields)) {
-    if (value?.trim()) {
-      params.set(key, value.trim());
+    if (value?.trim()) mapped[key] = value.trim();
+  }
+  return mapped;
+}
+
+async function loadRegistrantContact(): Promise<Record<string, string>> {
+  const fromEnv = envRegistrantContact();
+  if (fromEnv.registrantName && fromEnv.registrantEmail) {
+    return fromEnv;
+  }
+
+  try {
+    const data = await authorizedGet(
+      "template/contact",
+      new URLSearchParams({
+        default: "true",
+        type: "registrant",
+        list: "full",
+      }),
+    );
+    const fromDefault = contactFromTemplateList(data.arrTemplates);
+    const merged = { ...fromDefault, ...fromEnv };
+    if (merged.registrantName && merged.registrantEmail) {
+      return merged;
     }
+
+    const all = await authorizedGet(
+      "template/contact",
+      new URLSearchParams({ list: "full" }),
+    );
+    return { ...contactFromTemplateList(all.arrTemplates), ...fromEnv };
+  } catch {
+    return fromEnv;
+  }
+}
+
+function appendRegistrantContact(
+  params: URLSearchParams,
+  contact: Record<string, string>,
+): void {
+  for (const [key, value] of Object.entries(contact)) {
+    if (value.trim()) params.set(key, value.trim());
   }
 }
 
@@ -346,16 +427,12 @@ async function registerDomain(sld: string, tld: string): Promise<void> {
     dns: "managed",
   });
 
-  const templateId = await getDefaultRegistrantTemplateId();
-  if (templateId) {
-    params.set("registrantTemplate", templateId);
-  } else {
-    appendRegistrantContact(params);
-    if (!params.get("registrantName") || !params.get("registrantEmail")) {
-      throw new Error(
-        "No default registrant contact template found. Set DOMAINS_CO_ZA_REGISTRANT_NAME and DOMAINS_CO_ZA_REGISTRANT_EMAIL.",
-      );
-    }
+  const contact = await loadRegistrantContact();
+  appendRegistrantContact(params, contact);
+  if (!params.get("registrantName") || !params.get("registrantEmail")) {
+    throw new Error(
+      "No default registrant contact template found. Set DOMAINS_CO_ZA_REGISTRANT_NAME and DOMAINS_CO_ZA_REGISTRANT_EMAIL.",
+    );
   }
 
   const data = await authorizedPost("domain", params);
@@ -374,12 +451,13 @@ function isDomainCreated(data: Record<string, unknown>): boolean {
     return false;
   }
 
-  const status = String(data.strStatus ?? "").toLowerCase();
-  if (!status) {
-    return true;
+  const name = String(data.strDomainName ?? "").trim();
+  if (!name) {
+    return false;
   }
 
-  return status.includes("ok") && !status.includes("pending");
+  const status = `${data.strStatus ?? ""} ${data.strEppStatus ?? ""}`.toLowerCase();
+  return !status.includes("pendingcreate") && !status.includes("pending create");
 }
 
 async function waitForDomain(sld: string, tld: string): Promise<void> {
