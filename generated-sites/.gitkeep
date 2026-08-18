@@ -1,0 +1,8 @@
+# This directory stores generated static websites.
+# Each generation creates a unique subdirectory:
+#
+# generated-sites/
+#   8f4c1e/
+#     index.html
+#     styles.css
+#     script.js

@@ -1,36 +1,103 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# AI Website Builder
 
-## Getting Started
+Proof of concept for an AI-powered website generator. Enter a business description, and the app uses OpenAI `gpt-5.5` to produce a static HTML, CSS, and JavaScript website. Generated files are saved locally and shown in the UI.
 
-First, run the development server:
+This project does **not** include accounts, billing, databases, preview, editing, or deployment.
+
+## 1. Install dependencies
+
+```bash
+npm install
+```
+
+## 2. Create an OpenAI API key
+
+1. Sign in to [OpenAI](https://platform.openai.com/).
+2. Open [API keys](https://platform.openai.com/api-keys).
+3. Create a new secret key.
+4. Copy the key. You will not be able to see it again.
+
+## 3. Configure `OPENAI_API_KEY`
+
+Copy the example environment file and add your key:
+
+```bash
+cp .env.example .env.local
+```
+
+Then edit `.env.local`:
+
+```bash
+OPENAI_API_KEY=sk-your-openai-api-key
+```
+
+The key is only used by the Next.js API route. It is never sent to the browser.
+
+## 4. Run the development server
 
 ```bash
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Open [http://localhost:3000](http://localhost:3000).
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## 5. Generate a website
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+1. Describe the website in the textarea. For example:
 
-## Learn More
+   > I own a plumbing company in Durban called Thando Plumbing. We provide geyser repairs, blocked drains, leak detection and bathroom renovations. Our phone number is 082 123 4567.
 
-To learn more about Next.js, take a look at the following resources:
+2. Click **Generate Website**.
+3. Wait while the app calls `POST /api/generate`, which sends the prompt to OpenAI and writes the returned files to disk.
+4. Click a generated file (`index.html`, `styles.css`, `script.js`, or any extra files) to inspect its contents.
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+## 6. Where generated files are stored
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+Each successful generation creates a unique directory:
 
-## Deploy on Vercel
+```text
+generated-sites/
+  <website-id>/
+    index.html
+    styles.css
+    script.js
+```
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+Example:
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+```text
+generated-sites/
+  8f4c1e/
+    index.html
+    styles.css
+    script.js
+```
+
+The UI also shows the website ID and file count after a successful generation.
+
+## Project structure
+
+```text
+app/
+  page.tsx
+  api/
+    generate/
+      route.ts
+components/
+  WebsiteBuilder.tsx
+  FileExplorer.tsx
+  CodeViewer.tsx
+lib/
+  types.ts
+  openai.ts
+  website-generator.ts
+  file-manager.ts
+  validation.ts
+generated-sites/
+```
+
+## Notes
+
+- OpenAI is called only from `POST /api/generate`.
+- Generated file paths are validated so they cannot write outside `generated-sites/<id>/`.
+- Later features such as static preview, editing, regeneration, and deployment can reuse the `websiteId` and files already written to disk.

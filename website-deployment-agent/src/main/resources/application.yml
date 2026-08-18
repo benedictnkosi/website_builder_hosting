@@ -1,0 +1,23 @@
+server:
+  port: ${SERVER_PORT:8080}
+
+deployment:
+  web-root: ${WEB_ROOT:/tmp/website-agent/sites}
+  caddy-config: ${CADDY_CONFIG:/tmp/website-agent/caddy/Caddyfile}
+  caddy-sites-available: ${CADDY_SITES_AVAILABLE:/tmp/website-agent/caddy/sites-available}
+  caddy-sites-enabled: ${CADDY_SITES_ENABLED:/tmp/website-agent/caddy/sites-enabled}
+  caddy-command: ${CADDY_COMMAND:caddy}
+  max-files: ${MAX_FILES:100}
+  max-file-size-bytes: ${MAX_FILE_SIZE_BYTES:2097152}
+  max-total-size-bytes: ${MAX_TOTAL_SIZE_BYTES:10485760}
+  required-files:
+    - index.html
+    - styles.css
+    - script.js
+
+security:
+  api-key: ${DEPLOYMENT_API_KEY:development-key}
+
+logging:
+  level:
+    com.webhosting.deploymentagent: INFO

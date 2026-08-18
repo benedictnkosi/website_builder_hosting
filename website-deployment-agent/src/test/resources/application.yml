@@ -1,0 +1,9 @@
+deployment:
+  web-root: ${java.io.tmpdir}/website-agent-test/sites
+  caddy-config: ${java.io.tmpdir}/website-agent-test/caddy/Caddyfile
+  caddy-sites-available: ${java.io.tmpdir}/website-agent-test/caddy/sites-available
+  caddy-sites-enabled: ${java.io.tmpdir}/website-agent-test/caddy/sites-enabled
+  caddy-command: /bin/echo
+
+security:
+  api-key: test-api-key
