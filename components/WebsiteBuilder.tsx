@@ -50,6 +50,52 @@ function sleep(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+function SpinnerIcon() {
+  return (
+    <span className="relative flex h-5 w-5 shrink-0">
+      <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-teal-200 opacity-70" />
+      <svg
+        className="relative h-5 w-5 animate-spin"
+        viewBox="0 0 24 24"
+        fill="none"
+        aria-hidden="true"
+      >
+        <circle
+          className="opacity-25"
+          cx="12"
+          cy="12"
+          r="10"
+          stroke="currentColor"
+          strokeWidth="4"
+        />
+        <path
+          className="opacity-90"
+          fill="currentColor"
+          d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z"
+        />
+      </svg>
+    </span>
+  );
+}
+
+function PayfastConfirmingBanner() {
+  return (
+    <div
+      role="status"
+      aria-live="polite"
+      className="flex items-start gap-3 rounded-2xl bg-teal-800 px-4 py-3 text-white shadow-lg ring-2 ring-teal-950/30"
+    >
+      <SpinnerIcon />
+      <div>
+        <p className="text-sm font-semibold">Confirming your PayFast subscription</p>
+        <p className="mt-0.5 text-xs font-medium text-teal-100">
+          Stay on this page. This can take a few seconds.
+        </p>
+      </div>
+    </div>
+  );
+}
+
 function EmptyPreview({ generating }: { generating: boolean }) {
   return (
     <div className="relative flex h-full min-h-[22rem] items-center justify-center overflow-hidden bg-[#f7f3ea] p-6 sm:p-8">
@@ -97,6 +143,7 @@ export default function WebsiteBuilder() {
   const [isSubscribed, setIsSubscribed] = useState(false);
   const [subscribedDomain, setSubscribedDomain] = useState<string | null>(null);
   const [checkoutNotice, setCheckoutNotice] = useState<string | null>(null);
+  const [checkoutConfirming, setCheckoutConfirming] = useState(false);
   const [progressBarKey, setProgressBarKey] = useState(0);
   const [activeJobId, setActiveJobId] = useState<string | null>(null);
   const [jobProgress, setJobProgress] = useState<number | null>(null);
@@ -108,7 +155,8 @@ export default function WebsiteBuilder() {
     status === "chatting" ||
     status === "generating" ||
     isEditing ||
-    showAddressModal;
+    showAddressModal ||
+    checkoutConfirming;
   const previewUrl = websiteId ? `/api/preview/${websiteId}/index.html` : null;
   const tokenShortage = Boolean(error?.toLowerCase().includes("token"));
   const suggestedDomainName = slugifyDomainName(
@@ -117,7 +165,7 @@ export default function WebsiteBuilder() {
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages, status, isEditing, checkoutNotice]);
+  }, [messages, status, isEditing, checkoutNotice, checkoutConfirming]);
 
   useEffect(() => {
     if (showPaywall && websiteId) {
@@ -204,6 +252,7 @@ export default function WebsiteBuilder() {
           setSubscribedDomain(data.subscription?.domain ?? null);
           setShowPaywall(false);
           setCheckoutNotice(null);
+          setCheckoutConfirming(false);
           if (poll && data.subscription?.domain) {
             trackPurchase(data.subscription.domain);
             notifyTokensChanged();
@@ -219,6 +268,7 @@ export default function WebsiteBuilder() {
 
       if (!poll || Date.now() >= deadline) {
         if (poll && !isStaleRun(epoch)) {
+          setCheckoutConfirming(false);
           setCheckoutNotice(
             "PayFast is still confirming payment. This page unlocks when it completes — you can also check Sites.",
           );
@@ -335,12 +385,14 @@ export default function WebsiteBuilder() {
     }
 
     if (checkout === "cancel") {
+      setCheckoutConfirming(false);
       setCheckoutNotice(
         "Payment was cancelled. Subscribe when you're ready to deploy.",
       );
       setShowPaywall(true);
       trackCheckoutCancel();
     } else if (checkout === "return") {
+      setCheckoutConfirming(true);
       setCheckoutNotice("Confirming your PayFast subscription...");
     }
 
@@ -671,7 +723,7 @@ Use these details on the website where they fit. Do not invent extras beyond wha
   }
 
   function openDeployCard() {
-    if (!websiteId) return;
+    if (!websiteId || checkoutConfirming) return;
     if (!isSubscribed) {
       setShowPaywall(true);
       return;
@@ -684,6 +736,7 @@ Use these details on the website where they fit. Do not invent extras beyond wha
     setSubscribedDomain(domain);
     setShowPaywall(false);
     setCheckoutNotice(null);
+    setCheckoutConfirming(false);
     trackPurchase(domain);
     notifyTokensChanged();
     addAssistantMessage(
@@ -727,6 +780,7 @@ Use these details on the website where they fit. Do not invent extras beyond wha
     setIsSubscribed(false);
     setSubscribedDomain(null);
     setCheckoutNotice(null);
+    setCheckoutConfirming(false);
     clearJobView();
     clearBuilderSession();
   }
@@ -805,11 +859,6 @@ Use these details on the website where they fit. Do not invent extras beyond wha
                   ...
                 </div>
               ) : null}
-              {checkoutNotice ? (
-                <div className="max-w-[92%] rounded-2xl rounded-tl-md bg-white px-3.5 py-2.5 text-sm text-stone-600 shadow-sm ring-1 ring-stone-200/80">
-                  {checkoutNotice}
-                </div>
-              ) : null}
               {isEditing ? (
                 <div className="max-w-[92%] rounded-2xl rounded-tl-md bg-white px-3.5 py-2.5 text-sm text-stone-500 shadow-sm ring-1 ring-stone-200/80">
                   Applying your changes...
@@ -828,10 +877,18 @@ Use these details on the website where they fit. Do not invent extras beyond wha
                   <button
                     type="button"
                     onClick={openDeployCard}
-                    className="inline-flex flex-1 items-center justify-center rounded-full border border-stone-300 bg-white px-4 py-2.5 text-sm font-semibold text-stone-700 transition hover:bg-stone-50"
+                    disabled={checkoutConfirming}
+                    className="inline-flex flex-1 items-center justify-center rounded-full border border-stone-300 bg-white px-4 py-2.5 text-sm font-semibold text-stone-700 transition hover:bg-stone-50 disabled:cursor-not-allowed disabled:border-stone-200 disabled:bg-stone-100 disabled:text-stone-400"
                   >
                     🚀 Publish Website
                   </button>
+                </div>
+              ) : null}
+              {checkoutConfirming ? (
+                <PayfastConfirmingBanner />
+              ) : checkoutNotice ? (
+                <div className="rounded-2xl bg-amber-100 px-3.5 py-2.5 text-sm font-medium text-amber-950 ring-1 ring-amber-300">
+                  {checkoutNotice}
                 </div>
               ) : null}
               {tokenShortage ? (

@@ -99,7 +99,9 @@ export function isPayfastConfigured(): boolean {
 
 export function isPayfastSandbox(): boolean {
   const value = process.env.PAYFAST_SANDBOX?.trim().toLowerCase();
-  return value === "true" || value === "1" || value === "yes";
+  if (value === "true" || value === "1" || value === "yes") return true;
+  if (value === "false" || value === "0" || value === "no") return false;
+  return process.env.NODE_ENV === "development";
 }
 
 export function isPayfastMockAllowed(): boolean {
@@ -127,8 +129,15 @@ export function generatePayfastSignature(
   const pairs: string[] = [];
 
   for (const [key, value] of Object.entries(data)) {
-    if (key === "signature" || value === "") continue;
-    pairs.push(`${key}=${phpUrlEncode(value.trim())}`);
+    if (key === "signature") continue;
+    const trimmed = value.trim();
+    // PayFast ITN includes posted-but-empty fields as "key=".
+    // Checkout omits those keys entirely, so this does not change outgoing signatures.
+    if (trimmed === "") {
+      pairs.push(`${key}=`);
+      continue;
+    }
+    pairs.push(`${key}=${phpUrlEncode(trimmed)}`);
   }
 
   let paramString = pairs.join("&");

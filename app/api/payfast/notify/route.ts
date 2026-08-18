@@ -18,7 +18,7 @@ async function handleTokenTopup(data: Record<string, string>) {
   const paymentId = data.m_payment_id?.trim() || data.custom_str2?.trim() || "";
   const uid = data.custom_str1?.trim() || "";
   if (!paymentId) {
-    return new NextResponse("Missing payment details.", { status: 400 });
+    return rejectNotify("Missing payment details.", 400, data);
   }
 
   const topup = await readTokenTopup(paymentId);
@@ -34,7 +34,7 @@ async function handleTokenTopup(data: Record<string, string>) {
   }
 
   if (!amountsMatch(topup.amountZar || TOKEN_TOPUP_ZAR, data.amount_gross)) {
-    return new NextResponse("Amount mismatch.", { status: 400 });
+    return rejectNotify("Amount mismatch.", 400, data);
   }
 
   const now = new Date().toISOString();
@@ -78,7 +78,7 @@ async function handleSubscription(data: Record<string, string>) {
   const websiteId = data.custom_str1?.trim() ?? "";
   const paymentId = data.m_payment_id?.trim() || data.custom_str3?.trim() || "";
   if (!websiteId || !paymentId) {
-    return new NextResponse("Missing payment details.", { status: 400 });
+    return rejectNotify("Missing payment details.", 400, data);
   }
 
   const subscription = await readSubscription(websiteId);
@@ -94,7 +94,7 @@ async function handleSubscription(data: Record<string, string>) {
   }
 
   if (!amountsMatch(subscription.amountZar, data.amount_gross)) {
-    return new NextResponse("Amount mismatch.", { status: 400 });
+    return rejectNotify("Amount mismatch.", 400, data);
   }
 
   const now = new Date().toISOString();
@@ -150,25 +150,39 @@ async function handleSubscription(data: Record<string, string>) {
   return new NextResponse("OK", { status: 200 });
 }
 
+function rejectNotify(reason: string, status: number, data?: Record<string, string>) {
+  console.warn("PayFast notify rejected:", reason, {
+    merchant_id: data?.merchant_id,
+    expected_merchant_id: getPayfastMerchantId() || undefined,
+    m_payment_id: data?.m_payment_id,
+    custom_str1: data?.custom_str1,
+    custom_str4: data?.custom_str4,
+    payment_status: data?.payment_status,
+    amount_gross: data?.amount_gross,
+    has_signature: Boolean(data?.signature),
+  });
+  return new NextResponse(reason, { status });
+}
+
 export async function POST(request: Request) {
   if (!isPayfastConfigured()) {
-    return new NextResponse("PayFast is not configured.", { status: 503 });
+    return rejectNotify("PayFast is not configured.", 503);
   }
 
   let data: Record<string, string>;
   try {
     data = parsePayfastNotify(await request.formData());
   } catch {
-    return new NextResponse("Invalid notification.", { status: 400 });
+    return rejectNotify("Invalid notification.", 400);
   }
 
   if (!verifyPayfastSignature(data)) {
-    return new NextResponse("Invalid signature.", { status: 400 });
+    return rejectNotify("Invalid signature.", 400, data);
   }
 
   const merchantId = getPayfastMerchantId();
   if (merchantId && data.merchant_id && data.merchant_id !== merchantId) {
-    return new NextResponse("Merchant mismatch.", { status: 400 });
+    return rejectNotify("Merchant mismatch.", 400, data);
   }
 
   if (data.custom_str4?.trim() === "tokens") {
