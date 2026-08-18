@@ -15,6 +15,10 @@ public class DeploymentProperties {
     private String caddyCommand = "caddy";
     private boolean enableHttps = false;
     private String acmeEmail = "";
+    private String publicIp = "";
+    private List<String> dnsResolvers = new ArrayList<>(List.of("8.8.8.8", "1.1.1.1"));
+    private int dnsTimeoutMs = 2000;
+    private long httpsRetryMs = 30_000;
     private int maxFiles = 100;
     private long maxFileSizeBytes = 2 * 1024 * 1024;
     private long maxTotalSizeBytes = 10 * 1024 * 1024;
@@ -74,6 +78,38 @@ public class DeploymentProperties {
 
     public void setAcmeEmail(String acmeEmail) {
         this.acmeEmail = acmeEmail;
+    }
+
+    public String getPublicIp() {
+        return publicIp;
+    }
+
+    public void setPublicIp(String publicIp) {
+        this.publicIp = publicIp;
+    }
+
+    public List<String> getDnsResolvers() {
+        return dnsResolvers;
+    }
+
+    public void setDnsResolvers(List<String> dnsResolvers) {
+        this.dnsResolvers = dnsResolvers == null ? new ArrayList<>() : dnsResolvers;
+    }
+
+    public int getDnsTimeoutMs() {
+        return dnsTimeoutMs;
+    }
+
+    public void setDnsTimeoutMs(int dnsTimeoutMs) {
+        this.dnsTimeoutMs = dnsTimeoutMs;
+    }
+
+    public long getHttpsRetryMs() {
+        return httpsRetryMs;
+    }
+
+    public void setHttpsRetryMs(long httpsRetryMs) {
+        this.httpsRetryMs = httpsRetryMs;
     }
 
     public int getMaxFiles() {

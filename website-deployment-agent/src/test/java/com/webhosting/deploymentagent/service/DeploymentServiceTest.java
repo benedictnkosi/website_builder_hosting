@@ -3,6 +3,7 @@ package com.webhosting.deploymentagent.service;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doNothing;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.never;
@@ -19,6 +20,7 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.http.HttpStatus;
 
+import com.webhosting.deploymentagent.config.DeploymentProperties;
 import com.webhosting.deploymentagent.exception.CaddyException;
 import com.webhosting.deploymentagent.exception.DeploymentException;
 import com.webhosting.deploymentagent.exception.InvalidFilePathException;
@@ -36,14 +38,21 @@ class DeploymentServiceTest {
     @Mock
     private CaddyService caddyService;
 
+    @Mock
+    private DnsResolutionService dnsResolutionService;
+
+    private DeploymentProperties deploymentProperties;
     private DeploymentService deploymentService;
 
     @BeforeEach
     void setUp() {
+        deploymentProperties = new DeploymentProperties();
         deploymentService = new DeploymentService(
                 new DomainValidationService(),
                 fileService,
-                caddyService);
+                caddyService,
+                dnsResolutionService,
+                deploymentProperties);
     }
 
     @Test
@@ -59,7 +68,7 @@ class DeploymentServiceTest {
 
         when(fileService.createTemporaryDeploymentDirectory()).thenReturn(tempDir);
         when(fileService.getWebsiteDirectory("example.com")).thenReturn(finalDir);
-        when(caddyService.generateConfiguration("example.com", finalDir)).thenReturn("http://example.com { }");
+        when(caddyService.generateConfiguration("example.com", finalDir, false)).thenReturn("http://example.com { }");
         when(caddyService.stageConfiguration("example.com", "http://example.com { }")).thenReturn(staged);
         doNothing().when(fileService).ensureDirectoriesExist();
         doNothing().when(fileService).validateDeploymentLimits(request.getFiles());
@@ -148,7 +157,7 @@ class DeploymentServiceTest {
 
         when(fileService.createTemporaryDeploymentDirectory()).thenReturn(tempDir);
         when(fileService.getWebsiteDirectory("example.com")).thenReturn(finalDir);
-        when(caddyService.generateConfiguration("example.com", finalDir)).thenReturn("http://example.com { }");
+        when(caddyService.generateConfiguration("example.com", finalDir, false)).thenReturn("http://example.com { }");
         when(caddyService.stageConfiguration("example.com", "http://example.com { }")).thenReturn(staged);
         doNothing().when(fileService).ensureDirectoriesExist();
         doNothing().when(fileService).validateDeploymentLimits(request.getFiles());
@@ -177,7 +186,7 @@ class DeploymentServiceTest {
 
         when(fileService.createTemporaryDeploymentDirectory()).thenReturn(tempDir);
         when(fileService.getWebsiteDirectory("example.com")).thenReturn(finalDir);
-        when(caddyService.generateConfiguration("example.com", finalDir)).thenReturn("http://example.com { }");
+        when(caddyService.generateConfiguration("example.com", finalDir, false)).thenReturn("http://example.com { }");
         when(caddyService.stageConfiguration("example.com", "http://example.com { }")).thenReturn(staged);
         doNothing().when(fileService).ensureDirectoriesExist();
         doNothing().when(fileService).validateDeploymentLimits(request.getFiles());
@@ -191,6 +200,106 @@ class DeploymentServiceTest {
 
         CaddyException ex = assertThrows(CaddyException.class, () -> deploymentService.deploy(request));
         assertEquals("CADDY_RELOAD_FAILED", ex.getErrorCode());
+    }
+
+    @Test
+    void keepsHttpUntilPublicDnsIsReady() throws Exception {
+        deploymentProperties.setEnableHttps(true);
+        DeployRequest request = validRequest();
+        Path tempDir = Path.of("/tmp/deploy-1");
+        Path finalDir = Path.of("/var/www/sites/example.com");
+        StagedConfiguration staged = new StagedConfiguration(
+                "example.com",
+                Path.of("/tmp/caddy/example.com.caddy.staging"),
+                Path.of("/tmp/caddy/sites-enabled/example.com.caddy"),
+                "example.com.caddy");
+
+        when(fileService.createTemporaryDeploymentDirectory()).thenReturn(tempDir);
+        when(fileService.getWebsiteDirectory("example.com")).thenReturn(finalDir);
+        when(caddyService.hasHttpsSite("example.com")).thenReturn(false);
+        when(dnsResolutionService.isReadyForHttps("example.com")).thenReturn(false);
+        when(caddyService.generateConfiguration("example.com", finalDir, false)).thenReturn("http://example.com { }");
+        when(caddyService.stageConfiguration("example.com", "http://example.com { }")).thenReturn(staged);
+        doNothing().when(fileService).ensureDirectoriesExist();
+        doNothing().when(fileService).validateDeploymentLimits(request.getFiles());
+        doNothing().when(fileService).writeFiles(tempDir, request.getFiles());
+        doNothing().when(fileService).validateRequiredFiles(tempDir);
+        doNothing().when(caddyService).validateConfiguration();
+        doNothing().when(caddyService).finalizeConfiguration(staged);
+        doNothing().when(fileService).activateDeployment(tempDir, "example.com");
+        doNothing().when(caddyService).reloadCaddy();
+
+        DeployResponse response = deploymentService.deploy(request);
+
+        assertEquals(false, response.isHttpsReady());
+        verify(caddyService).generateConfiguration("example.com", finalDir, false);
+        verify(dnsResolutionService).isReadyForHttps("example.com");
+    }
+
+    @Test
+    void enablesHttpsWhenPublicDnsAlreadyPointsHere() throws Exception {
+        deploymentProperties.setEnableHttps(true);
+        DeployRequest request = validRequest();
+        Path tempDir = Path.of("/tmp/deploy-1");
+        Path finalDir = Path.of("/var/www/sites/example.com");
+        StagedConfiguration staged = new StagedConfiguration(
+                "example.com",
+                Path.of("/tmp/caddy/example.com.caddy.staging"),
+                Path.of("/tmp/caddy/sites-enabled/example.com.caddy"),
+                "example.com.caddy");
+
+        when(fileService.createTemporaryDeploymentDirectory()).thenReturn(tempDir);
+        when(fileService.getWebsiteDirectory("example.com")).thenReturn(finalDir);
+        when(caddyService.hasHttpsSite("example.com")).thenReturn(false);
+        when(dnsResolutionService.isReadyForHttps("example.com")).thenReturn(true);
+        when(caddyService.generateConfiguration("example.com", finalDir, true)).thenReturn("example.com { }");
+        when(caddyService.stageConfiguration("example.com", "example.com { }")).thenReturn(staged);
+        doNothing().when(fileService).ensureDirectoriesExist();
+        doNothing().when(fileService).validateDeploymentLimits(request.getFiles());
+        doNothing().when(fileService).writeFiles(tempDir, request.getFiles());
+        doNothing().when(fileService).validateRequiredFiles(tempDir);
+        doNothing().when(caddyService).validateConfiguration();
+        doNothing().when(caddyService).finalizeConfiguration(staged);
+        doNothing().when(fileService).activateDeployment(tempDir, "example.com");
+        doNothing().when(caddyService).reloadCaddy();
+
+        DeployResponse response = deploymentService.deploy(request);
+
+        assertEquals(true, response.isHttpsReady());
+        verify(caddyService).generateConfiguration("example.com", finalDir, true);
+    }
+
+    @Test
+    void doesNotDowngradeExistingHttpsSiteWhenDnsBlips() throws Exception {
+        deploymentProperties.setEnableHttps(true);
+        DeployRequest request = validRequest();
+        Path tempDir = Path.of("/tmp/deploy-1");
+        Path finalDir = Path.of("/var/www/sites/example.com");
+        StagedConfiguration staged = new StagedConfiguration(
+                "example.com",
+                Path.of("/tmp/caddy/example.com.caddy.staging"),
+                Path.of("/tmp/caddy/sites-enabled/example.com.caddy"),
+                "example.com.caddy");
+
+        when(fileService.createTemporaryDeploymentDirectory()).thenReturn(tempDir);
+        when(fileService.getWebsiteDirectory("example.com")).thenReturn(finalDir);
+        when(caddyService.hasHttpsSite("example.com")).thenReturn(true);
+        when(caddyService.generateConfiguration("example.com", finalDir, true)).thenReturn("example.com { }");
+        when(caddyService.stageConfiguration("example.com", "example.com { }")).thenReturn(staged);
+        doNothing().when(fileService).ensureDirectoriesExist();
+        doNothing().when(fileService).validateDeploymentLimits(request.getFiles());
+        doNothing().when(fileService).writeFiles(tempDir, request.getFiles());
+        doNothing().when(fileService).validateRequiredFiles(tempDir);
+        doNothing().when(caddyService).validateConfiguration();
+        doNothing().when(caddyService).finalizeConfiguration(staged);
+        doNothing().when(fileService).activateDeployment(tempDir, "example.com");
+        doNothing().when(caddyService).reloadCaddy();
+
+        DeployResponse response = deploymentService.deploy(request);
+
+        assertEquals(true, response.isHttpsReady());
+        verify(dnsResolutionService, never()).isReadyForHttps(eq("example.com"));
+        verify(caddyService).generateConfiguration("example.com", finalDir, true);
     }
 
     private DeployRequest validRequest() {

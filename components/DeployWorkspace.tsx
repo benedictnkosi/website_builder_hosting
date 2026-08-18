@@ -59,6 +59,7 @@ export default function DeployWorkspace({
   const [deployStatus, setDeployStatus] = useState<DeployStatus>("idle");
   const [deployError, setDeployError] = useState<string | null>(null);
   const [deployedUrl, setDeployedUrl] = useState<string | null>(null);
+  const [httpsReady, setHttpsReady] = useState(false);
 
   useEffect(() => {
     if (subscribedDomain) {
@@ -97,6 +98,7 @@ export default function DeployWorkspace({
     setDeployStatus("idle");
     setDeployError(null);
     setDeployedUrl(null);
+    setHttpsReady(false);
 
     try {
       const params = new URLSearchParams({
@@ -136,6 +138,7 @@ export default function DeployWorkspace({
 
     setDeployStatus("deploying");
     setDeployError(null);
+    setHttpsReady(false);
     trackDeployStart(result.domain);
 
     try {
@@ -151,6 +154,7 @@ export default function DeployWorkspace({
         success?: boolean;
         url?: string;
         error?: string;
+        httpsReady?: boolean;
       };
 
       if (!response.ok || !data.success) {
@@ -162,6 +166,7 @@ export default function DeployWorkspace({
 
       setDeployStatus("success");
       setDeployedUrl(data.url || `https://${result.domain}`);
+      setHttpsReady(data.httpsReady === true);
       trackDeploySuccess(result.domain);
     } catch {
       setDeployStatus("error");
@@ -300,7 +305,20 @@ export default function DeployWorkspace({
 
             {deployStatus === "success" && deployedUrl ? (
               <div className="mt-4">
-                <p className="text-base font-semibold text-teal-900">Website is live</p>
+                {httpsReady ? (
+                  <p className="text-base font-semibold text-teal-900">Website is live</p>
+                ) : (
+                  <>
+                    <p className="text-base font-semibold text-teal-900">
+                      Published — HTTPS is still activating
+                    </p>
+                    <p className="mt-1 text-sm text-stone-600">
+                      New .co.za names can take a few minutes to appear in public DNS.
+                      Opening the site too early shows a browser security error. Wait,
+                      then refresh.
+                    </p>
+                  </>
+                )}
                 <a
                   href={deployedUrl}
                   target="_blank"

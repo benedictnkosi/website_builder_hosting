@@ -62,6 +62,24 @@ class CaddyServiceTest {
 
         assertTrue(config.contains("example.com, www.example.com"));
         assertFalse(config.contains("http://example.com"));
+        assertTrue(config.contains("issuer acme"));
+        assertTrue(config.contains("acme-v02.api.letsencrypt.org"));
         assertTrue(config.contains("file_server"));
+    }
+
+    @Test
+    void generatedConfigurationCanStayHttpWhileHttpsIsEnabledGlobally() {
+        DeploymentProperties properties = new DeploymentProperties();
+        properties.setEnableHttps(true);
+        CaddyService httpsService = new CaddyService(
+                properties, new ProcessExecutor(), new DomainValidationService());
+
+        String config = httpsService.generateConfiguration(
+                "example.com",
+                Path.of("/var/www/sites/example.com"),
+                false);
+
+        assertTrue(config.contains("http://example.com, http://www.example.com"));
+        assertFalse(config.contains("issuer acme"));
     }
 }

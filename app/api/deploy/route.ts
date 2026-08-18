@@ -138,6 +138,7 @@ export async function POST(request: Request) {
       domain?: string;
       message?: string;
       error?: string;
+      httpsReady?: boolean;
     };
 
     if (!response.ok || data.success === false) {
@@ -150,12 +151,20 @@ export async function POST(request: Request) {
       );
     }
 
+    const domainName = data.domain || domain;
+    const httpsReady = data.httpsReady === true;
+
     return NextResponse.json({
       success: true,
       websiteId: data.websiteId || websiteId,
-      domain: data.domain || domain,
-      url: `https://${data.domain || domain}`,
-      message: data.message || "Website deployed successfully",
+      domain: domainName,
+      url: `https://${domainName}`,
+      httpsReady,
+      message:
+        data.message ||
+        (httpsReady
+          ? "Website deployed successfully"
+          : "Website deployed. HTTPS will be enabled once public DNS points at this server."),
     });
   } catch (error) {
     const aborted =

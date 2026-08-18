@@ -7,6 +7,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 
+import com.webhosting.deploymentagent.config.DeploymentProperties;
 import com.webhosting.deploymentagent.exception.DeploymentException;
 import com.webhosting.deploymentagent.model.DeployRequest;
 import com.webhosting.deploymentagent.model.DeployResponse;
@@ -21,14 +22,20 @@ public class DeploymentService {
     private final DomainValidationService domainValidationService;
     private final FileService fileService;
     private final CaddyService caddyService;
+    private final DnsResolutionService dnsResolutionService;
+    private final DeploymentProperties deploymentProperties;
 
     public DeploymentService(
             DomainValidationService domainValidationService,
             FileService fileService,
-            CaddyService caddyService) {
+            CaddyService caddyService,
+            DnsResolutionService dnsResolutionService,
+            DeploymentProperties deploymentProperties) {
         this.domainValidationService = domainValidationService;
         this.fileService = fileService;
         this.caddyService = caddyService;
+        this.dnsResolutionService = dnsResolutionService;
+        this.deploymentProperties = deploymentProperties;
     }
 
     public DeployResponse deploy(DeployRequest request) {
@@ -48,7 +55,8 @@ public class DeploymentService {
             fileService.validateRequiredFiles(tempDeploymentDir);
 
             Path finalWebsiteDir = fileService.getWebsiteDirectory(normalizedDomain);
-            String caddyConfig = caddyService.generateConfiguration(normalizedDomain, finalWebsiteDir);
+            boolean useHttps = shouldEnableHttps(normalizedDomain);
+            String caddyConfig = caddyService.generateConfiguration(normalizedDomain, finalWebsiteDir, useHttps);
             stagedConfig = caddyService.stageConfiguration(normalizedDomain, caddyConfig);
 
             caddyService.validateConfiguration();
@@ -60,13 +68,18 @@ public class DeploymentService {
 
             caddyService.reloadCaddy();
 
-            log.info("Deployment succeeded for websiteId={}, domain={}",
-                    request.getWebsiteId(), normalizedDomain);
+            log.info("Deployment succeeded for websiteId={}, domain={}, https={}",
+                    request.getWebsiteId(), normalizedDomain, useHttps);
+
+            String message = useHttps || !deploymentProperties.isEnableHttps()
+                    ? "Website deployed successfully"
+                    : "Website deployed. HTTPS will be enabled once public DNS points at this server.";
 
             return DeployResponse.success(
                     request.getWebsiteId(),
                     normalizedDomain,
-                    "Website deployed successfully");
+                    message,
+                    useHttps || !deploymentProperties.isEnableHttps());
         } catch (DeploymentException ex) {
             log.error("Deployment failed for websiteId={}, domain={}: {}",
                     request.getWebsiteId(), normalizedDomain, ex.getMessage());
@@ -118,6 +131,16 @@ public class DeploymentService {
                     HttpStatus.INTERNAL_SERVER_ERROR,
                     ex);
         }
+    }
+
+    private boolean shouldEnableHttps(String normalizedDomain) {
+        if (!deploymentProperties.isEnableHttps()) {
+            return false;
+        }
+        if (caddyService.hasHttpsSite(normalizedDomain)) {
+            return true;
+        }
+        return dnsResolutionService.isReadyForHttps(normalizedDomain);
     }
 
     private void cleanup(Path tempDeploymentDir, StagedConfiguration stagedConfig) {

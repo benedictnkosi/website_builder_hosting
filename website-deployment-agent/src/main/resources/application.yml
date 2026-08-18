@@ -9,6 +9,9 @@ deployment:
   caddy-command: ${CADDY_COMMAND:caddy}
   enable-https: ${CADDY_ENABLE_HTTPS:false}
   acme-email: ${CADDY_ACME_EMAIL:}
+  public-ip: ${PUBLIC_IP:}
+  dns-timeout-ms: ${DNS_TIMEOUT_MS:2000}
+  https-retry-ms: ${HTTPS_RETRY_MS:30000}
   max-files: ${MAX_FILES:100}
   max-file-size-bytes: ${MAX_FILE_SIZE_BYTES:2097152}
   max-total-size-bytes: ${MAX_TOTAL_SIZE_BYTES:10485760}

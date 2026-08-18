@@ -89,7 +89,10 @@ Configuration is in `src/main/resources/application.yml`.
 | `deployment.caddy-sites-available` | `CADDY_SITES_AVAILABLE` | `/tmp/website-agent/caddy/sites-available` |
 | `deployment.caddy-sites-enabled` | `CADDY_SITES_ENABLED` | `/tmp/website-agent/caddy/sites-enabled` |
 | `deployment.caddy-command` | `CADDY_COMMAND` | `caddy` |
-| `deployment.max-files` | `MAX_FILES` | `100` |
+| `deployment.enable-https` | `CADDY_ENABLE_HTTPS` | `false` |
+| `deployment.acme-email` | `CADDY_ACME_EMAIL` | empty |
+| `deployment.public-ip` | `PUBLIC_IP` | empty |
+| `deployment.https-retry-ms` | `HTTPS_RETRY_MS` | `30000` |
 | `deployment.max-file-size-bytes` | `MAX_FILE_SIZE_BYTES` | `2097152` (2 MB) |
 | `deployment.max-total-size-bytes` | `MAX_TOTAL_SIZE_BYTES` | `10485760` (10 MB) |
 | `security.api-key` | `DEPLOYMENT_API_KEY` | `development-key` |
@@ -103,6 +106,8 @@ export CADDY_CONFIG=/etc/caddy/Caddyfile
 export CADDY_SITES_AVAILABLE=/etc/caddy/sites-available
 export CADDY_SITES_ENABLED=/etc/caddy/sites-enabled
 export CADDY_COMMAND=/usr/bin/caddy
+export CADDY_ENABLE_HTTPS=true
+export PUBLIC_IP=104.168.134.8
 export DEPLOYMENT_API_KEY=your-secure-random-key
 ```
 
@@ -152,7 +157,8 @@ Success response:
   "success": true,
   "websiteId": "12345",
   "domain": "thandoplumbing.co.za",
-  "message": "Website deployed successfully"
+  "httpsReady": false,
+  "message": "Website deployed. HTTPS will be enabled once public DNS points at this server."
 }
 ```
 
@@ -201,6 +207,18 @@ Each deployed domain gets a file such as `/etc/caddy/sites-available/thandoplumb
 
 5. Point DNS A records for customer domains to the server IP.
 
+## HTTPS for new domain registrations
+
+Caddy must not request a Let's Encrypt certificate until public DNS for both the apex and `www` resolve to this server. New `.co.za` names are often NXDOMAIN for several minutes after registration. If ACME runs then, it fails, Caddy can get stuck, and browsers show `ERR_SSL_PROTOCOL_ERROR`.
+
+Set `PUBLIC_IP` to the VPS IPv4 address. On deploy:
+
+1. Files are written immediately.
+2. If DNS is not ready, the site is bound as `http://` only (no ACME).
+3. Every 30 seconds the agent checks Google/Cloudflare DNS. When apex and `www` point at `PUBLIC_IP`, it switches the site to HTTPS (Let's Encrypt only, no ZeroSSL fallback) and reloads Caddy.
+
+Redeploys of a site that already has HTTPS keep HTTPS even if DNS blips.
+
 ## Security considerations
 
 - **API key authentication** on all endpoints except `/api/v1/health`.
@@ -230,6 +248,8 @@ Environment=WEB_ROOT=/var/www/sites
 Environment=CADDY_CONFIG=/etc/caddy/Caddyfile
 Environment=CADDY_SITES_AVAILABLE=/etc/caddy/sites-available
 Environment=CADDY_SITES_ENABLED=/etc/caddy/sites-enabled
+Environment=CADDY_ENABLE_HTTPS=true
+Environment=PUBLIC_IP=104.168.134.8
 Environment=DEPLOYMENT_API_KEY=change-me
 ExecStart=/usr/bin/java -jar /opt/website-deployment-agent/website-deployment-agent.jar
 Restart=on-failure

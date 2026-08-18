@@ -35,10 +35,24 @@ public class CaddyService {
     }
 
     public String generateConfiguration(String normalizedDomain, Path websiteRoot) {
+        return generateConfiguration(normalizedDomain, websiteRoot, deploymentProperties.isEnableHttps());
+    }
+
+    public String generateConfiguration(String normalizedDomain, Path websiteRoot, boolean useHttps) {
         String rootPath = websiteRoot.toAbsolutePath().normalize().toString().replace('\\', '/');
-        String hosts = deploymentProperties.isEnableHttps()
+        String hosts = useHttps
                 ? "%s, www.%s".formatted(normalizedDomain, normalizedDomain)
                 : "http://%s, http://www.%s".formatted(normalizedDomain, normalizedDomain);
+
+        String tlsBlock = useHttps
+                ? """
+                \ttls {
+                \t\tissuer acme {
+                \t\t\tdir https://acme-v02.api.letsencrypt.org/directory
+                \t\t}
+                \t}
+                """
+                : "";
 
         return """
                 %s {
@@ -46,8 +60,60 @@ public class CaddyService {
                 \tencode gzip
                 \tfile_server
                 \ttry_files {path} {path}/ =404
-                }
-                """.formatted(hosts, rootPath);
+                %s}
+                """.formatted(hosts, rootPath, tlsBlock);
+    }
+
+    public boolean isHttpOnlySite(String normalizedDomain) {
+        Path enabledPath = sitesEnabledPath().resolve(domainValidationService.toConfigFilename(normalizedDomain));
+        return isHttpOnlyConfig(readSiteConfig(enabledPath));
+    }
+
+    public boolean hasHttpsSite(String normalizedDomain) {
+        Path enabledPath = sitesEnabledPath().resolve(domainValidationService.toConfigFilename(normalizedDomain));
+        if (!Files.exists(enabledPath) && !Files.isSymbolicLink(enabledPath)) {
+            return false;
+        }
+        String configuration = readSiteConfig(enabledPath);
+        return !configuration.isBlank() && !isHttpOnlyConfig(configuration);
+    }
+
+    public List<String> listHttpOnlyDomains() throws IOException {
+        Path enabled = sitesEnabledPath();
+        if (!Files.isDirectory(enabled)) {
+            return List.of();
+        }
+
+        try (var stream = Files.list(enabled)) {
+            return stream
+                    .filter(path -> path.getFileName().toString().endsWith(".caddy"))
+                    .filter(path -> isHttpOnlyConfig(readSiteConfig(path)))
+                    .map(path -> {
+                        String filename = path.getFileName().toString();
+                        return filename.substring(0, filename.length() - ".caddy".length());
+                    })
+                    .toList();
+        }
+    }
+
+    private static boolean isHttpOnlyConfig(String configuration) {
+        if (configuration == null || configuration.isBlank()) {
+            return false;
+        }
+        String firstLine = configuration.stripLeading().split("\\R", 2)[0].trim();
+        return firstLine.startsWith("http://");
+    }
+
+    private static String readSiteConfig(Path path) {
+        try {
+            if (!Files.exists(path) && !Files.isSymbolicLink(path)) {
+                return "";
+            }
+            return Files.readString(path, StandardCharsets.UTF_8);
+        } catch (IOException ex) {
+            log.warn("Could not read Caddy site config {}: {}", path, ex.getMessage());
+            return "";
+        }
     }
 
     public void ensureLayout() throws IOException {

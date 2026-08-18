@@ -6,19 +6,29 @@ public class DeployResponse {
     private String websiteId;
     private String domain;
     private String message;
+    private boolean httpsReady;
 
     public DeployResponse() {
     }
 
     public DeployResponse(boolean success, String websiteId, String domain, String message) {
+        this(success, websiteId, domain, message, false);
+    }
+
+    public DeployResponse(boolean success, String websiteId, String domain, String message, boolean httpsReady) {
         this.success = success;
         this.websiteId = websiteId;
         this.domain = domain;
         this.message = message;
+        this.httpsReady = httpsReady;
     }
 
     public static DeployResponse success(String websiteId, String domain, String message) {
-        return new DeployResponse(true, websiteId, domain, message);
+        return success(websiteId, domain, message, false);
+    }
+
+    public static DeployResponse success(String websiteId, String domain, String message, boolean httpsReady) {
+        return new DeployResponse(true, websiteId, domain, message, httpsReady);
     }
 
     public boolean isSuccess() {
@@ -51,5 +61,13 @@ public class DeployResponse {
 
     public void setMessage(String message) {
         this.message = message;
+    }
+
+    public boolean isHttpsReady() {
+        return httpsReady;
+    }
+
+    public void setHttpsReady(boolean httpsReady) {
+        this.httpsReady = httpsReady;
     }
 }
