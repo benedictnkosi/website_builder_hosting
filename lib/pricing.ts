@@ -3,7 +3,7 @@ export const SUBSCRIPTION_TLD = "co.za";
 
 export const SIGNUP_TOKEN_GRANT = 20_000;
 export const SUBSCRIPTION_TOKEN_GRANT = 20_000;
-export const TOKEN_TOPUP_ZAR = 49;
+export const TOKEN_TOPUP_ZAR = 5;
 export const TOKEN_TOPUP_TOKENS = 100_000;
 export const GENERATE_MIN_TOKENS = 500;
 export const EDIT_MIN_TOKENS = 200;
