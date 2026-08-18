@@ -1,3 +1,4 @@
+import { extractBusinessName } from "./domain-name";
 import type { GeneratedWebsite, WebsiteFile, WebsiteImageRequest } from "./types";
 
 const MOCK_PNG_BASE64 =
@@ -29,20 +30,18 @@ function extractWhatsAppNumber(text: string): string {
   return match?.[1]?.trim() ?? "";
 }
 
-function extractBusinessName(text: string): string {
-  const named = text.match(
-    /(?:called|named|business name[:\s]+|company called)\s+([^.\n,]+)/i,
-  );
-  if (named?.[1]) {
-    return named[1].trim();
+function extractContactEmail(text: string): string {
+  const labeled = text.match(/set "to" to "([^"]+)"/i);
+  if (labeled?.[1]) {
+    return labeled[1].trim();
   }
+  const match = text.match(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i);
+  return match?.[0] ?? "";
+}
 
-  const firstLine = text.split("\n")[0]?.trim();
-  if (firstLine && firstLine.length <= 60) {
-    return firstLine.replace(/\.$/, "");
-  }
-
-  return "Demo Business";
+function extractContactEndpoint(text: string): string {
+  const match = text.match(/https?:\/\/[^\s]+\/api\/contact/i);
+  return match?.[0] ?? "/api/contact";
 }
 
 export function mockValidateDescription(prompt: string) {
@@ -78,6 +77,7 @@ export function mockValidateDescription(prompt: string) {
   return {
     valid: missing_fields.length === 0,
     missing_fields,
+    business_name: extractBusinessName(text) || "Demo Business",
     message,
     whatsapp_preference,
     whatsapp_number: whatsappNumber,
@@ -85,7 +85,7 @@ export function mockValidateDescription(prompt: string) {
 }
 
 export function mockGenerateWebsite(prompt: string): GeneratedWebsite {
-  const businessName = extractBusinessName(prompt);
+  const businessName = extractBusinessName(prompt) || "Demo Business";
   const phone = extractPhone(prompt) ?? "000 000 0000";
   const whatsapp = extractWhatsAppNumber(prompt) || phone;
   const includeMap = /address|map|street|road|avenue|durban|johannesburg|cape town/i.test(
@@ -93,6 +93,9 @@ export function mockGenerateWebsite(prompt: string): GeneratedWebsite {
   );
   const includeWhatsApp =
     /whatsapp/i.test(prompt) || Boolean(extractWhatsAppNumber(prompt));
+  const includeContactForm = /contact us form|contact form/i.test(prompt);
+  const contactEmail = extractContactEmail(prompt);
+  const contactEndpoint = extractContactEndpoint(prompt);
 
   const mapSection = includeMap
     ? `<section id="map">
@@ -104,6 +107,21 @@ export function mockGenerateWebsite(prompt: string): GeneratedWebsite {
   const whatsappButton = includeWhatsApp
     ? `<a class="whatsapp" href="https://wa.me/${whatsapp.replace(/\D/g, "")}">WhatsApp us</a>`
     : "";
+
+  const contactSection =
+    includeContactForm && contactEmail
+      ? `<section id="contact">
+    <h2>Contact us</h2>
+    <form id="contact-form">
+      <label>Name <input name="name" required></label>
+      <label>Email <input name="email" type="email" required></label>
+      <label>Phone <input name="phone" type="tel"></label>
+      <label>Message <textarea name="message" required></textarea></label>
+      <button type="submit">Send message</button>
+      <p id="contact-status" role="status"></p>
+    </form>
+  </section>`
+      : "";
 
   const indexHtml = `<!DOCTYPE html>
 <html lang="en">
@@ -125,6 +143,7 @@ export function mockGenerateWebsite(prompt: string): GeneratedWebsite {
       ${whatsappButton}
     </section>
     ${mapSection}
+    ${contactSection}
   </main>
   <script src="script.js"></script>
 </body>
@@ -135,10 +154,45 @@ body { font-family: system-ui, sans-serif; margin: 0; color: #1c1917; background
 header, main { max-width: 960px; margin: 0 auto; padding: 24px; }
 .hero img { width: 100%; max-height: 320px; object-fit: cover; border-radius: 16px; }
 .whatsapp { display: inline-block; margin-top: 12px; padding: 10px 16px; background: #128c7e; color: white; text-decoration: none; border-radius: 999px; }
-#map iframe { border-radius: 16px; }`;
+#map iframe { border-radius: 16px; }
+#contact form { display: grid; gap: 12px; }
+#contact input, #contact textarea { width: 100%; padding: 10px 12px; border: 1px solid #d6d3d1; border-radius: 10px; }
+#contact button { justify-self: start; padding: 10px 16px; background: #115e59; color: white; border: 0; border-radius: 999px; }
+#contact-status { min-height: 1.2em; color: #57534e; }`;
 
+  const escapedBusiness = businessName.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
   const scriptJs = `document.addEventListener("DOMContentLoaded", () => {
-  console.log("Mock website loaded for ${businessName.replace(/"/g, '\\"')}");
+  console.log("Mock website loaded for ${escapedBusiness}");
+  const form = document.getElementById("contact-form");
+  const status = document.getElementById("contact-status");
+  if (!form || !status) return;
+  form.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    status.textContent = "Sending...";
+    try {
+      const data = new FormData(form);
+      const response = await fetch("${contactEndpoint}", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          to: "${contactEmail.replace(/"/g, '\\"')}",
+          name: data.get("name"),
+          email: data.get("email"),
+          phone: data.get("phone") || "",
+          message: data.get("message"),
+          businessName: "${escapedBusiness}",
+        }),
+      });
+      const result = await response.json();
+      if (!response.ok || !result.success) {
+        throw new Error(result.error || "Failed to send");
+      }
+      status.textContent = "Thanks, your message has been sent.";
+      form.reset();
+    } catch {
+      status.textContent = "Sorry, we could not send your message. Please try again.";
+    }
+  });
 });`;
 
   return {

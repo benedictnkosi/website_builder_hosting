@@ -1,4 +1,5 @@
 import { GeneratorError, isSafeRelativePath, normalizeRelativePath } from "./validation";
+import { getPeopleEthnicityOption } from "./people-ethnicity";
 import type { WebsiteFile, WebsiteImageRequest } from "./types";
 import { isMockAiEnabled, mockDelay, mockGenerateImages } from "./mock-ai";
 
@@ -50,6 +51,15 @@ function validateImageRequest(request: WebsiteImageRequest): WebsiteImageRequest
   }
 
   return { path: normalizedPath, prompt };
+}
+
+function withPeopleDirection(prompt: string, peopleEthnicity?: string): string {
+  const option = getPeopleEthnicityOption(peopleEthnicity);
+  if (!option) {
+    return prompt;
+  }
+
+  return `${prompt}\n\nIf this image includes people, they should be ${option.prompt}. Photorealistic, respectful, professional photography.`;
 }
 
 async function generateImage(prompt: string): Promise<string> {
@@ -110,6 +120,7 @@ async function generateImage(prompt: string): Promise<string> {
 
 export async function generateWebsiteImages(
   requests: WebsiteImageRequest[],
+  peopleEthnicity?: string,
 ): Promise<WebsiteFile[]> {
   if (!requests.length) {
     return [];
@@ -139,7 +150,9 @@ export async function generateWebsiteImages(
 
   for (const request of unique) {
     console.log(`Generating image: ${request.path}`);
-    const b64 = await generateImage(request.prompt);
+    const b64 = await generateImage(
+      withPeopleDirection(request.prompt, peopleEthnicity),
+    );
     imageFiles.push({
       path: request.path,
       content: b64,

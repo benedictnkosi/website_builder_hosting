@@ -48,4 +48,20 @@ class CaddyServiceTest {
         assertFalse(config.contains("example.com\n    evil"));
         assertTrue(config.contains("http://example.com, http://www.example.com"));
     }
+
+    @Test
+    void generatedHttpsConfigurationUsesBareHostnames() {
+        DeploymentProperties properties = new DeploymentProperties();
+        properties.setEnableHttps(true);
+        CaddyService httpsService = new CaddyService(
+                properties, new ProcessExecutor(), new DomainValidationService());
+
+        String config = httpsService.generateConfiguration(
+                "example.com",
+                Path.of("/var/www/sites/example.com"));
+
+        assertTrue(config.contains("example.com, www.example.com"));
+        assertFalse(config.contains("http://example.com"));
+        assertTrue(config.contains("file_server"));
+    }
 }

@@ -10,6 +10,7 @@ import { GeneratorError, validateGeneratedWebsite } from "./validation";
  */
 export async function generateWebsite(
   prompt: string,
+  peopleEthnicity?: string,
 ): Promise<GenerateWebsiteResult> {
   const trimmedPrompt = prompt.trim();
 
@@ -19,7 +20,10 @@ export async function generateWebsite(
 
   const generated = await generateWebsiteFromOpenAI(trimmedPrompt);
   const files = validateGeneratedWebsite(generated);
-  const imageFiles = await generateWebsiteImages(generated.images ?? []);
+  const imageFiles = await generateWebsiteImages(
+    generated.images ?? [],
+    peopleEthnicity,
+  );
   const allFiles = [...files, ...imageFiles];
   const websiteId = await writeWebsiteFiles(allFiles);
 

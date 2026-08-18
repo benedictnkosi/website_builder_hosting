@@ -1,14 +1,22 @@
 import { NextResponse } from "next/server";
+import { provisionDomain } from "@/lib/domains-co-za";
 import { readDeployableWebsiteFiles } from "@/lib/file-manager";
-import { GeneratorError } from "@/lib/validation";
+import { GeneratorError, isValidWebsiteId } from "@/lib/validation";
+import { requireActiveSubscription } from "@/lib/subscription";
 
 export const runtime = "nodejs";
-export const maxDuration = 60;
+export const maxDuration = 120;
 
 const DEFAULT_AGENT_URL = "http://localhost:8080";
 
-function isValidWebsiteId(websiteId: string): boolean {
-  return /^[a-zA-Z0-9_-]{1,64}$/.test(websiteId);
+function isLocalhostRequest(request: Request): boolean {
+  const hostname = new URL(request.url).hostname.toLowerCase();
+  return (
+    hostname === "localhost" ||
+    hostname === "127.0.0.1" ||
+    hostname === "::1" ||
+    hostname === "[::1]"
+  );
 }
 
 export async function POST(request: Request) {
@@ -31,12 +39,12 @@ export async function POST(request: Request) {
       ? body.websiteId.trim()
       : "";
 
-  const domain =
+  const requestedDomain =
     typeof body === "object" &&
     body !== null &&
     "domain" in body &&
     typeof body.domain === "string"
-      ? body.domain.trim()
+      ? body.domain.trim().toLowerCase()
       : "";
 
   if (!websiteId || !isValidWebsiteId(websiteId)) {
@@ -46,16 +54,43 @@ export async function POST(request: Request) {
     );
   }
 
-  const localUrl = `${new URL(request.url).origin}/api/preview/${websiteId}/index.html`;
+  let subscription;
+  try {
+    subscription = await requireActiveSubscription(websiteId);
+  } catch {
+    return NextResponse.json(
+      {
+        success: false,
+        error: "Subscribe before deploying your website.",
+        paywall: true,
+      },
+      { status: 402 },
+    );
+  }
 
-  if (!domain) {
-    return NextResponse.json({
-      success: true,
-      websiteId,
-      domain: null,
-      url: localUrl,
-      message: "No domain provided. Use the local preview URL.",
-    });
+  const domain = subscription.domain;
+  if (requestedDomain && requestedDomain !== domain) {
+    return NextResponse.json(
+      {
+        success: false,
+        error: `This subscription is for ${domain}.`,
+      },
+      { status: 400 },
+    );
+  }
+
+  const skipDomainApi = isLocalhostRequest(request);
+
+  if (!skipDomainApi) {
+    try {
+      await provisionDomain(domain);
+    } catch (error) {
+      const message =
+        error instanceof Error
+          ? error.message
+          : "Could not register the domain or update DNS.";
+      return NextResponse.json({ success: false, error: message }, { status: 502 });
+    }
   }
 
   let files;
@@ -111,8 +146,11 @@ export async function POST(request: Request) {
       success: true,
       websiteId: data.websiteId || websiteId,
       domain: data.domain || domain,
-      url: `http://${data.domain || domain}`,
-      message: data.message || "Website deployed successfully",
+      url: `https://${data.domain || domain}`,
+      skippedDomainProvisioning: skipDomainApi,
+      message: skipDomainApi
+        ? data.message || "Website deployed. Domain registration was skipped on localhost."
+        : data.message || "Website deployed successfully",
     });
   } catch (error) {
     const aborted =

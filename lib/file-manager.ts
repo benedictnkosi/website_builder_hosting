@@ -1,4 +1,4 @@
-import { mkdir, readdir, readFile, rm, writeFile } from "node:fs/promises";
+import { access, mkdir, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { randomBytes } from "node:crypto";
 import type { WebsiteFile } from "./types";
@@ -17,6 +17,15 @@ export function getGeneratedSitesRoot(): string {
 
 export function getWebsiteDirectory(websiteId: string): string {
   return path.join(getGeneratedSitesRoot(), websiteId);
+}
+
+export async function websiteExists(websiteId: string): Promise<boolean> {
+  try {
+    await access(getWebsiteDirectory(websiteId));
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 export function createWebsiteId(): string {

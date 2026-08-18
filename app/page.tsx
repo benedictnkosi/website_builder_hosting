@@ -1,9 +1,5 @@
-import WebsiteBuilder from "@/components/WebsiteBuilder";
+import LandingPage from "@/components/LandingPage";
 
 export default function Home() {
-  return (
-    <main className="flex-1">
-      <WebsiteBuilder />
-    </main>
-  );
+  return <LandingPage />;
 }

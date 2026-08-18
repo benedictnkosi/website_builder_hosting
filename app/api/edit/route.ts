@@ -5,13 +5,14 @@ import {
   getWebsiteDirectory,
   readEditableWebsiteFiles,
 } from "@/lib/file-manager";
-import { GeneratorError, normalizeRelativePath } from "@/lib/validation";
+import { GeneratorError, isValidWebsiteId, normalizeRelativePath } from "@/lib/validation";
 import type { WebsiteFile } from "@/lib/types";
 import {
   isMockAiEnabled,
   mockDelay,
   mockEditWebsite,
 } from "@/lib/mock-ai";
+import { hasActiveSubscription } from "@/lib/subscription";
 
 export const runtime = "nodejs";
 export const maxDuration = 120;
@@ -49,6 +50,8 @@ const SYSTEM_INSTRUCTION = `You are an expert web developer. You will be given t
 
 Do not modify or return image files. Image paths in HTML should stay as they are unless the user explicitly asks to change them.
 
+If adding or updating a contact form, submit with fetch() POST JSON to the existing contact API endpoint. Never add API keys, Resend secrets, or server-side code.
+
 Return ONLY the structured output with the updated files.`;
 
 export async function POST(request: Request) {
@@ -72,10 +75,21 @@ export async function POST(request: Request) {
       ? body.instruction
       : null;
 
-  if (!websiteId || !instruction) {
+  if (!websiteId || !isValidWebsiteId(websiteId) || !instruction) {
     return NextResponse.json(
       { success: false, error: "websiteId and instruction are required." },
       { status: 400 },
+    );
+  }
+
+  if (!(await hasActiveSubscription(websiteId))) {
+    return NextResponse.json(
+      {
+        success: false,
+        error: "Subscribe to make changes to your website.",
+        paywall: true,
+      },
+      { status: 402 },
     );
   }
 

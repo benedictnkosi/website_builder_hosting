@@ -13,6 +13,10 @@ export class GeneratorError extends Error {
   }
 }
 
+export function isValidWebsiteId(websiteId: string): boolean {
+  return /^[a-zA-Z0-9_-]{1,64}$/.test(websiteId);
+}
+
 export function normalizeRelativePath(filePath: string): string {
   return filePath.replace(/\\/g, "/").replace(/^\/+/, "").replace(/^\.\//, "");
 }

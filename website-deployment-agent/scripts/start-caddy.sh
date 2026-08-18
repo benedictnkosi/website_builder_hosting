@@ -15,7 +15,7 @@ if ! command -v "$CADDY_COMMAND" >/dev/null 2>&1; then
 fi
 
 if [ "$(id -u)" -ne 0 ]; then
-  echo "Caddy needs root (or CAP_NET_BIND_SERVICE) to listen on port 80." >&2
+  echo "Caddy needs root (or CAP_NET_BIND_SERVICE) to listen on ports 80 and 443." >&2
   echo "Re-run as: sudo $0" >&2
   exit 1
 fi
@@ -23,7 +23,22 @@ fi
 mkdir -p "$(dirname "$CADDY_CONFIG")" "$CADDY_SITES_AVAILABLE" "$CADDY_SITES_ENABLED" "$WEB_ROOT"
 
 if [ ! -f "$CADDY_CONFIG" ]; then
-  cat > "$CADDY_CONFIG" <<EOF
+  if [ "${CADDY_ENABLE_HTTPS:-true}" = "true" ]; then
+    if [ -n "${CADDY_ACME_EMAIL:-}" ]; then
+      cat > "$CADDY_CONFIG" <<EOF
+{
+	email ${CADDY_ACME_EMAIL}
+}
+
+import ${CADDY_SITES_ENABLED}/*
+EOF
+    else
+      cat > "$CADDY_CONFIG" <<EOF
+import ${CADDY_SITES_ENABLED}/*
+EOF
+    fi
+  else
+    cat > "$CADDY_CONFIG" <<EOF
 {
 	auto_https off
 	http_port 80
@@ -31,6 +46,7 @@ if [ ! -f "$CADDY_CONFIG" ]; then
 
 import ${CADDY_SITES_ENABLED}/*
 EOF
+  fi
   echo "Wrote initial Caddyfile at $CADDY_CONFIG"
 fi
 

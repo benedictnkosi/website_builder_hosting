@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { generateWebsite } from "@/lib/website-generator";
+import { getPeopleEthnicityOption } from "@/lib/people-ethnicity";
 import { GeneratorError } from "@/lib/validation";
 
 export const runtime = "nodejs";
@@ -25,6 +26,14 @@ export async function POST(request: Request) {
       ? body.prompt
       : null;
 
+  const peopleEthnicity =
+    typeof body === "object" &&
+    body !== null &&
+    "peopleEthnicity" in body &&
+    typeof body.peopleEthnicity === "string"
+      ? body.peopleEthnicity.trim()
+      : "";
+
   if (!prompt) {
     return NextResponse.json(
       { success: false, error: "A prompt string is required." },
@@ -32,8 +41,15 @@ export async function POST(request: Request) {
     );
   }
 
+  if (peopleEthnicity && !getPeopleEthnicityOption(peopleEthnicity)) {
+    return NextResponse.json(
+      { success: false, error: "An invalid people ethnicity option was provided." },
+      { status: 400 },
+    );
+  }
+
   try {
-    const result = await generateWebsite(prompt);
+    const result = await generateWebsite(prompt, peopleEthnicity || undefined);
     return NextResponse.json(result);
   } catch (error) {
     if (error instanceof GeneratorError) {

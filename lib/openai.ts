@@ -28,7 +28,17 @@ Do not use external image URLs. Use relative image paths under images/ (for exam
 
 Include 2-3 images in the images array with prompts for a hero image and supporting visuals that match the business. Reference those image paths in index.html.
 
+If the user specifies who people in photos should look like, include that direction in every image prompt that depicts people.
+
 Do not invent missing business information.
+
+If the user asks for a Contact Us form:
+- Include a contact section with name, email, and message fields (phone optional).
+- Display the business email address visibly on the website (contact section, header or footer) as a mailto link.
+- Submit with fetch() POST as JSON to the provided contact API endpoint. Include the recipient email as "to".
+- Show success and error feedback on the page without a full reload.
+- Never include API keys, Resend secrets, or server-side code in the generated files.
+- Do not use mailto: as the primary form submit method.
 
 Create a professional, responsive and mobile-friendly website.`;
 

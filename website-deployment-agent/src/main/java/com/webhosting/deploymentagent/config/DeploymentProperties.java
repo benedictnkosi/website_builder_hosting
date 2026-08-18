@@ -13,6 +13,8 @@ public class DeploymentProperties {
     private String caddySitesAvailable = "/tmp/website-agent/caddy/sites-available";
     private String caddySitesEnabled = "/tmp/website-agent/caddy/sites-enabled";
     private String caddyCommand = "caddy";
+    private boolean enableHttps = false;
+    private String acmeEmail = "";
     private int maxFiles = 100;
     private long maxFileSizeBytes = 2 * 1024 * 1024;
     private long maxTotalSizeBytes = 10 * 1024 * 1024;
@@ -56,6 +58,22 @@ public class DeploymentProperties {
 
     public void setCaddyCommand(String caddyCommand) {
         this.caddyCommand = caddyCommand;
+    }
+
+    public boolean isEnableHttps() {
+        return enableHttps;
+    }
+
+    public void setEnableHttps(boolean enableHttps) {
+        this.enableHttps = enableHttps;
+    }
+
+    public String getAcmeEmail() {
+        return acmeEmail;
+    }
+
+    public void setAcmeEmail(String acmeEmail) {
+        this.acmeEmail = acmeEmail;
     }
 
     public int getMaxFiles() {

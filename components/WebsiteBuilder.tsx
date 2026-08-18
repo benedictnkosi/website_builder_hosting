@@ -1,8 +1,22 @@
 "use client";
 
 import { FormEvent, useEffect, useRef, useState } from "react";
+import { useSearchParams } from "next/navigation";
+import DeployWorkspace from "@/components/DeployWorkspace";
+import PaywallCard from "@/components/PaywallCard";
 import GenerationProgressBar from "@/components/GenerationProgressBar";
-import HoldToValidateButton from "@/components/HoldToValidateButton";
+import {
+  clearBuilderSession,
+  loadBuilderSession,
+  saveBuilderSession,
+} from "@/lib/builder-session";
+import { extractBusinessName, slugifyDomainName } from "@/lib/domain-name";
+import { extractEmail, isValidEmail } from "@/lib/email";
+import {
+  PEOPLE_ETHNICITY_OPTIONS,
+  getPeopleEthnicityOption,
+  type PeopleEthnicityId,
+} from "@/lib/people-ethnicity";
 import type { GenerateWebsiteResponse, WebsiteFile } from "@/lib/types";
 
 type AddressSuggestion = {
@@ -10,10 +24,15 @@ type AddressSuggestion = {
   place_id: string;
 };
 
-type View = "builder" | "preview";
 type GenerationStatus = "idle" | "validating" | "generating" | "success" | "error";
-type DeployStatus = "idle" | "deploying" | "success" | "error";
-type ChatStep = "description" | "whatsapp" | "address";
+type ChatStep =
+  | "description"
+  | "whatsapp"
+  | "contact"
+  | "contactEmail"
+  | "address"
+  | "ethnicity"
+  | "edit";
 
 type ChatMessage = {
   role: "assistant" | "user";
@@ -29,9 +48,17 @@ const WHATSAPP_QUESTION =
 const ADDRESS_QUESTION =
   "Would you like to add your business address? If you provide one, we'll add a Google Map to your website. Start typing your address below, or click Skip.";
 
-function isAffirmative(text: string): boolean {
-  return /\b(yes|yeah|yep|sure|ok|okay|please|definitely|absolutely)\b/i.test(text);
-}
+const ETHNICITY_QUESTION =
+  "If the website photos include people, who should they look like? This helps the images feel like your customers and team.";
+
+const CONTACT_QUESTION =
+  "Would you like a Contact Us form on your website so customers can send you messages?";
+
+const CONTACT_EMAIL_QUESTION =
+  "What email address should we send contact form submissions to?";
+
+const READY_MESSAGE =
+  "Your website is ready. Preview it for free. Subscribe to describe changes or deploy it live.";
 
 function isNegative(text: string): boolean {
   return /\b(no|nah|nope|skip|don't|not)\b/i.test(text);
@@ -49,37 +76,113 @@ function shouldUseAddressAutocomplete(text: string): boolean {
   return text.trim().length >= 3 && !isSkipLikeInput(text);
 }
 
+function EmptyPreview({ generating }: { generating: boolean }) {
+  return (
+    <div className="relative flex h-full min-h-[22rem] items-center justify-center overflow-hidden bg-[#f7f3ea] p-6 sm:p-8">
+      <div className="absolute -right-16 -top-16 h-56 w-56 rounded-full bg-teal-700/10" />
+      <div className="absolute -bottom-20 -left-12 h-64 w-64 rounded-full bg-amber-200/45" />
+      <div className="relative w-full max-w-md rounded-2xl bg-white p-6 shadow-sm ring-1 ring-stone-200/70">
+        <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-teal-800">
+          Preview
+        </p>
+        <h3 className="mt-2 text-2xl font-semibold tracking-tight text-stone-900">
+          {generating ? "Building your website" : "Your website will appear here"}
+        </h3>
+        <p className="mt-2 text-sm leading-relaxed text-stone-600">
+          {generating
+            ? "We're writing the pages and generating images. The live preview will show up here when it's ready."
+            : "Describe your business in the chat. We'll design the site and show a live preview on this side."}
+        </p>
+      </div>
+    </div>
+  );
+}
+
 export default function WebsiteBuilder() {
-  const [view, setView] = useState<View>("builder");
-  const [humanVerified, setHumanVerified] = useState(false);
-  const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const searchParams = useSearchParams();
+  const [messages, setMessages] = useState<ChatMessage[]>([
+    { role: "assistant", content: WELCOME_MESSAGE },
+  ]);
   const [chatInput, setChatInput] = useState("");
   const [chatStep, setChatStep] = useState<ChatStep>("description");
   const [businessDescription, setBusinessDescription] = useState("");
+  const [businessName, setBusinessName] = useState("");
   const [address, setAddress] = useState("");
   const [useWhatsApp, setUseWhatsApp] = useState(false);
   const [whatsappNumber, setWhatsappNumber] = useState("");
+  const [useContactForm, setUseContactForm] = useState(false);
+  const [contactEmail, setContactEmail] = useState("");
+  const [peopleEthnicity, setPeopleEthnicity] = useState<PeopleEthnicityId | "">(
+    "",
+  );
   const [status, setStatus] = useState<GenerationStatus>("idle");
   const [error, setError] = useState<string | null>(null);
   const [websiteId, setWebsiteId] = useState<string | null>(null);
   const [files, setFiles] = useState<WebsiteFile[]>([]);
-  const [editInstruction, setEditInstruction] = useState("");
   const [isEditing, setIsEditing] = useState(false);
   const [iframeKey, setIframeKey] = useState(0);
   const [addressSuggestions, setAddressSuggestions] = useState<AddressSuggestion[]>([]);
   const [showAddressSuggestions, setShowAddressSuggestions] = useState(false);
-  const [domain, setDomain] = useState("");
-  const [deployStatus, setDeployStatus] = useState<DeployStatus>("idle");
-  const [deployError, setDeployError] = useState<string | null>(null);
-  const [deployedDomain, setDeployedDomain] = useState<string | null>(null);
-  const [deployedUrl, setDeployedUrl] = useState<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const [showDeployCard, setShowDeployCard] = useState(false);
+  const [showPaywall, setShowPaywall] = useState(false);
+  const [isSubscribed, setIsSubscribed] = useState(false);
+  const [subscribedDomain, setSubscribedDomain] = useState<string | null>(null);
+  const [checkoutNotice, setCheckoutNotice] = useState<string | null>(null);
 
-  const isBusy = status === "validating" || status === "generating";
+  const isBusy = status === "validating" || status === "generating" || isEditing;
+  const previewUrl = websiteId ? `/api/preview/${websiteId}/index.html` : null;
+  const editLocked = chatStep === "edit" && !isSubscribed;
+  const suggestedDomainName = slugifyDomainName(
+    businessName || extractBusinessName(businessDescription),
+  );
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages, status]);
+  }, [messages, status, isEditing, checkoutNotice]);
+
+  useEffect(() => {
+    const urlWebsiteId = searchParams.get("websiteId")?.trim() ?? "";
+    const checkout = searchParams.get("checkout");
+    const session = loadBuilderSession();
+    const nextWebsiteId = urlWebsiteId || session?.websiteId || "";
+
+    if (!nextWebsiteId) {
+      return;
+    }
+
+    if (session?.websiteId === nextWebsiteId) {
+      setWebsiteId(session.websiteId);
+      setBusinessName(session.businessName);
+      setBusinessDescription(session.businessDescription);
+      setChatStep("edit");
+      setStatus("success");
+      setMessages([
+        { role: "assistant", content: WELCOME_MESSAGE },
+        ...(session.businessDescription
+          ? [{ role: "user" as const, content: session.businessDescription }]
+          : []),
+        { role: "assistant", content: READY_MESSAGE },
+      ]);
+    } else {
+      setWebsiteId(nextWebsiteId);
+      setChatStep("edit");
+      setStatus("success");
+    }
+
+    if (checkout === "cancel") {
+      setCheckoutNotice(
+        "Payment was cancelled. Subscribe when you're ready to edit or deploy.",
+      );
+      setShowPaywall(true);
+    } else if (checkout === "return") {
+      setCheckoutNotice("Confirming your PayFast subscription...");
+    }
+
+    void refreshSubscription(nextWebsiteId, checkout === "return");
+    // Restore once from the return URL / saved session.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   useEffect(() => {
     if (chatStep !== "address" || !shouldUseAddressAutocomplete(chatInput)) {
@@ -136,9 +239,48 @@ export default function WebsiteBuilder() {
     setMessages((prev) => [...prev, { role: "assistant", content }]);
   }
 
-  function handleHumanVerified() {
-    setHumanVerified(true);
-    setMessages([{ role: "assistant", content: WELCOME_MESSAGE }]);
+  async function refreshSubscription(id: string, poll = false) {
+    const deadline = Date.now() + (poll ? 25_000 : 0);
+
+    while (true) {
+      try {
+        const response = await fetch(
+          `/api/subscription?websiteId=${encodeURIComponent(id)}`,
+        );
+        const data = (await response.json()) as {
+          success?: boolean;
+          paid?: boolean;
+          subscription?: { domain?: string };
+        };
+
+        if (response.ok && data.paid) {
+          setIsSubscribed(true);
+          setSubscribedDomain(data.subscription?.domain ?? null);
+          setShowPaywall(false);
+          setCheckoutNotice(null);
+          if (poll && data.subscription?.domain) {
+            addAssistantMessage(
+              `You're subscribed. Describe a change, or deploy ${data.subscription.domain}.`,
+            );
+          }
+          return;
+        }
+      } catch {
+        // Keep polling or fall through.
+      }
+
+      if (!poll || Date.now() >= deadline) {
+        if (poll) {
+          setCheckoutNotice(
+            "Waiting for PayFast to confirm payment. This can take a few seconds.",
+          );
+          setShowPaywall(true);
+        }
+        return;
+      }
+
+      await new Promise((resolve) => setTimeout(resolve, 1500));
+    }
   }
 
   async function validateDescription(description: string) {
@@ -152,6 +294,7 @@ export default function WebsiteBuilder() {
       success: boolean;
       valid?: boolean;
       message?: string;
+      business_name?: string;
       whatsapp_preference?: "yes" | "no" | "unknown";
       whatsapp_number?: string;
       error?: string;
@@ -164,7 +307,7 @@ export default function WebsiteBuilder() {
     return data;
   }
 
-  async function runGeneration() {
+  async function runGeneration(ethnicityId: PeopleEthnicityId | "" = peopleEthnicity) {
     if (!businessDescription.trim() || isBusy) return;
 
     setStatus("generating");
@@ -193,13 +336,36 @@ export default function WebsiteBuilder() {
       }
     }
 
+    if (useContactForm && contactEmail.trim()) {
+      const contactEndpoint = `${window.location.origin}/api/contact`;
+      promptParts.push(
+        `Include a Contact Us form with name, email, and message fields (phone optional).
+When the form is submitted, send a fetch POST with JSON to this contact API endpoint: ${contactEndpoint}
+JSON body fields: to, name, email, phone, message, businessName.
+Set "to" to "${contactEmail.trim()}".
+Show success and error messages on the page without a full reload.
+Do not include API keys, Resend secrets, or any server-side code in the website files.
+Do not use mailto: as the primary submit method.`,
+      );
+    }
+
+    const ethnicity = getPeopleEthnicityOption(ethnicityId);
+    if (ethnicity) {
+      promptParts.push(
+        `People in website photos: ${ethnicity.prompt}. If an image includes people, they should be ${ethnicity.prompt}. Include this in every image prompt that depicts people.`,
+      );
+    }
+
     const fullPrompt = promptParts.join("\n\n");
 
     try {
       const response = await fetch("/api/generate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ prompt: fullPrompt }),
+        body: JSON.stringify({
+          prompt: fullPrompt,
+          peopleEthnicity: ethnicityId || undefined,
+        }),
       });
 
       const data = (await response.json()) as GenerateWebsiteResponse;
@@ -218,11 +384,15 @@ export default function WebsiteBuilder() {
       setWebsiteId(data.websiteId);
       setFiles(data.files);
       setStatus("success");
-      setDeployStatus("idle");
-      setDeployError(null);
-      setDeployedDomain(null);
-      setDeployedUrl(null);
-      setView("preview");
+      setChatStep("edit");
+      setIsSubscribed(false);
+      setSubscribedDomain(null);
+      saveBuilderSession({
+        websiteId: data.websiteId,
+        businessName,
+        businessDescription,
+      });
+      addAssistantMessage(READY_MESSAGE);
     } catch {
       setStatus("error");
       setError("Could not reach the generate API. Please try again.");
@@ -232,12 +402,38 @@ export default function WebsiteBuilder() {
     }
   }
 
+  function askEthnicity() {
+    setChatStep("ethnicity");
+    addAssistantMessage(ETHNICITY_QUESTION);
+  }
+
   async function completeAddressStep(text: string) {
     if (!isSkipLikeInput(text) && !isNegative(text)) {
       setAddress(text);
     }
-    addAssistantMessage("Thanks! Generating your website now.");
-    await runGeneration();
+    askEthnicity();
+  }
+
+  async function handleEthnicityChoice(id: PeopleEthnicityId) {
+    if (isBusy || chatStep !== "ethnicity") return;
+
+    const option = getPeopleEthnicityOption(id);
+    if (!option) return;
+
+    setPeopleEthnicity(id);
+    setMessages((prev) => [...prev, { role: "user", content: option.label }]);
+    addAssistantMessage("Got it. Building your website and images...");
+    await runGeneration(id);
+  }
+
+  function askAddress() {
+    setChatStep("address");
+    addAssistantMessage(ADDRESS_QUESTION);
+  }
+
+  function askContactForm() {
+    setChatStep("contact");
+    addAssistantMessage(CONTACT_QUESTION);
   }
 
   function proceedAfterDescriptionValid(
@@ -254,21 +450,19 @@ export default function WebsiteBuilder() {
       if (extractedNumber) {
         setWhatsappNumber(extractedNumber);
       }
-      setChatStep("address");
       if (extractedNumber) {
         addAssistantMessage(
           `Got it — we'll add WhatsApp using ${extractedNumber}.`,
         );
       }
-      addAssistantMessage(ADDRESS_QUESTION);
+      askContactForm();
       return;
     }
 
     if (preference === "no") {
       setUseWhatsApp(false);
       setWhatsappNumber("");
-      setChatStep("address");
-      addAssistantMessage(ADDRESS_QUESTION);
+      askContactForm();
       return;
     }
 
@@ -287,8 +481,65 @@ export default function WebsiteBuilder() {
       ...prev,
       { role: "user", content: wantsWhatsApp ? "Yes" : "No" },
     ]);
-    setChatStep("address");
-    addAssistantMessage(ADDRESS_QUESTION);
+    askContactForm();
+  }
+
+  function handleContactChoice(wantsContactForm: boolean) {
+    if (isBusy || chatStep !== "contact") return;
+
+    setMessages((prev) => [
+      ...prev,
+      { role: "user", content: wantsContactForm ? "Yes" : "No" },
+    ]);
+
+    if (!wantsContactForm) {
+      setUseContactForm(false);
+      setContactEmail("");
+      askAddress();
+      return;
+    }
+
+    setUseContactForm(true);
+    const extracted = extractEmail(businessDescription);
+    if (extracted) {
+      setContactEmail(extracted);
+      addAssistantMessage(`We'll send form submissions to ${extracted}.`);
+      askAddress();
+      return;
+    }
+
+    setChatStep("contactEmail");
+    addAssistantMessage(CONTACT_EMAIL_QUESTION);
+  }
+
+  function completeContactEmailStep(text: string) {
+    if (isSkipLikeInput(text) || isNegative(text)) {
+      setUseContactForm(false);
+      setContactEmail("");
+      askAddress();
+      return;
+    }
+
+    const parsed = extractEmail(text) || (isValidEmail(text) ? text.trim() : "");
+    if (!parsed) {
+      addAssistantMessage("Please enter a valid email address, or click Skip.");
+      return;
+    }
+
+    setUseContactForm(true);
+    setContactEmail(parsed);
+    addAssistantMessage(`Got it — submissions will go to ${parsed}.`);
+    askAddress();
+  }
+
+  async function handleSkipContactEmail() {
+    if (isBusy || chatStep !== "contactEmail") return;
+
+    setMessages((prev) => [...prev, { role: "user", content: "Skip contact form" }]);
+    setChatInput("");
+    setUseContactForm(false);
+    setContactEmail("");
+    askAddress();
   }
 
   async function handleSkipAddress() {
@@ -300,15 +551,84 @@ export default function WebsiteBuilder() {
     await completeAddressStep("skip");
   }
 
+  async function applyEdit(instruction: string) {
+    if (!instruction.trim() || !websiteId || isEditing) return;
+
+    setIsEditing(true);
+    setError(null);
+
+    try {
+      const response = await fetch("/api/edit", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          websiteId,
+          instruction: instruction.trim(),
+        }),
+      });
+
+      const data = (await response.json()) as {
+        success: boolean;
+        updatedFiles?: WebsiteFile[];
+        error?: string;
+      };
+
+      if (!response.ok || !data.success) {
+        if (response.status === 402) {
+          setIsSubscribed(false);
+          setShowPaywall(true);
+        }
+        setError(data.error || "Failed to apply changes.");
+        addAssistantMessage(data.error || "I couldn't apply that change. Please try again.");
+        return;
+      }
+
+      if (data.updatedFiles) {
+        setFiles((prev) => {
+          const updated = [...prev];
+          for (const updatedFile of data.updatedFiles!) {
+            const idx = updated.findIndex((file) => file.path === updatedFile.path);
+            if (idx >= 0) {
+              updated[idx] = updatedFile;
+            } else {
+              updated.push(updatedFile);
+            }
+          }
+          return updated;
+        });
+      }
+
+      setIframeKey((key) => key + 1);
+      addAssistantMessage("Changes applied. Open the preview to see them.");
+    } catch {
+      setError("Could not apply changes. Please try again.");
+      addAssistantMessage("Could not apply changes. Please try again.");
+    } finally {
+      setIsEditing(false);
+    }
+  }
+
   async function handleChatSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
 
     const text = chatInput.trim();
-    if (!text || isBusy || !humanVerified) return;
+    if (isBusy) return;
+
+    if (chatStep === "edit" && !isSubscribed) {
+      setShowPaywall(true);
+      return;
+    }
+
+    if (!text) return;
 
     setMessages((prev) => [...prev, { role: "user", content: text }]);
     setChatInput("");
     setError(null);
+
+    if (chatStep === "edit") {
+      await applyEdit(text);
+      return;
+    }
 
     if (chatStep === "description") {
       const updatedDescription = businessDescription
@@ -330,6 +650,10 @@ export default function WebsiteBuilder() {
         }
 
         setStatus("idle");
+        const extractedName = result.business_name?.trim();
+        setBusinessName(
+          extractedName || extractBusinessName(updatedDescription),
+        );
         proceedAfterDescriptionValid(result);
       } catch {
         setStatus("error");
@@ -339,390 +663,303 @@ export default function WebsiteBuilder() {
       return;
     }
 
+    if (chatStep === "contactEmail") {
+      completeContactEmailStep(text);
+      return;
+    }
+
     if (chatStep === "address") {
       await completeAddressStep(text);
     }
   }
 
-  async function handleEdit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-
-    if (!editInstruction.trim() || !websiteId || isEditing) return;
-
-    setIsEditing(true);
-    setError(null);
-
-    try {
-      const response = await fetch("/api/edit", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          websiteId,
-          instruction: editInstruction.trim(),
-        }),
-      });
-
-      const data = (await response.json()) as {
-        success: boolean;
-        updatedFiles?: WebsiteFile[];
-        error?: string;
-      };
-
-      if (!response.ok || !data.success) {
-        setError(data.error || "Failed to apply changes.");
-        setIsEditing(false);
-        return;
-      }
-
-      if (data.updatedFiles) {
-        setFiles((prev) => {
-          const updated = [...prev];
-          for (const uf of data.updatedFiles!) {
-            const idx = updated.findIndex((f) => f.path === uf.path);
-            if (idx >= 0) {
-              updated[idx] = uf;
-            } else {
-              updated.push(uf);
-            }
-          }
-          return updated;
-        });
-      }
-
-      setEditInstruction("");
-      setIframeKey((k) => k + 1);
-    } catch {
-      setError("Could not apply changes. Please try again.");
-    } finally {
-      setIsEditing(false);
+  function openDeployCard() {
+    if (!websiteId) return;
+    if (!isSubscribed) {
+      setShowPaywall(true);
+      return;
     }
+    setShowDeployCard(true);
   }
 
-  async function handleDeploy(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-
-    const trimmedDomain = domain.trim();
-    if (!websiteId || deployStatus === "deploying") return;
-
-    setDeployStatus("deploying");
-    setDeployError(null);
-
-    try {
-      const response = await fetch("/api/deploy", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          websiteId,
-          domain: trimmedDomain,
-        }),
-      });
-
-      const data = (await response.json()) as {
-        success?: boolean;
-        domain?: string | null;
-        url?: string;
-        message?: string;
-        error?: string;
-      };
-
-      if (!response.ok || !data.success) {
-        setDeployStatus("error");
-        setDeployError(data.error || "Deployment failed.");
-        return;
-      }
-
-      setDeployStatus("success");
-      setDeployedDomain(data.domain || trimmedDomain || null);
-      setDeployedUrl(data.url || null);
-    } catch {
-      setDeployStatus("error");
-      setDeployError("Could not reach the deploy API. Please try again.");
-    }
+  function handleSubscribed(domain: string) {
+    setIsSubscribed(true);
+    setSubscribedDomain(domain);
+    setShowPaywall(false);
+    setCheckoutNotice(null);
+    addAssistantMessage(
+      `You're subscribed. Describe a change, or deploy ${domain}.`,
+    );
   }
 
   function handleStartOver() {
-    setView("builder");
-    setHumanVerified(false);
-    setMessages([]);
+    setMessages([{ role: "assistant", content: WELCOME_MESSAGE }]);
     setChatInput("");
     setChatStep("description");
     setBusinessDescription("");
+    setBusinessName("");
     setAddress("");
     setUseWhatsApp(false);
     setWhatsappNumber("");
+    setUseContactForm(false);
+    setContactEmail("");
+    setPeopleEthnicity("");
     setStatus("idle");
     setError(null);
     setWebsiteId(null);
     setFiles([]);
-    setDomain("");
-    setDeployStatus("idle");
-    setDeployError(null);
-    setDeployedDomain(null);
-    setDeployedUrl(null);
-  }
-
-  if (view === "preview" && websiteId) {
-    return (
-      <div className="mx-auto flex w-full max-w-6xl flex-col gap-6 px-4 py-10 sm:px-6 lg:px-8">
-        <div className="flex items-center justify-between">
-          <h1 className="text-2xl font-semibold text-stone-900">Website Preview</h1>
-          <div className="flex items-center gap-3">
-            <a
-              href={`/api/preview/${websiteId}/index.html`}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="text-sm font-medium text-teal-700 hover:text-teal-900"
-            >
-              Open in new tab &rarr;
-            </a>
-            <button
-              onClick={handleStartOver}
-              className="rounded-full border border-stone-300 px-4 py-2 text-sm font-medium text-stone-700 transition hover:bg-stone-50"
-            >
-              Start over
-            </button>
-          </div>
-        </div>
-
-        <section className="overflow-hidden rounded-2xl border border-stone-200 bg-white shadow-sm">
-          <iframe
-            key={iframeKey}
-            src={`/api/preview/${websiteId}/index.html`}
-            title="Website preview"
-            className="h-[600px] w-full border-0"
-            sandbox="allow-scripts allow-same-origin"
-          />
-        </section>
-
-        <section className="rounded-2xl border border-stone-200 bg-white p-5 shadow-sm">
-          <h2 className="text-base font-semibold text-stone-900">Deploy website</h2>
-          <p className="mt-1 mb-4 text-sm text-stone-600">
-            Enter a domain to deploy to the server, or leave it blank to get the local preview URL.
-          </p>
-          <form onSubmit={handleDeploy} className="flex flex-col gap-3">
-            <div className="flex flex-col gap-3 sm:flex-row">
-              <input
-                type="text"
-                value={domain}
-                onChange={(event) => setDomain(event.target.value)}
-                placeholder="thandoplumbing.co.za (optional)"
-                disabled={deployStatus === "deploying"}
-                className="flex-1 rounded-xl border border-stone-300 bg-white px-4 py-3 text-base text-stone-800 shadow-sm outline-none transition placeholder:text-stone-400 focus:border-teal-700 focus:ring-2 focus:ring-teal-700/20 disabled:bg-stone-100"
-              />
-              <button
-                type="submit"
-                disabled={deployStatus === "deploying"}
-                className="inline-flex items-center justify-center rounded-full bg-teal-800 px-5 py-3 text-sm font-semibold text-white transition hover:bg-teal-700 disabled:cursor-not-allowed disabled:bg-stone-400"
-              >
-                {deployStatus === "deploying" ? "Deploying..." : "Deploy website"}
-              </button>
-            </div>
-            {deployStatus === "success" && deployedUrl ? (
-              <p className="text-sm text-teal-800">
-                Website available at{" "}
-                <a
-                  href={deployedUrl}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="font-medium underline"
-                >
-                  {deployedUrl}
-                </a>
-                {deployedDomain ? ` (${deployedDomain})` : ""}.
-              </p>
-            ) : null}
-            {deployError ? (
-              <p className="text-sm text-red-700">{deployError}</p>
-            ) : null}
-          </form>
-        </section>
-
-        <section className="rounded-2xl border border-stone-200 bg-white p-5 shadow-sm">
-          <p className="mb-3 text-sm text-stone-600">
-            Want to make changes? Describe what you&apos;d like to update:
-          </p>
-          <form onSubmit={handleEdit} className="flex flex-col gap-3">
-            <div className="flex gap-3">
-              <input
-                type="text"
-                value={editInstruction}
-                onChange={(e) => setEditInstruction(e.target.value)}
-                placeholder="e.g. Fix phone number, it's 084 292 3200"
-                disabled={isEditing}
-                className="flex-1 rounded-xl border border-stone-300 bg-white px-4 py-3 text-base text-stone-800 shadow-sm outline-none transition placeholder:text-stone-400 focus:border-teal-700 focus:ring-2 focus:ring-teal-700/20 disabled:bg-stone-100"
-              />
-              <button
-                type="submit"
-                disabled={isEditing || !editInstruction.trim()}
-                className="inline-flex items-center justify-center rounded-full bg-teal-800 px-5 py-3 text-sm font-semibold text-white transition hover:bg-teal-700 disabled:cursor-not-allowed disabled:bg-stone-400"
-              >
-                {isEditing ? "Updating..." : "Update"}
-              </button>
-            </div>
-            <GenerationProgressBar
-              active={isEditing}
-              durationMs={60_000}
-              label="Applying your changes..."
-              completeLabel="Changes applied!"
-            />
-          </form>
-          {error ? (
-            <p className="mt-3 text-sm text-red-700">{error}</p>
-          ) : null}
-        </section>
-      </div>
-    );
+    setShowDeployCard(false);
+    setShowPaywall(false);
+    setIsSubscribed(false);
+    setSubscribedDomain(null);
+    setCheckoutNotice(null);
+    clearBuilderSession();
   }
 
   return (
-    <div className="mx-auto flex w-full max-w-6xl flex-col gap-8 px-4 py-10 sm:px-6 lg:px-8">
-      <header className="max-w-2xl">
-        <p className="mb-3 text-xs font-semibold uppercase tracking-[0.22em] text-teal-800">
-          Proof of concept
-        </p>
-        <h1 className="text-4xl font-semibold tracking-tight text-stone-900 sm:text-5xl">
-          AI Website Builder
-        </h1>
-        <p className="mt-3 text-lg text-stone-600">
-          Chat with us to describe your business and we&apos;ll build your website.
-        </p>
-      </header>
-
-      {!humanVerified ? (
-        <section className="rounded-2xl border border-stone-200 bg-white p-6 shadow-sm">
-          <p className="mb-4 text-sm text-stone-600">
-            Before we start, confirm you&apos;re human so we can protect our AI credits.
-          </p>
-          <HoldToValidateButton
-            label="Hold to confirm you're human"
-            onValidated={handleHumanVerified}
+    <div className="mx-auto flex min-h-0 w-full max-w-[90rem] flex-1 flex-col px-3 pb-3 pt-3 sm:px-4 sm:pb-4">
+      <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden rounded-[1.6rem] border border-stone-200/80 bg-white shadow-[0_24px_80px_rgba(28,25,23,0.12)]">
+        {showPaywall && websiteId ? (
+          <PaywallCard
+            websiteId={websiteId}
+            suggestedName={suggestedDomainName}
+            onClose={() => setShowPaywall(false)}
+            onSubscribed={handleSubscribed}
           />
-        </section>
-      ) : (
-        <section className="flex flex-col rounded-2xl border border-stone-200 bg-white shadow-sm">
-          <div className="flex min-h-[420px] max-h-[520px] flex-col gap-4 overflow-y-auto p-5">
-            {messages.map((message, index) => (
-              <div
-                key={`${message.role}-${index}`}
-                className={`max-w-[85%] rounded-2xl px-4 py-3 text-sm leading-relaxed ${
-                  message.role === "assistant"
-                    ? "bg-stone-100 text-stone-800"
-                    : "ml-auto bg-teal-800 text-white"
-                }`}
-              >
-                {message.content}
-              </div>
-            ))}
-            {status === "validating" ? (
-              <div className="max-w-[85%] rounded-2xl bg-stone-100 px-4 py-3 text-sm text-stone-600">
-                Checking your details...
-              </div>
-            ) : null}
-            {status === "generating" ? (
-              <div className="max-w-[85%] rounded-2xl bg-stone-100 px-4 py-3 text-sm text-stone-600">
-                Building your website and images...
-              </div>
-            ) : null}
-            <div ref={messagesEndRef} />
+        ) : null}
+        {showDeployCard && websiteId && isSubscribed ? (
+          <DeployWorkspace
+            websiteId={websiteId}
+            suggestedName={suggestedDomainName}
+            subscribedDomain={subscribedDomain ?? undefined}
+            onClose={() => setShowDeployCard(false)}
+          />
+        ) : null}
+        <div className="flex items-center gap-2 border-b border-stone-200 bg-stone-50 px-3 py-2.5 sm:px-4 sm:py-3">
+          <span className="h-2.5 w-2.5 rounded-full bg-stone-300" />
+          <span className="h-2.5 w-2.5 rounded-full bg-stone-300" />
+          <span className="h-2.5 w-2.5 rounded-full bg-stone-300" />
+          <div className="ml-2 min-w-0 flex-1 rounded-full bg-white px-3 py-1 text-center text-[11px] text-stone-400 ring-1 ring-stone-200">
+            yoursite.co.za
           </div>
+          <button
+            type="button"
+            onClick={handleStartOver}
+            className="shrink-0 rounded-full px-2 py-1 text-[11px] font-medium text-stone-500 transition hover:bg-stone-200/70 hover:text-stone-800"
+          >
+            Reset
+          </button>
+        </div>
 
-          {chatStep === "whatsapp" ? (
-            <div className="flex gap-3 border-t border-stone-200 p-4">
-              <button
-                type="button"
-                onClick={() => handleWhatsAppChoice(true)}
-                disabled={isBusy}
-                className="inline-flex flex-1 items-center justify-center rounded-full bg-teal-800 px-5 py-3 text-sm font-semibold text-white transition hover:bg-teal-700 disabled:cursor-not-allowed disabled:bg-stone-400"
-              >
-                Yes
-              </button>
-              <button
-                type="button"
-                onClick={() => handleWhatsAppChoice(false)}
-                disabled={isBusy}
-                className="inline-flex flex-1 items-center justify-center rounded-full border border-stone-300 px-5 py-3 text-sm font-semibold text-stone-700 transition hover:bg-stone-50 disabled:cursor-not-allowed disabled:opacity-50"
-              >
-                No
-              </button>
+        <div className="grid min-h-0 flex-1 lg:grid-cols-[20.5rem_minmax(0,1fr)] xl:grid-cols-[22.5rem_minmax(0,1fr)]">
+          <aside className="flex min-h-0 flex-1 flex-col bg-[#f6f4ef] lg:border-r lg:border-stone-100">
+            <div className="px-4 pb-1 pt-4">
+              <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-teal-800">
+                Chat
+              </p>
             </div>
-          ) : (
-            <form
-              onSubmit={handleChatSubmit}
-              className="flex flex-col gap-3 border-t border-stone-200 p-4"
-            >
-              <div className="flex gap-3">
-                <div className="relative flex-1">
-                  <input
-                    type="text"
-                    value={chatInput}
-                    onChange={(event) => setChatInput(event.target.value)}
-                    onFocus={() => {
-                      if (addressSuggestions.length > 0) {
-                        setShowAddressSuggestions(true);
-                      }
-                    }}
-                    placeholder={
-                      chatStep === "address"
-                        ? "Start typing your address..."
-                        : "Describe your business..."
-                    }
-                    disabled={isBusy}
-                    className="w-full rounded-xl border border-stone-300 bg-white px-4 py-3 text-base text-stone-800 shadow-sm outline-none transition placeholder:text-stone-400 focus:border-teal-700 focus:ring-2 focus:ring-teal-700/20 disabled:bg-stone-100"
-                  />
-                  {chatStep === "address" &&
-                  showAddressSuggestions &&
-                  addressSuggestions.length > 0 ? (
-                    <ul
-                      className="absolute bottom-full left-0 z-10 mb-1 w-full overflow-hidden rounded-xl border border-stone-200 bg-white shadow-lg"
-                    >
-                      {addressSuggestions.map((suggestion) => (
-                        <li key={suggestion.place_id}>
-                          <button
-                            type="button"
-                            onClick={() => selectAddressSuggestion(suggestion)}
-                            className="w-full px-4 py-3 text-left text-sm text-stone-800 hover:bg-stone-50"
-                          >
-                            {suggestion.description}
-                          </button>
-                        </li>
-                      ))}
-                    </ul>
-                  ) : null}
+            <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto px-4 py-3">
+              {messages.map((message, index) => (
+                <div
+                  key={`${message.role}-${index}`}
+                  className={`max-w-[92%] rounded-2xl px-3.5 py-2.5 text-sm leading-relaxed ${
+                    message.role === "assistant"
+                      ? "rounded-tl-md bg-white text-stone-700 shadow-sm ring-1 ring-stone-200/80"
+                      : "ml-auto rounded-tr-md bg-teal-800 text-white"
+                  }`}
+                >
+                  {message.content}
                 </div>
-                {chatStep === "address" ? (
+              ))}
+              {status === "validating" ? (
+                <div className="max-w-[92%] rounded-2xl rounded-tl-md bg-white px-3.5 py-2.5 text-sm text-stone-500 shadow-sm ring-1 ring-stone-200/80">
+                  Checking your details...
+                </div>
+              ) : null}
+              {checkoutNotice ? (
+                <div className="max-w-[92%] rounded-2xl rounded-tl-md bg-white px-3.5 py-2.5 text-sm text-stone-600 shadow-sm ring-1 ring-stone-200/80">
+                  {checkoutNotice}
+                </div>
+              ) : null}
+              {isEditing ? (
+                <div className="max-w-[92%] rounded-2xl rounded-tl-md bg-white px-3.5 py-2.5 text-sm text-stone-500 shadow-sm ring-1 ring-stone-200/80">
+                  Applying your changes...
+                </div>
+              ) : null}
+              {previewUrl && chatStep === "edit" ? (
+                <div className="flex max-w-[92%] gap-2">
+                  <a
+                    href={previewUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex flex-1 items-center justify-center rounded-full bg-teal-800 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-teal-700"
+                  >
+                    Preview
+                  </a>
                   <button
                     type="button"
-                    onClick={handleSkipAddress}
-                    disabled={isBusy}
-                    className="inline-flex items-center justify-center rounded-full border border-stone-300 px-5 py-3 text-sm font-semibold text-stone-700 transition hover:bg-stone-50 disabled:cursor-not-allowed disabled:opacity-50"
+                    onClick={openDeployCard}
+                    className="inline-flex flex-1 items-center justify-center rounded-full border border-stone-300 bg-white px-4 py-2.5 text-sm font-semibold text-stone-700 transition hover:bg-stone-50"
                   >
-                    Skip
+                    Deploy
                   </button>
-                ) : null}
-                <button
-                  type="submit"
-                  disabled={isBusy || !chatInput.trim()}
-                  className="inline-flex items-center justify-center rounded-full bg-teal-800 px-5 py-3 text-sm font-semibold text-white transition hover:bg-teal-700 disabled:cursor-not-allowed disabled:bg-stone-400"
-                >
-                  Send
-                </button>
-              </div>
-              <GenerationProgressBar
-                active={status === "generating"}
-                durationMs={120_000}
-                label="Building your website and images..."
-                completeLabel="Website ready!"
-              />
-            </form>
-          )}
-        </section>
-      )}
+                </div>
+              ) : null}
+              <div ref={messagesEndRef} />
+            </div>
 
-      {error ? (
-        <div className="rounded-2xl border border-red-200 bg-red-50 px-5 py-3 text-sm text-red-800">
-          {error}
+            <div className="border-t border-stone-200/80 bg-[#f6f4ef] p-3">
+              {chatStep === "ethnicity" ? (
+                <div className="flex flex-wrap gap-2">
+                  {PEOPLE_ETHNICITY_OPTIONS.map((option) => (
+                    <button
+                      key={option.id}
+                      type="button"
+                      onClick={() => handleEthnicityChoice(option.id)}
+                      disabled={isBusy}
+                      className="inline-flex min-w-[46%] flex-1 items-center justify-center rounded-full border border-stone-300 bg-white px-3 py-2.5 text-sm font-semibold text-stone-700 transition hover:bg-stone-50 disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      {option.label}
+                    </button>
+                  ))}
+                </div>
+              ) : chatStep === "whatsapp" || chatStep === "contact" ? (
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    onClick={() =>
+                      chatStep === "whatsapp"
+                        ? handleWhatsAppChoice(true)
+                        : handleContactChoice(true)
+                    }
+                    disabled={isBusy}
+                    className="inline-flex flex-1 items-center justify-center rounded-full bg-teal-800 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-teal-700 disabled:cursor-not-allowed disabled:bg-stone-400"
+                  >
+                    Yes
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      chatStep === "whatsapp"
+                        ? handleWhatsAppChoice(false)
+                        : handleContactChoice(false)
+                    }
+                    disabled={isBusy}
+                    className="inline-flex flex-1 items-center justify-center rounded-full border border-stone-300 bg-white px-4 py-2.5 text-sm font-semibold text-stone-700 transition hover:bg-stone-50 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    No
+                  </button>
+                </div>
+              ) : (
+                <form onSubmit={handleChatSubmit} className="flex flex-col gap-2">
+                  <div className="relative flex gap-2">
+                    <input
+                      type={chatStep === "contactEmail" ? "email" : "text"}
+                      value={chatInput}
+                      onChange={(event) => setChatInput(event.target.value)}
+                      onFocus={() => {
+                        if (editLocked) {
+                          setShowPaywall(true);
+                          return;
+                        }
+                        if (addressSuggestions.length > 0) {
+                          setShowAddressSuggestions(true);
+                        }
+                      }}
+                      onClick={() => {
+                        if (editLocked) {
+                          setShowPaywall(true);
+                        }
+                      }}
+                      readOnly={editLocked}
+                      placeholder={
+                        chatStep === "address"
+                          ? "Start typing your address..."
+                          : chatStep === "contactEmail"
+                            ? "Enter your email address..."
+                            : chatStep === "edit"
+                              ? "Describe a change..."
+                              : "Describe your business..."
+                      }
+                      disabled={isBusy}
+                      className={`w-full rounded-full border border-stone-300 bg-white px-4 py-2.5 text-sm text-stone-800 outline-none transition placeholder:text-stone-400 focus:border-teal-700 focus:ring-2 focus:ring-teal-700/20 disabled:bg-stone-100 ${
+                        editLocked ? "cursor-pointer" : ""
+                      }`}
+                    />
+                    {chatStep === "address" || chatStep === "contactEmail" ? (
+                      <button
+                        type="button"
+                        onClick={
+                          chatStep === "contactEmail"
+                            ? handleSkipContactEmail
+                            : handleSkipAddress
+                        }
+                        disabled={isBusy}
+                        className="shrink-0 rounded-full border border-stone-300 bg-white px-3 py-2.5 text-sm font-semibold text-stone-700 transition hover:bg-stone-50 disabled:opacity-50"
+                      >
+                        Skip
+                      </button>
+                    ) : null}
+                    <button
+                      type="submit"
+                      disabled={isBusy || (!editLocked && !chatInput.trim())}
+                      className="shrink-0 rounded-full bg-teal-800 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-teal-700 disabled:cursor-not-allowed disabled:bg-stone-400"
+                    >
+                      Send
+                    </button>
+                    {chatStep === "address" &&
+                    showAddressSuggestions &&
+                    addressSuggestions.length > 0 ? (
+                      <ul className="absolute bottom-full left-0 z-10 mb-2 w-full overflow-hidden rounded-2xl border border-stone-200 bg-white shadow-lg">
+                        {addressSuggestions.map((suggestion) => (
+                          <li key={suggestion.place_id}>
+                            <button
+                              type="button"
+                              onClick={() => selectAddressSuggestion(suggestion)}
+                              className="w-full px-4 py-2.5 text-left text-sm text-stone-800 hover:bg-stone-50"
+                            >
+                              {suggestion.description}
+                            </button>
+                          </li>
+                        ))}
+                      </ul>
+                    ) : null}
+                  </div>
+                  <GenerationProgressBar
+                    active={status === "generating" || isEditing}
+                    durationMs={status === "generating" ? 120_000 : 60_000}
+                    label={
+                      isEditing
+                        ? "Applying your changes..."
+                        : "Building your website and images..."
+                    }
+                    completeLabel={isEditing ? "Changes applied!" : "Website ready!"}
+                  />
+                </form>
+              )}
+              {error ? (
+                <p className="mt-2 text-xs text-red-700">{error}</p>
+              ) : null}
+            </div>
+          </aside>
+
+          <section className="relative hidden min-h-0 overflow-hidden bg-[#f7f3ea] lg:block">
+            <div className="pointer-events-none absolute -right-16 -top-16 h-56 w-56 rounded-full bg-teal-700/10" />
+            <div className="pointer-events-none absolute -bottom-20 -left-12 h-64 w-64 rounded-full bg-amber-200/40" />
+            {previewUrl ? (
+              <iframe
+                key={iframeKey}
+                src={previewUrl}
+                title="Website preview"
+                className="relative h-full w-full border-0 bg-white"
+                sandbox="allow-scripts allow-same-origin allow-forms"
+              />
+            ) : (
+              <EmptyPreview generating={status === "generating"} />
+            )}
+          </section>
         </div>
-      ) : null}
+      </div>
     </div>
   );
 }

@@ -36,15 +36,18 @@ public class CaddyService {
 
     public String generateConfiguration(String normalizedDomain, Path websiteRoot) {
         String rootPath = websiteRoot.toAbsolutePath().normalize().toString().replace('\\', '/');
+        String hosts = deploymentProperties.isEnableHttps()
+                ? "%s, www.%s".formatted(normalizedDomain, normalizedDomain)
+                : "http://%s, http://www.%s".formatted(normalizedDomain, normalizedDomain);
 
         return """
-                http://%s, http://www.%s {
+                %s {
                 \troot * %s
                 \tencode gzip
                 \tfile_server
                 \ttry_files {path} {path}/ =404
                 }
-                """.formatted(normalizedDomain, normalizedDomain, rootPath);
+                """.formatted(hosts, rootPath);
     }
 
     public void ensureLayout() throws IOException {
@@ -56,14 +59,36 @@ public class CaddyService {
         Files.createDirectories(enabled);
         Files.createDirectories(caddyfile.getParent());
 
-        String mainConfig = """
-                {
-                \tauto_https off
-                \thttp_port 80
-                }
+        String importLine = "import "
+                + enabled.toAbsolutePath().normalize().toString().replace('\\', '/')
+                + "/*";
 
-                import %s/*
-                """.formatted(enabled.toAbsolutePath().normalize().toString().replace('\\', '/'));
+        String mainConfig;
+        if (deploymentProperties.isEnableHttps()) {
+            String email = deploymentProperties.getAcmeEmail() == null
+                    ? ""
+                    : deploymentProperties.getAcmeEmail().trim();
+            if (!email.isEmpty()) {
+                mainConfig = """
+                        {
+                        \temail %s
+                        }
+
+                        %s
+                        """.formatted(email, importLine);
+            } else {
+                mainConfig = importLine + System.lineSeparator();
+            }
+        } else {
+            mainConfig = """
+                    {
+                    \tauto_https off
+                    \thttp_port 80
+                    }
+
+                    %s
+                    """.formatted(importLine);
+        }
 
         Files.writeString(caddyfile, mainConfig, StandardCharsets.UTF_8);
     }

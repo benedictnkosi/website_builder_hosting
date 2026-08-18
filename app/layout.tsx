@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
+import { AuthProvider } from "@/components/AuthProvider";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -14,7 +15,7 @@ const geistMono = Geist_Mono({
 
 export const metadata: Metadata = {
   title: "AI Website Builder",
-  description: "Describe your business and AI will create your website.",
+  description: "Describe your business in a chat and get a live website you can edit and deploy.",
 };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {
@@ -23,8 +24,8 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
       lang="en"
       className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
     >
-      <body className="min-h-full flex flex-col bg-[var(--background)] text-[var(--foreground)]">
-        {children}
+      <body className="flex min-h-full flex-col bg-[var(--background)] text-[var(--foreground)]">
+        <AuthProvider>{children}</AuthProvider>
       </body>
     </html>
   );

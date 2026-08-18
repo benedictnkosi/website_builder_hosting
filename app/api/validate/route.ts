@@ -14,7 +14,7 @@ const OPENAI_MODEL = "gpt-5.5";
 const VALIDATION_SCHEMA = {
   type: "object",
   additionalProperties: false,
-  required: ["missing_fields", "message", "whatsapp_preference", "whatsapp_number"],
+  required: ["missing_fields", "business_name", "message", "whatsapp_preference", "whatsapp_number"],
   properties: {
     missing_fields: {
       type: "array",
@@ -22,6 +22,11 @@ const VALIDATION_SCHEMA = {
         type: "string",
         enum: ["business", "services", "phone"],
       },
+    },
+    business_name: {
+      type: "string",
+      description:
+        "The business name extracted from the description. Empty string if missing.",
     },
     message: {
       type: "string",
@@ -53,7 +58,7 @@ Also extract WhatsApp details from the description:
 - whatsapp_preference: "yes" if the user wants WhatsApp, provided a WhatsApp number, or asked to use a number for WhatsApp. "no" if they explicitly do not want WhatsApp. "unknown" if WhatsApp was not mentioned.
 - whatsapp_number: The WhatsApp number if explicitly provided (e.g. "WhatsApp: 082 123 4567"). Empty string if not provided or WhatsApp is not wanted. The WhatsApp number and main phone number may be different — extract each separately when given.
 
-Analyse the user's description and return which required fields are missing. If all required fields are present, return an empty missing_fields array and empty message.
+Analyse the user's description and return which required fields are missing. Extract business_name as the trading or company name only, without services, phone numbers, or extra description. If all required fields are present, return an empty missing_fields array and empty message.
 
 If fields are missing, write a short friendly message telling the user what to add to their description.`;
 
@@ -162,6 +167,7 @@ export async function POST(request: Request) {
 
     let result: {
       missing_fields: string[];
+      business_name: string;
       message: string;
       whatsapp_preference: "yes" | "no" | "unknown";
       whatsapp_number: string;
@@ -182,6 +188,7 @@ export async function POST(request: Request) {
       success: true,
       valid: result.missing_fields.length === 0,
       missing_fields: result.missing_fields,
+      business_name: result.business_name ?? "",
       message: result.message,
       whatsapp_preference: result.whatsapp_preference ?? "unknown",
       whatsapp_number: result.whatsapp_number ?? "",
