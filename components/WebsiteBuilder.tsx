@@ -266,6 +266,7 @@ export default function WebsiteBuilder() {
             addAssistantMessage(
               `You're subscribed. Another 20,000 tokens were added to your balance. Describe a change, or deploy ${data.subscription.domain}.`,
             );
+            setShowDeployCard(true);
           }
           return;
         }
@@ -943,6 +944,7 @@ Use these details on the website where they fit. Do not invent extras beyond wha
                     type="text"
                     value={chatInput}
                     onChange={(event) => setChatInput(event.target.value)}
+                    maxLength={500}
                     placeholder={
                       chatLocked
                         ? "Chat tokens have been used up"
