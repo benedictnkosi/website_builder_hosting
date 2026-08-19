@@ -80,19 +80,33 @@ export function jsonTokenError(error: unknown): NextResponse | null {
   return null;
 }
 
+export interface OpenAITokenBreakdown {
+  total: number;
+  inputTokens: number;
+  outputTokens: number;
+}
+
 export function tokensFromOpenAIPayload(payload: unknown): number {
-  if (!payload || typeof payload !== "object") return 0;
+  return tokenBreakdownFromOpenAIPayload(payload).total;
+}
+
+export function tokenBreakdownFromOpenAIPayload(payload: unknown): OpenAITokenBreakdown {
+  if (!payload || typeof payload !== "object") return { total: 0, inputTokens: 0, outputTokens: 0 };
   const usage = (payload as { usage?: unknown }).usage;
-  if (!usage || typeof usage !== "object") return 0;
+  if (!usage || typeof usage !== "object") return { total: 0, inputTokens: 0, outputTokens: 0 };
 
   const record = usage as Record<string, unknown>;
+  const input = typeof record.input_tokens === "number" ? Math.max(0, Math.round(record.input_tokens)) : 0;
+  const output = typeof record.output_tokens === "number" ? Math.max(0, Math.round(record.output_tokens)) : 0;
+
+  let total: number;
   if (typeof record.total_tokens === "number" && Number.isFinite(record.total_tokens)) {
-    return Math.max(0, Math.round(record.total_tokens));
+    total = Math.max(0, Math.round(record.total_tokens));
+  } else {
+    total = input + output;
   }
 
-  const input = typeof record.input_tokens === "number" ? record.input_tokens : 0;
-  const output = typeof record.output_tokens === "number" ? record.output_tokens : 0;
-  return Math.max(0, Math.round(input + output));
+  return { total, inputTokens: input, outputTokens: output };
 }
 
 async function applyTokenDelta(
@@ -100,6 +114,7 @@ async function applyTokenDelta(
   delta: number,
   grantId?: string,
   kind?: TokenUsageKind,
+  breakdown?: { inputTokens?: number; outputTokens?: number },
 ): Promise<number> {
   if (!uid) {
     throw new Error("A user id is required to update tokens.");
@@ -158,6 +173,8 @@ async function applyTokenDelta(
         };
         if (kind) usage.kind = kind;
         if (grantId) usage.usageId = grantId;
+        if (breakdown?.inputTokens) usage.inputTokens = breakdown.inputTokens;
+        if (breakdown?.outputTokens) usage.outputTokens = breakdown.outputTokens;
         tx.set(usageRef, usage);
       }
     }
@@ -240,12 +257,13 @@ export async function chargeTokens(
   fallback = 0,
   usageId?: string,
   kind?: TokenUsageKind,
+  breakdown?: { inputTokens?: number; outputTokens?: number },
 ): Promise<void> {
   const ctx = tokenSpend.getStore();
   const tokens = amount > 0 ? Math.round(amount) : fallback;
   if (!ctx || tokens <= 0) return;
   try {
-    await applyTokenDelta(ctx.uid, -tokens, usageId, kind ?? ctx.kind);
+    await applyTokenDelta(ctx.uid, -tokens, usageId, kind ?? ctx.kind, breakdown);
   } catch (error) {
     console.error("Could not deduct tokens:", error);
   }
@@ -260,10 +278,12 @@ export async function chargeOpenAIUsage(
     payload && typeof payload === "object" && "id" in payload
       ? String((payload as { id?: unknown }).id ?? "").trim()
       : "";
+  const breakdown = tokenBreakdownFromOpenAIPayload(payload);
   await chargeTokens(
-    tokensFromOpenAIPayload(payload),
+    breakdown.total,
     fallback,
     id ? `openai:${id}` : undefined,
     kind,
+    { inputTokens: breakdown.inputTokens, outputTokens: breakdown.outputTokens },
   );
 }
