@@ -33,6 +33,10 @@ const SECTIONS = [
     body: "If your published site includes a contact form, submissions are emailed to the address stored on that site. Do not put a form live unless that inbox should receive customer messages.",
   },
   {
+    title: "Customer support",
+    body: "Messages you send through the Lulaweb support form are emailed to our support inbox so we can reply. We keep the name, email, and message you submit for that purpose.",
+  },
+  {
     title: "What we do not do",
     body: "We do not sell your data. We use it to run Lulaweb: sign-in, generation, hosting, billing, and support.",
   },

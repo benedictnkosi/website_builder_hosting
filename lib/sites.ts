@@ -108,17 +108,23 @@ export async function createOwnedWebsite(input: {
   contactEmail?: string;
 }): Promise<WebsiteMeta> {
   const now = new Date().toISOString();
+  const existing = await readWebsiteMeta(input.websiteId, input.user);
+  if (existing && existing.ownerUid !== input.user.uid) {
+    throw new AuthError("You do not have access to this website.", 403);
+  }
   const title =
     stringField(input.businessName) ||
     (await readWebsiteTitle(input.websiteId, input.user.idToken)) ||
+    existing?.businessName ||
     "Untitled site";
   const meta: WebsiteMeta = {
     websiteId: input.websiteId,
     ownerUid: input.user.uid,
     ownerEmail: input.user.email,
     businessName: title,
-    contactEmail: stringField(input.contactEmail) || undefined,
-    createdAt: now,
+    contactEmail:
+      stringField(input.contactEmail) || existing?.contactEmail || undefined,
+    createdAt: existing?.createdAt || now,
     updatedAt: now,
   };
 

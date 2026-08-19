@@ -172,3 +172,7 @@ export function trackCancelSubscription() {
 export function trackDeleteWebsite() {
   trackEvent("delete_website");
 }
+
+export function trackSupportSubmit() {
+  trackEvent("support_submit");
+}

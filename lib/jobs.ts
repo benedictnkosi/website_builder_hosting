@@ -7,6 +7,7 @@ import {
   createWebsiteId,
   deleteWebsiteDirectory,
   deleteWebsiteFiles,
+  replaceWebsiteFiles,
   updateWebsiteFiles,
 } from "@/lib/file-manager";
 import {
@@ -30,7 +31,7 @@ import {
   pollWebsiteGenerationBackground,
   startWebsiteGenerationBackground,
 } from "@/lib/openai";
-import { createOwnedWebsite } from "@/lib/sites";
+import { createOwnedWebsite, requireOwnedWebsite } from "@/lib/sites";
 import { runWithTokenSpend } from "@/lib/tokens";
 import type {
   SiteJobKind,
@@ -72,6 +73,7 @@ export type SiteJob = {
   imageIndex: number;
   replacePaths: string[];
   allowedPaths: string[];
+  replaceExisting: boolean;
   error: string;
   createdAt: string;
   updatedAt: string;
@@ -172,6 +174,7 @@ function asJob(data: Record<string, unknown>): SiteJob | null {
     imageIndex: Math.max(0, numberField(data.imageIndex)),
     replacePaths: asStringArray(data.replacePaths),
     allowedPaths: asStringArray(data.allowedPaths),
+    replaceExisting: data.replaceExisting === true,
     error: stringField(data.error),
     createdAt: stringField(data.createdAt) || nowIso(),
     updatedAt: stringField(data.updatedAt) || nowIso(),
@@ -269,7 +272,12 @@ async function failJob(user: AuthUser, job: SiteJob, error: unknown): Promise<Si
     replacePaths: [],
   });
 
-  if (job.kind === "generate" && job.websiteId && job.step !== "done") {
+  if (
+    job.kind === "generate" &&
+    job.websiteId &&
+    job.step !== "done" &&
+    !job.replaceExisting
+  ) {
     await deleteWebsiteDirectory(job.websiteId, user.idToken).catch(() => undefined);
   }
 
@@ -348,8 +356,25 @@ export async function createGenerateJob(
     peopleEthnicity?: string;
     businessName?: string;
     contactEmail?: string;
+    websiteId?: string;
   },
 ): Promise<SiteJob> {
+  const existingWebsiteId = input.websiteId?.trim() ?? "";
+  const replaceExisting = Boolean(existingWebsiteId);
+  let websiteId = createWebsiteId();
+
+  if (replaceExisting) {
+    if (!isValidWebsiteId(existingWebsiteId)) {
+      throw new GeneratorError("A valid websiteId is required.");
+    }
+    await requireOwnedWebsite(existingWebsiteId, user);
+    const active = await findActiveJob(user, "generate", existingWebsiteId);
+    if (active) {
+      await cancelJob(user, active.jobId);
+    }
+    websiteId = existingWebsiteId;
+  }
+
   const now = nowIso();
   const job: SiteJob = {
     jobId: createJobId(),
@@ -357,9 +382,9 @@ export async function createGenerateJob(
     status: "queued",
     step: "queued",
     progress: 4,
-    message: "Starting your website...",
+    message: replaceExisting ? "Rebuilding your website..." : "Starting your website...",
     ownerUid: user.uid,
-    websiteId: createWebsiteId(),
+    websiteId,
     businessName: input.businessName?.trim() ?? "",
     contactEmail: input.contactEmail?.trim() ?? "",
     peopleEthnicity: input.peopleEthnicity?.trim() ?? "",
@@ -373,6 +398,7 @@ export async function createGenerateJob(
     imageIndex: 0,
     replacePaths: [],
     allowedPaths: [],
+    replaceExisting,
     error: "",
     createdAt: now,
     updatedAt: now,
@@ -413,6 +439,7 @@ export async function createEditJob(
     imageIndex: 0,
     replacePaths: [],
     allowedPaths: [],
+    replaceExisting: false,
     error: "",
     createdAt: now,
     updatedAt: now,
@@ -485,6 +512,7 @@ async function startGenerateOpenAI(
       job.prompt,
       job.peopleEthnicity || undefined,
       user.idToken,
+      job.websiteId,
     );
     await createOwnedWebsite({
       websiteId: result.websiteId,
@@ -665,7 +693,12 @@ async function deleteUnusedImages(
 
 async function saveJobResult(user: AuthUser, job: SiteJob): Promise<SiteJob> {
   if (job.kind === "generate") {
-    await updateWebsiteFiles(job.websiteId, job.files, user.idToken);
+    await replaceWebsiteFiles(
+      job.websiteId,
+      job.files,
+      job.imageRequests.map((image) => image.path),
+      user.idToken,
+    );
     await createOwnedWebsite({
       websiteId: job.websiteId,
       user,
@@ -792,7 +825,7 @@ export async function cancelJob(user: AuthUser, jobId: string): Promise<SiteJob 
     replacePaths: [],
   });
 
-  if (job.kind === "generate" && job.websiteId) {
+  if (job.kind === "generate" && job.websiteId && !job.replaceExisting) {
     await deleteWebsiteDirectory(job.websiteId, user.idToken).catch(() => undefined);
   }
 

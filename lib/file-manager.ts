@@ -439,10 +439,11 @@ export async function listWebsiteImagePaths(
     .sort();
 }
 
-export async function deleteWebsiteFiles(
+async function deletePublicWebsiteFiles(
   websiteId: string,
   filePaths: string[],
   idToken?: string,
+  predicate?: (relativePath: string) => boolean,
 ): Promise<void> {
   assertWebsiteId(websiteId);
 
@@ -455,7 +456,8 @@ export async function deleteWebsiteFiles(
       seen.has(normalized) ||
       !isSafeRelativePath(filePath) ||
       !isSafeRelativePath(normalized) ||
-      !normalized.toLowerCase().startsWith("images/")
+      !isPublicSiteFile(normalized) ||
+      (predicate && !predicate(normalized))
     ) {
       continue;
     }
@@ -479,6 +481,16 @@ export async function deleteWebsiteFiles(
   }
 }
 
+export async function deleteWebsiteFiles(
+  websiteId: string,
+  filePaths: string[],
+  idToken?: string,
+): Promise<void> {
+  await deletePublicWebsiteFiles(websiteId, filePaths, idToken, (relativePath) =>
+    relativePath.toLowerCase().startsWith("images/"),
+  );
+}
+
 export async function updateWebsiteFiles(
   websiteId: string,
   files: WebsiteFile[],
@@ -494,6 +506,38 @@ export async function updateWebsiteFiles(
     if (!stored) throw error;
     console.warn("Local generated-sites cache write failed:", error);
   }
+}
+
+export async function replaceWebsiteFiles(
+  websiteId: string,
+  files: WebsiteFile[],
+  extraKeepPaths: string[] = [],
+  idToken?: string,
+): Promise<void> {
+  await updateWebsiteFiles(websiteId, files, idToken);
+
+  const keep = new Set<string>();
+  for (const file of files) {
+    keep.add(normalizeRelativePath(file.path));
+  }
+  for (const extra of extraKeepPaths) {
+    if (typeof extra !== "string") continue;
+    const normalized = normalizeRelativePath(extra.trim());
+    if (
+      normalized &&
+      isSafeRelativePath(normalized) &&
+      isPublicSiteFile(normalized)
+    ) {
+      keep.add(normalized);
+    }
+  }
+
+  const existing = await listStoredWebsiteFiles(websiteId, idToken);
+  const unused = existing.filter(
+    (relativePath) => !keep.has(normalizeRelativePath(relativePath)),
+  );
+  if (unused.length === 0) return;
+  await deletePublicWebsiteFiles(websiteId, unused, idToken);
 }
 
 async function writeStoredWebsiteFiles(
@@ -522,23 +566,33 @@ async function writeStoredWebsiteFiles(
 export async function writeWebsiteFiles(
   files: WebsiteFile[],
   idToken?: string,
+  websiteId?: string,
 ): Promise<string> {
-  const websiteId = createWebsiteId();
-  const stamped = stampWebsiteIdInFiles(files, websiteId);
+  const requestedId = websiteId?.trim() ?? "";
+  const replacing = isValidWebsiteId(requestedId);
+  const id = replacing ? requestedId : createWebsiteId();
+  const stamped = stampWebsiteIdInFiles(files, id);
 
   try {
-    const stored = await writeStoredWebsiteFiles(websiteId, stamped, idToken);
+    if (replacing) {
+      await replaceWebsiteFiles(id, stamped, [], idToken);
+      return id;
+    }
+
+    const stored = await writeStoredWebsiteFiles(id, stamped, idToken);
 
     try {
-      await writeDiskWebsiteFiles(websiteId, stamped);
+      await writeDiskWebsiteFiles(id, stamped);
     } catch (error) {
       if (!stored) throw error;
       console.warn("Local generated-sites cache write failed:", error);
     }
   } catch (error) {
-    await deleteWebsiteDirectory(websiteId, idToken).catch(() => undefined);
+    if (!replacing) {
+      await deleteWebsiteDirectory(id, idToken).catch(() => undefined);
+    }
     throw error;
   }
 
-  return websiteId;
+  return id;
 }

@@ -3,7 +3,9 @@ import { jsonAuthError, requireUser } from "@/lib/auth-server";
 import { createGenerateJob, jobJsonHeaders, scheduleJobTick, toJobView } from "@/lib/jobs";
 import { getPeopleEthnicityOption } from "@/lib/people-ethnicity";
 import { clientKey, consumeRateLimit, jsonRateLimitError } from "@/lib/rate-limit";
+import { requireOwnedWebsite } from "@/lib/sites";
 import { assertGenerateTokens, jsonTokenError } from "@/lib/tokens";
+import { isValidWebsiteId } from "@/lib/validation";
 
 export const runtime = "nodejs";
 export const maxDuration = 30;
@@ -73,9 +75,24 @@ export async function POST(request: Request) {
     "continueWithAvailableInfo" in body &&
     body.continueWithAvailableInfo === true;
 
+  const websiteId =
+    typeof body === "object" &&
+    body !== null &&
+    "websiteId" in body &&
+    typeof body.websiteId === "string"
+      ? body.websiteId.trim()
+      : "";
+
   if (!prompt) {
     return NextResponse.json(
       { success: false, error: "A prompt string is required." },
+      { status: 400 },
+    );
+  }
+
+  if (websiteId && !isValidWebsiteId(websiteId)) {
+    return NextResponse.json(
+      { success: false, error: "A valid websiteId is required." },
       { status: 400 },
     );
   }
@@ -98,12 +115,26 @@ export async function POST(request: Request) {
     );
   }
 
+  if (websiteId) {
+    try {
+      await requireOwnedWebsite(websiteId, user);
+    } catch (error) {
+      const authResponse = jsonAuthError(error);
+      if (authResponse) return authResponse;
+      return NextResponse.json(
+        { success: false, error: "You do not have access to this website." },
+        { status: 403 },
+      );
+    }
+  }
+
   try {
     const job = await createGenerateJob(user, {
       prompt,
       peopleEthnicity: peopleEthnicity || undefined,
       businessName: businessName || undefined,
       contactEmail: contactEmail || undefined,
+      websiteId: websiteId || undefined,
     });
     scheduleJobTick(user, job.jobId);
     return NextResponse.json(
@@ -115,6 +146,8 @@ export async function POST(request: Request) {
       { headers: jobJsonHeaders() },
     );
   } catch (error) {
+    const authResponse = jsonAuthError(error);
+    if (authResponse) return authResponse;
     const message =
       error instanceof Error
         ? error.message

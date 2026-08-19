@@ -302,7 +302,12 @@ export default function WebsiteBuilder() {
     const session = loadBuilderSession();
     const nextWebsiteId = urlWebsiteId || session?.websiteId || "";
     const resumeJobId = session?.jobId ?? "";
-    const resumeKind = session?.jobKind === "edit" || nextWebsiteId ? "edit" : "generate";
+    const resumeKind =
+      session?.jobKind === "generate"
+        ? "generate"
+        : session?.jobKind === "edit" || nextWebsiteId
+          ? "edit"
+          : "generate";
 
     if (session?.businessName) {
       // eslint-disable-next-line react-hooks/set-state-in-effect -- restore the saved builder session once on mount
@@ -312,7 +317,11 @@ export default function WebsiteBuilder() {
       setBusinessDescription(session.businessDescription);
     }
 
-    if (resumeJobId && !urlWebsiteId) {
+    const shouldResumeJob =
+      Boolean(resumeJobId) &&
+      (!urlWebsiteId || !session?.websiteId || session.websiteId === urlWebsiteId);
+
+    if (shouldResumeJob) {
       setActiveJobId(resumeJobId);
       if (resumeKind === "edit") {
         setWebsiteId(nextWebsiteId || session?.websiteId || "");
@@ -329,6 +338,9 @@ export default function WebsiteBuilder() {
       } else {
         setStatus("generating");
         setChatPhase("intake");
+        if (nextWebsiteId) {
+          setWebsiteId(nextWebsiteId);
+        }
       }
 
       const epoch = runEpochRef.current;
@@ -494,7 +506,6 @@ Use these details on the website where they fit. Do not invent extras beyond wha
     setBusinessName(name);
     setStatus("generating");
     setError(null);
-    setWebsiteId(null);
     setFiles([]);
     trackGenerateStart();
 
@@ -507,6 +518,7 @@ Use these details on the website where they fit. Do not invent extras beyond wha
           businessName: name,
           contactEmail: intake.contact_email || undefined,
           continueWithAvailableInfo: options?.allowDepleted || undefined,
+          websiteId: websiteId || undefined,
         }),
       });
 
@@ -540,7 +552,7 @@ Use these details on the website where they fit. Do not invent extras beyond wha
       }
 
       saveBuilderSession({
-        websiteId: "",
+        websiteId: websiteId || "",
         businessName: name,
         businessDescription: description,
         jobId: data.jobId,
@@ -562,8 +574,7 @@ Use these details on the website where they fit. Do not invent extras beyond wha
       setChatLocked(false);
       setPendingIntake(null);
       setShowAddressModal(false);
-      setIsSubscribed(false);
-      setSubscribedDomain(null);
+      setIframeKey((key) => key + 1);
       clearJobView();
       trackGenerateSuccess(nextWebsiteId);
       saveBuilderSession({
@@ -573,6 +584,7 @@ Use these details on the website where they fit. Do not invent extras beyond wha
       });
       addAssistantMessage(READY_MESSAGE);
       notifyTokensChanged();
+      void refreshSubscription(nextWebsiteId);
     } catch (error) {
       if (isStaleRun(epoch)) return;
       if (error instanceof Error && error.message === "cancelled") return;
@@ -788,6 +800,7 @@ Use these details on the website where they fit. Do not invent extras beyond wha
 
   function handleStartOver() {
     const jobId = activeJobId;
+    const existingWebsiteId = websiteId;
     runEpochRef.current += 1;
     intakeStartedRef.current = false;
     if (jobId) {
@@ -806,19 +819,23 @@ Use these details on the website where they fit. Do not invent extras beyond wha
     setBusinessName("");
     setStatus("idle");
     setError(null);
-    setWebsiteId(null);
     setFiles([]);
     setIsEditing(false);
-    setIframeKey((key) => key + 1);
     setProgressBarKey((key) => key + 1);
     setShowDeployCard(false);
     setShowPaywall(false);
-    setIsSubscribed(false);
-    setSubscribedDomain(null);
     setCheckoutNotice(null);
     setCheckoutConfirming(false);
     clearJobView();
-    clearBuilderSession();
+    if (existingWebsiteId) {
+      saveBuilderSession({
+        websiteId: existingWebsiteId,
+        businessName: "",
+        businessDescription: "",
+      });
+    } else {
+      clearBuilderSession();
+    }
   }
 
   return (

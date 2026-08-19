@@ -12,6 +12,7 @@ export async function generateWebsite(
   prompt: string,
   peopleEthnicity?: string,
   idToken?: string,
+  websiteId?: string,
 ): Promise<GenerateWebsiteResult> {
   const trimmedPrompt = prompt.trim();
 
@@ -26,10 +27,10 @@ export async function generateWebsite(
     peopleEthnicity,
   );
   const allFiles = [...files, ...imageFiles];
-  const websiteId = await writeWebsiteFiles(allFiles, idToken);
+  const nextWebsiteId = await writeWebsiteFiles(allFiles, idToken, websiteId);
 
   return {
     success: true,
-    websiteId,
+    websiteId: nextWebsiteId,
   };
 }

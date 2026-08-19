@@ -1,5 +1,6 @@
 import Link from "next/link";
 import BrandMark from "@/components/BrandMark";
+import SupportForm from "@/components/SupportForm";
 import {
   LandingCtaSignIn,
   LandingHeaderSignIn,
@@ -126,6 +127,9 @@ export default function LandingPage() {
           </a>
           <a href="#faq" className="hover:text-stone-900">
             FAQ
+          </a>
+          <a href="#support" className="hover:text-stone-900">
+            Support
           </a>
         </nav>
         <LandingHeaderSignIn />
@@ -349,6 +353,10 @@ export default function LandingPage() {
               ))}
             </div>
           </section>
+
+          <div className="mx-auto mt-16 w-full max-w-5xl scroll-mt-24">
+            <SupportForm heading="Talk to us" />
+          </div>
         </div>
       </main>
 
@@ -372,6 +380,9 @@ export default function LandingPage() {
             </a>
             <a href="#faq" className="hover:text-stone-900">
               FAQ
+            </a>
+            <a href="#support" className="hover:text-stone-900">
+              Support
             </a>
             <Link href="/privacy" className="hover:text-stone-900">
               Privacy

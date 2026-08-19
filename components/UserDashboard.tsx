@@ -11,6 +11,7 @@ import {
   trackOpenSite,
   trackStartBuilder,
 } from "@/lib/analytics";
+import SupportForm from "@/components/SupportForm";
 import { openTokenTopup, TOKENS_CHANGED_EVENT } from "@/lib/token-events";
 import {
   formatTokenCount,
@@ -279,7 +280,7 @@ export default function UserDashboard() {
       ) : null}
 
       {loading ? (
-        <p className="mt-10 text-sm text-stone-500">Loading your websites...</p>
+        <WebsiteLoadingSkeleton />
       ) : sites.length === 0 ? (
         <section className="mt-10 rounded-[1.6rem] border border-stone-200/80 bg-white p-8 text-center shadow-[0_24px_80px_rgba(28,25,23,0.08)] sm:p-12">
           <p className="text-xs font-semibold uppercase tracking-[0.22em] text-teal-800">
@@ -400,7 +401,7 @@ export default function UserDashboard() {
         ) : null}
 
         {purchasesLoading ? (
-          <p className="mt-4 text-sm text-stone-500">Loading your purchases...</p>
+          <PurchasesLoadingSkeleton />
         ) : purchases.length === 0 ? (
           <div className="mt-4 rounded-[1.4rem] border border-stone-200/80 bg-white px-5 py-6 text-sm text-stone-600">
             No token purchases yet. Buy tokens when you need more chat, generate,
@@ -437,6 +438,10 @@ export default function UserDashboard() {
           </ul>
         )}
       </section>
+
+      <div className="mt-12">
+        <SupportForm description="Questions about billing, domains, tokens, or a site you built — send a message and we will reply to your email." />
+      </div>
 
       {confirm ? (
         <div
@@ -498,6 +503,96 @@ export default function UserDashboard() {
           </section>
         </div>
       ) : null}
+    </div>
+  );
+}
+
+function PulseBar({ className }: { className: string }) {
+  return <div className={`animate-pulse rounded-full bg-stone-200 ${className}`} />;
+}
+
+function WebsiteLoadingSkeleton() {
+  return (
+    <section className="mt-10" aria-busy="true" aria-live="polite">
+      <div className="flex items-center gap-4 rounded-[1.4rem] border border-stone-200/80 bg-white px-5 py-4 shadow-sm">
+        <span
+          className="relative flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-teal-800 text-white"
+          aria-hidden="true"
+        >
+          <svg
+            viewBox="0 0 24 24"
+            className="h-5 w-5 animate-spin"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.8"
+          >
+            <path d="M12 3a9 9 0 1 1-9 9" strokeLinecap="round" />
+          </svg>
+        </span>
+        <div>
+          <p className="text-xs font-semibold uppercase tracking-[0.22em] text-teal-800">
+            Your sites
+          </p>
+          <h2 className="mt-1 text-lg font-semibold tracking-tight text-stone-900">
+            Loading your websites
+          </h2>
+          <p className="mt-0.5 text-sm text-stone-500">
+            Fetching previews and billing status.
+          </p>
+        </div>
+      </div>
+      <ul className="mt-6 grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+        {["one", "two", "three"].map((key) => (
+          <li
+            key={key}
+            className="overflow-hidden rounded-[1.4rem] border border-stone-200/80 bg-white shadow-sm"
+          >
+            <div className="relative h-36 overflow-hidden bg-[#f7f3ea]">
+              <div className="absolute inset-0 animate-pulse bg-gradient-to-br from-stone-200/80 via-teal-100/40 to-stone-100" />
+            </div>
+            <div className="p-4">
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0 flex-1">
+                  <PulseBar className="h-4 w-36" />
+                  <PulseBar className="mt-2 h-3 w-24" />
+                </div>
+                <PulseBar className="h-6 w-16" />
+              </div>
+              <PulseBar className="mt-4 h-3 w-28" />
+              <div className="mt-4 flex gap-2">
+                <PulseBar className="h-9 flex-1" />
+                <PulseBar className="h-9 w-20" />
+              </div>
+            </div>
+          </li>
+        ))}
+      </ul>
+    </section>
+  );
+}
+
+function PurchasesLoadingSkeleton() {
+  return (
+    <div
+      className="mt-4 overflow-hidden rounded-[1.4rem] border border-stone-200/80 bg-white"
+      aria-busy="true"
+      aria-live="polite"
+    >
+      {["one", "two", "three"].map((key) => (
+        <div
+          key={key}
+          className="flex items-center justify-between gap-3 border-b border-stone-100 px-4 py-4 last:border-b-0 sm:px-5"
+        >
+          <div>
+            <PulseBar className="h-4 w-32" />
+            <PulseBar className="mt-2 h-3 w-40" />
+          </div>
+          <div className="flex items-center gap-3">
+            <PulseBar className="h-4 w-14" />
+            <PulseBar className="h-6 w-16" />
+          </div>
+        </div>
+      ))}
     </div>
   );
 }

@@ -36,6 +36,12 @@ export default function AppHeader() {
             Sites
           </Link>
           <Link
+            href={onDashboard ? "#support" : "/dashboard#support"}
+            className="hidden rounded-full px-3 py-1.5 text-sm font-medium text-stone-600 transition hover:bg-stone-100 hover:text-stone-900 sm:inline"
+          >
+            Support
+          </Link>
+          <Link
             href="/builder?new=1"
             onClick={() => trackStartBuilder("header")}
             className="rounded-full border border-stone-300 bg-white px-3 py-1.5 text-sm font-medium text-stone-700 transition hover:bg-stone-50"
