@@ -165,11 +165,11 @@ export function mockGenerateWebsite(prompt: string): GeneratedWebsite {
   <meta property="og:description" content="${description}">
   <meta property="og:type" content="website">
   <meta property="og:locale" content="en_ZA">
-  <meta property="og:image" content="images/hero.png">
+  <meta property="og:image" content="images/hero.webp">
   <meta name="twitter:card" content="summary_large_image">
   <meta name="twitter:title" content="${title}">
   <meta name="twitter:description" content="${description}">
-  <meta name="twitter:image" content="images/hero.png">
+  <meta name="twitter:image" content="images/hero.webp">
   <link rel="stylesheet" href="styles.css">
   <script type="application/ld+json">${jsonLd}</script>
 </head>
@@ -185,7 +185,7 @@ export function mockGenerateWebsite(prompt: string): GeneratedWebsite {
   </header>
   <main>
     <section class="hero">
-      <img src="images/hero.png" alt="${businessName} in South Africa">
+      <img src="images/hero.webp" alt="${businessName} in South Africa">
       <p>Phone: <a href="tel:${phone.replace(/\s/g, "")}">${phone}</a></p>
       ${whatsappButton}
     </section>
@@ -258,7 +258,7 @@ header, main { max-width: 960px; margin: 0 auto; padding: 24px; }
     ],
     images: [
       {
-        path: "images/hero.png",
+        path: "images/hero.webp",
         prompt: `Hero image for ${businessName}`,
       },
     ],
@@ -295,13 +295,13 @@ export function mockPlanImageEdits(
     "";
 
   if (replacePath) {
-    const newPath = replacePath.replace(/(\.[a-z0-9]+)$/i, "-updated.png");
+    const newPath = replacePath.replace(/(\.[a-z0-9]+)$/i, "-updated.webp");
     return {
       imageIntent: true,
       images: [
         {
           action: "replace",
-          path: newPath.endsWith(".png") ? newPath : `${newPath}.png`,
+          path: newPath.endsWith(".webp") ? newPath : `${newPath}.webp`,
           prompt: instruction.trim(),
           replacePath,
           placement: "Matching existing website image from the user request",
@@ -315,7 +315,7 @@ export function mockPlanImageEdits(
     images: [
       {
         action: "add",
-        path: "images/photo.png",
+        path: "images/photo.webp",
         prompt: instruction.trim(),
         replacePath: "",
         placement: "Main website page, before the footer",

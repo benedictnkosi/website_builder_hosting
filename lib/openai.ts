@@ -25,7 +25,7 @@ Do not use server-side code.
 
 Do not reference files that you have not generated.
 
-Do not use external image URLs. Use relative image paths under images/ (for example images/hero.png).
+Do not use external image URLs. Use relative image paths under images/ (for example images/hero.webp).
 
 Include 2-3 images in the images array with prompts for a hero image and supporting visuals that match the business. Reference those image paths in index.html.
 
@@ -97,7 +97,7 @@ const WEBSITE_JSON_SCHEMA = {
     images: {
       type: "array",
       description:
-        "Image files to generate. Paths must be under images/ and end with .png.",
+        "Image files to generate. Paths must be under images/ and end with .webp.",
       items: {
         type: "object",
         additionalProperties: false,
@@ -105,7 +105,7 @@ const WEBSITE_JSON_SCHEMA = {
         properties: {
           path: {
             type: "string",
-            description: "Relative path such as images/hero.png.",
+            description: "Relative path such as images/hero.webp.",
           },
           prompt: {
             type: "string",

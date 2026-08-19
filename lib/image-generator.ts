@@ -1,3 +1,4 @@
+import sharp from "sharp";
 import { GeneratorError, isSafeRelativePath, normalizeRelativePath } from "./validation";
 import { getPeopleEthnicityOption } from "./people-ethnicity";
 import type { WebsiteFile, WebsiteImageRequest } from "./types";
@@ -41,9 +42,9 @@ function validateImageRequest(request: WebsiteImageRequest): WebsiteImageRequest
     );
   }
 
-  if (!/\.png$/i.test(normalizedPath)) {
+  if (!/\.(png|webp)$/i.test(normalizedPath)) {
     throw new GeneratorError(
-      `Image path must end with .png: ${request.path}`,
+      `Image path must end with .png or .webp: ${request.path}`,
     );
   }
 
@@ -121,6 +122,18 @@ async function generateImage(prompt: string): Promise<string> {
   return b64;
 }
 
+const COMPRESSED_MAX_WIDTH = 800;
+const WEBP_QUALITY = 75;
+
+async function compressPngToWebp(b64Png: string): Promise<string> {
+  const input = Buffer.from(b64Png, "base64");
+  const compressed = await sharp(input)
+    .resize({ width: COMPRESSED_MAX_WIDTH, withoutEnlargement: true })
+    .webp({ quality: WEBP_QUALITY })
+    .toBuffer();
+  return compressed.toString("base64");
+}
+
 export async function generateWebsiteImages(
   requests: WebsiteImageRequest[],
   peopleEthnicity?: string,
@@ -177,9 +190,11 @@ export async function generateWebsiteImageFile(
   const b64 = await generateImage(
     withPeopleDirection(validated.prompt, peopleEthnicity),
   );
+  const compressed = await compressPngToWebp(b64);
+  const webpPath = validated.path.replace(/\.png$/i, ".webp");
   return {
-    path: validated.path,
-    content: b64,
+    path: webpPath,
+    content: compressed,
     encoding: "base64",
   };
 }

@@ -93,8 +93,8 @@ Configuration is in `src/main/resources/application.yml`.
 | `deployment.acme-email` | `CADDY_ACME_EMAIL` | empty |
 | `deployment.public-ip` | `PUBLIC_IP` | empty |
 | `deployment.https-retry-ms` | `HTTPS_RETRY_MS` | `30000` |
-| `deployment.max-file-size-bytes` | `MAX_FILE_SIZE_BYTES` | `2097152` (2 MB) |
-| `deployment.max-total-size-bytes` | `MAX_TOTAL_SIZE_BYTES` | `10485760` (10 MB) |
+| `deployment.max-file-size-bytes` | `MAX_FILE_SIZE_BYTES` | `5242880` (5 MB) |
+| `deployment.max-total-size-bytes` | `MAX_TOTAL_SIZE_BYTES` | `20971520` (20 MB) |
 | `security.api-key` | `DEPLOYMENT_API_KEY` | `development-key` |
 | `server.port` | `SERVER_PORT` | `8080` |
 

@@ -20,8 +20,8 @@ public class DeploymentProperties {
     private int dnsTimeoutMs = 2000;
     private long httpsRetryMs = 30_000;
     private int maxFiles = 100;
-    private long maxFileSizeBytes = 2 * 1024 * 1024;
-    private long maxTotalSizeBytes = 10 * 1024 * 1024;
+    private long maxFileSizeBytes = 5 * 1024 * 1024;
+    private long maxTotalSizeBytes = 20 * 1024 * 1024;
     private List<String> requiredFiles = new ArrayList<>(List.of("index.html", "styles.css", "script.js"));
 
     public String getWebRoot() {

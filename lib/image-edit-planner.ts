@@ -36,7 +36,7 @@ const IMAGE_PLAN_SCHEMA = {
           },
           path: {
             type: "string",
-            description: "New image path under images/, ending with .png.",
+            description: "New image path under images/, ending with .webp.",
           },
           prompt: {
             type: "string",
@@ -66,13 +66,13 @@ If they do not, set imageIntent to false and return an empty images array.
 If they do, set imageIntent to true and return 1-3 concrete image changes. You MUST identify all of the following for every change before any update can proceed:
 - action: "replace" an existing photo, or "add" a new one
 - prompt: a detailed photorealistic generation prompt for what the new image should show
-- path: the new file to generate, under images/ and ending with .png
+- path: the new file to generate, under images/ and ending with .webp
 - placement: exactly where it belongs in the HTML (section, img, alt, or CSS background)
 - replacePath: the existing images/ file being replaced. Empty string only for add.
 
 Rules:
 - Find current photos from the HTML only: <img src>, CSS urls, og:image, and twitter:image. "about image" means the photo in the About section, "hero" means the main banner, and so on.
-- For replace, choose a NEW filename (for example images/about.png → images/about-plumbing.png) so the old file can be deleted after the update. Put the old HTML src in replacePath.
+- For replace, choose a NEW filename (for example images/about.webp → images/about-plumbing.webp) so the old file can be deleted after the update. Put the old HTML src in replacePath.
 - For add, choose a new unused path and describe where to insert the <img>.
 - Never invent a replacePath that is not already referenced in the HTML.
 - Never return an image change without a real prompt, path, and placement.
@@ -238,7 +238,7 @@ function validateImagePath(value: unknown): string | null {
   const normalized = normalizeRelativePath(value.trim());
   if (!isSafeRelativePath(value) || !isSafeRelativePath(normalized)) return null;
   if (!normalized.toLowerCase().startsWith("images/")) return null;
-  if (!/\.png$/i.test(normalized)) return null;
+  if (!/\.(png|webp)$/i.test(normalized)) return null;
   return normalized;
 }
 
