@@ -498,12 +498,12 @@ async function enableManagedDns(sld: string, tld: string): Promise<void> {
     }),
   );
   const code = returnCode(data);
-  if (code === 1 || code === 2 || code === 12) {
+  if (code === 1 || code === 2 || code === 12 || code === 13) {
     return;
   }
 
   const message = apiError(data, "").toLowerCase();
-  if (message.includes("managed") || message.includes("already")) {
+  if (message.includes("managed") || message.includes("already") || message.includes("nothing to do")) {
     return;
   }
 
