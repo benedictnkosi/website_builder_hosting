@@ -143,6 +143,7 @@ export default function WebsiteBuilder() {
   const [iframeKey, setIframeKey] = useState(0);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const [showDeployCard, setShowDeployCard] = useState(false);
+  const [autoDeploy, setAutoDeploy] = useState(false);
   const [showPaywall, setShowPaywall] = useState(false);
   const [isSubscribed, setIsSubscribed] = useState(false);
   const [subscribedDomain, setSubscribedDomain] = useState<string | null>(null);
@@ -266,6 +267,7 @@ export default function WebsiteBuilder() {
             addAssistantMessage(
               `You're subscribed. Another 20,000 tokens were added to your balance. Describe a change, or deploy ${data.subscription.domain}.`,
             );
+            setAutoDeploy(true);
             setShowDeployCard(true);
           }
           return;
@@ -849,7 +851,8 @@ Use these details on the website where they fit. Do not invent extras beyond wha
             websiteId={websiteId}
             suggestedName={suggestedDomainName}
             subscribedDomain={subscribedDomain ?? undefined}
-            onClose={() => setShowDeployCard(false)}
+            autoDeploy={autoDeploy}
+            onClose={() => { setShowDeployCard(false); setAutoDeploy(false); }}
           />
         ) : null}
         <div className="flex items-center gap-2 border-b border-stone-200 bg-stone-50 px-3 py-2.5 sm:px-4 sm:py-3">

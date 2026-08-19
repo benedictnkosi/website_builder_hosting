@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useEffect, useState } from "react";
+import { FormEvent, useEffect, useRef, useState } from "react";
 import { useAuth } from "@/components/AuthProvider";
 import { SUBSCRIPTION_TLD } from "@/lib/pricing";
 import {
@@ -198,6 +198,7 @@ type DeployWorkspaceProps = {
   websiteId: string;
   suggestedName: string;
   subscribedDomain?: string;
+  autoDeploy?: boolean;
   onClose: () => void;
 };
 
@@ -205,6 +206,7 @@ export default function DeployWorkspace({
   websiteId,
   suggestedName,
   subscribedDomain,
+  autoDeploy,
   onClose,
 }: DeployWorkspaceProps) {
   const { authFetch } = useAuth();
@@ -219,6 +221,7 @@ export default function DeployWorkspace({
   const [httpsReady, setHttpsReady] = useState(false);
   const [publishStep, setPublishStep] = useState(0);
   const [activeHint, setActiveHint] = useState<string | undefined>();
+  const autoDeployFired = useRef(false);
 
   useEffect(() => {
     if (subscribedDomain) {
@@ -493,6 +496,14 @@ export default function DeployWorkspace({
       trackDeployFail();
     }
   }
+
+  useEffect(() => {
+    if (autoDeploy && !autoDeployFired.current && result?.available && deployStatus === "idle") {
+      autoDeployFired.current = true;
+      handleDeploy();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [autoDeploy, result, deployStatus]);
 
   return (
     <div
