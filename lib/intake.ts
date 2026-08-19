@@ -13,6 +13,7 @@ export type ContactFormPreference = "yes" | "no" | "unknown";
 
 export type WebsiteIntake = {
   business_name: string;
+  about: string;
   services: string;
   phone: string;
   use_whatsapp: WhatsAppPreference;
@@ -37,6 +38,7 @@ export function missingIntakeFields(intake: WebsiteIntake): string[] {
   const missing: string[] = [];
 
   if (!intake.business_name.trim()) missing.push("business_name");
+  if (!intake.about.trim()) missing.push("about");
   if (!intake.services.trim()) missing.push("services");
   if (!intake.phone.trim()) missing.push("phone");
   if (intake.use_whatsapp === "unknown") missing.push("use_whatsapp");
@@ -58,12 +60,79 @@ export function isIntakeComplete(intake: WebsiteIntake): boolean {
   return missingIntakeFields(intake).length === 0;
 }
 
+export function emptyWebsiteIntake(): WebsiteIntake {
+  return {
+    business_name: "",
+    about: "",
+    services: "",
+    phone: "",
+    use_whatsapp: "unknown",
+    whatsapp_number: "",
+    use_contact_form: "unknown",
+    contact_email: "",
+    people_ethnicity: "",
+    design_preference: "",
+    design_preference_resolved: false,
+    extra_details: "",
+    user_confirmed: false,
+    address: "",
+  };
+}
+
+function conversationNotes(messages: ChatMessage[]): string {
+  return messages
+    .filter((message) => message.role === "user")
+    .map((message) => message.content.trim())
+    .filter(Boolean)
+    .join("\n");
+}
+
+export function intakeFromPartialChat(
+  intake: WebsiteIntake | null,
+  messages: ChatMessage[],
+): WebsiteIntake {
+  const next: WebsiteIntake = { ...(intake ?? emptyWebsiteIntake()) };
+  const notes = conversationNotes(messages);
+  const extra = next.extra_details.trim();
+  const fallbackNote =
+    "The customer ran out of chat tokens before finishing intake. Build the best professional website possible from the information above. Do not invent a business name, about story, services, phone number, email, or address that were not provided.";
+
+  if (notes && !extra) {
+    next.extra_details = `${notes}\n\n${fallbackNote}`;
+  } else if (notes && !extra.includes(notes)) {
+    next.extra_details = `${extra}\n\nDetails from the conversation:\n${notes}\n\n${fallbackNote}`;
+  } else if (extra && !extra.includes("ran out of chat tokens")) {
+    next.extra_details = `${extra}\n\n${fallbackNote}`;
+  } else if (!extra) {
+    next.extra_details = fallbackNote;
+  }
+
+  if (next.use_whatsapp === "unknown") {
+    next.use_whatsapp = "no";
+  }
+  if (next.use_whatsapp === "yes" && !next.whatsapp_number.trim()) {
+    next.whatsapp_number = next.phone;
+  }
+  if (next.use_contact_form === "unknown") {
+    next.use_contact_form = "no";
+  }
+  if (!next.design_preference_resolved) {
+    next.design_preference_resolved = true;
+  }
+  next.user_confirmed = true;
+
+  return next;
+}
+
 export function compileBusinessDescription(intake: WebsiteIntake): string {
   const parts = [
     intake.business_name.trim(),
+    intake.about.trim() ? `About: ${intake.about.trim()}` : "",
     intake.services.trim(),
     intake.phone.trim() ? `Phone: ${intake.phone.trim()}` : "",
   ].filter(Boolean);
 
-  return parts.join(". ").replace(/\.\./g, ".");
+  const compiled = parts.join(". ").replace(/\.\./g, ".");
+  if (compiled) return compiled;
+  return intake.extra_details.trim() || "A small business website.";
 }

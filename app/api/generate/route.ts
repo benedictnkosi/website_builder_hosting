@@ -13,12 +13,9 @@ export async function POST(request: Request) {
   try {
     user = await requireUser(request);
     consumeRateLimit(`generate:${clientKey(request, user.uid)}`, 8, 60 * 60 * 1000);
-    await assertGenerateTokens(user);
   } catch (error) {
     const limited = jsonRateLimitError(error);
     if (limited) return limited;
-    const tokenResponse = jsonTokenError(error);
-    if (tokenResponse) return tokenResponse;
     const authResponse = jsonAuthError(error);
     if (authResponse) return authResponse;
     return NextResponse.json(
@@ -70,10 +67,27 @@ export async function POST(request: Request) {
       ? body.contactEmail.trim()
       : "";
 
+  const continueWithAvailableInfo =
+    typeof body === "object" &&
+    body !== null &&
+    "continueWithAvailableInfo" in body &&
+    body.continueWithAvailableInfo === true;
+
   if (!prompt) {
     return NextResponse.json(
       { success: false, error: "A prompt string is required." },
       { status: 400 },
+    );
+  }
+
+  try {
+    await assertGenerateTokens(user, { allowDepleted: continueWithAvailableInfo });
+  } catch (error) {
+    const tokenResponse = jsonTokenError(error);
+    if (tokenResponse) return tokenResponse;
+    return NextResponse.json(
+      { success: false, error: "Could not start website generation." },
+      { status: 500 },
     );
   }
 

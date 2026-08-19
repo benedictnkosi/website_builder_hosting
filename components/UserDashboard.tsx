@@ -11,7 +11,7 @@ import {
   trackOpenSite,
   trackStartBuilder,
 } from "@/lib/analytics";
-import { openTokenTopup } from "@/lib/token-events";
+import { openTokenTopup, TOKENS_CHANGED_EVENT } from "@/lib/token-events";
 import {
   formatTokenCount,
   formatZar,
@@ -20,6 +20,7 @@ import {
 } from "@/lib/pricing";
 
 type SubscriptionStatus = "pending" | "active" | "cancelled";
+type TokenTopupStatus = "pending" | "complete" | "failed";
 
 type DashboardSite = {
   websiteId: string;
@@ -31,6 +32,16 @@ type DashboardSite = {
   subscriptionStatus: SubscriptionStatus | null;
   amountZar: number | null;
   mocked: boolean;
+};
+
+type TokenPurchase = {
+  paymentId: string;
+  amountZar: number;
+  tokens: number;
+  status: TokenTopupStatus;
+  mocked: boolean;
+  createdAt: string;
+  paidAt?: string;
 };
 
 type ConfirmAction = {
@@ -62,12 +73,39 @@ function formatDate(value: string): string {
   });
 }
 
+function formatDateTime(value: string): string {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  return date.toLocaleString("en-ZA", {
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
+function purchaseStatusLabel(status: TokenTopupStatus, mocked: boolean): string {
+  if (status === "complete") return mocked ? "Test payment" : "Paid";
+  if (status === "pending") return "Payment pending";
+  return "Failed";
+}
+
+function purchaseStatusClass(status: TokenTopupStatus): string {
+  if (status === "complete") return "bg-teal-100 text-teal-900";
+  if (status === "pending") return "bg-amber-100 text-amber-900";
+  return "bg-red-50 text-red-800";
+}
+
 export default function UserDashboard() {
   const { user, authFetch } = useAuth();
   const router = useRouter();
   const [sites, setSites] = useState<DashboardSite[]>([]);
+  const [purchases, setPurchases] = useState<TokenPurchase[]>([]);
   const [loading, setLoading] = useState(true);
+  const [purchasesLoading, setPurchasesLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [purchasesError, setPurchasesError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [confirm, setConfirm] = useState<ConfirmAction | null>(null);
   const [workingId, setWorkingId] = useState<string | null>(null);
@@ -95,10 +133,42 @@ export default function UserDashboard() {
     }
   }, [authFetch]);
 
+  const loadPurchases = useCallback(async () => {
+    try {
+      const response = await authFetch("/api/tokens/purchases");
+      const data = (await response.json()) as {
+        success?: boolean;
+        purchases?: TokenPurchase[];
+        error?: string;
+      };
+
+      if (!response.ok || !data.success) {
+        setPurchasesError(data.error || "Could not load your purchases.");
+        return;
+      }
+
+      setPurchasesError(null);
+      setPurchases(data.purchases ?? []);
+    } catch {
+      setPurchasesError("Could not load your purchases. Please try again.");
+    } finally {
+      setPurchasesLoading(false);
+    }
+  }, [authFetch]);
+
   useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- fetch the signed-in user's sites
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- fetch the signed-in user's dashboard
     void loadSites();
-  }, [loadSites]);
+    void loadPurchases();
+  }, [loadPurchases, loadSites]);
+
+  useEffect(() => {
+    function onTokensChanged() {
+      void loadPurchases();
+    }
+    window.addEventListener(TOKENS_CHANGED_EVENT, onTokensChanged);
+    return () => window.removeEventListener(TOKENS_CHANGED_EVENT, onTokensChanged);
+  }, [loadPurchases]);
 
   function openSite(site: DashboardSite) {
     trackOpenSite();
@@ -175,8 +245,8 @@ export default function UserDashboard() {
             Hi {firstName}
           </h1>
           <p className="mt-2 max-w-xl text-sm leading-relaxed text-stone-600">
-            Manage your websites, cancel monthly billing, or delete a site you no
-            longer need.
+            Manage your websites, review token purchases, cancel monthly billing,
+            or delete a site you no longer need.
           </p>
         </div>
         <div className="flex flex-col gap-2 sm:items-end">
@@ -311,6 +381,62 @@ export default function UserDashboard() {
           ))}
         </ul>
       )}
+
+      <section className="mt-12">
+        <p className="text-xs font-semibold uppercase tracking-[0.22em] text-teal-800">
+          Purchases
+        </p>
+        <h2 className="mt-2 text-2xl font-semibold tracking-tight text-stone-900">
+          Token top-ups
+        </h2>
+        <p className="mt-1 max-w-xl text-sm leading-relaxed text-stone-600">
+          Card payments for building tokens, newest first.
+        </p>
+
+        {purchasesError ? (
+          <p className="mt-4 rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">
+            {purchasesError}
+          </p>
+        ) : null}
+
+        {purchasesLoading ? (
+          <p className="mt-4 text-sm text-stone-500">Loading your purchases...</p>
+        ) : purchases.length === 0 ? (
+          <div className="mt-4 rounded-[1.4rem] border border-stone-200/80 bg-white px-5 py-6 text-sm text-stone-600">
+            No token purchases yet. Buy tokens when you need more chat, generate,
+            or edit credit.
+          </div>
+        ) : (
+          <ul className="mt-4 overflow-hidden rounded-[1.4rem] border border-stone-200/80 bg-white">
+            {purchases.map((purchase) => (
+              <li
+                key={purchase.paymentId}
+                className="flex flex-col gap-3 border-b border-stone-100 px-4 py-4 last:border-b-0 sm:flex-row sm:items-center sm:justify-between sm:px-5"
+              >
+                <div className="min-w-0">
+                  <p className="font-semibold text-stone-900">
+                    {formatTokenCount(purchase.tokens)} tokens
+                  </p>
+                  <p className="mt-0.5 text-sm text-stone-500">
+                    {formatDateTime(purchase.paidAt || purchase.createdAt)}
+                    {purchase.mocked ? " · Test" : ""}
+                  </p>
+                </div>
+                <div className="flex items-center justify-between gap-3 sm:justify-end">
+                  <p className="text-sm font-semibold text-stone-900">
+                    {formatZar(purchase.amountZar)}
+                  </p>
+                  <span
+                    className={`rounded-full px-2.5 py-1 text-[11px] font-semibold ${purchaseStatusClass(purchase.status)}`}
+                  >
+                    {purchaseStatusLabel(purchase.status, purchase.mocked)}
+                  </span>
+                </div>
+              </li>
+            ))}
+          </ul>
+        )}
+      </section>
 
       {confirm ? (
         <div

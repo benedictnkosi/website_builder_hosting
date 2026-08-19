@@ -1,5 +1,10 @@
 import { extractBusinessName } from "./domain-name";
-import type { GeneratedWebsite, WebsiteFile, WebsiteImageRequest } from "./types";
+import type {
+  GeneratedWebsite,
+  WebsiteFile,
+  WebsiteImagePlan,
+  WebsiteImageRequest,
+} from "./types";
 
 const MOCK_PNG_BASE64 =
   "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==";
@@ -42,6 +47,14 @@ function extractContactEmail(text: string): string {
 function extractContactEndpoint(text: string): string {
   const match = text.match(/https?:\/\/[^\s]+\/api\/contact/i);
   return match?.[0] ?? "/api/contact";
+}
+
+function extractAbout(text: string): string {
+  const labeled = text.match(/about(?:\s+the\s+business)?[:\n]\s*([^\n]+)/i);
+  if (labeled?.[1]?.trim()) {
+    return labeled[1].trim();
+  }
+  return "";
 }
 
 export function mockValidateDescription(prompt: string) {
@@ -96,6 +109,7 @@ export function mockGenerateWebsite(prompt: string): GeneratedWebsite {
   const includeContactForm = /contact us form|contact form/i.test(prompt);
   const contactEmail = extractContactEmail(prompt);
   const contactEndpoint = extractContactEndpoint(prompt);
+  const about = extractAbout(prompt);
 
   const mapSection = includeMap
     ? `<section id="map">
@@ -106,6 +120,13 @@ export function mockGenerateWebsite(prompt: string): GeneratedWebsite {
 
   const whatsappButton = includeWhatsApp
     ? `<a class="whatsapp" href="https://wa.me/${whatsapp.replace(/\D/g, "")}">WhatsApp us</a>`
+    : "";
+
+  const aboutSection = about
+    ? `<section id="about">
+    <h2>About us</h2>
+    <p>${about}</p>
+  </section>`
     : "";
 
   const contactSection =
@@ -155,6 +176,7 @@ export function mockGenerateWebsite(prompt: string): GeneratedWebsite {
 <body>
   <header>
     <nav>
+      ${about ? '<a href="#about">About</a>' : ""}
       <a href="#services">Services</a>
       <a href="#contact">Contact</a>
     </nav>
@@ -167,6 +189,7 @@ export function mockGenerateWebsite(prompt: string): GeneratedWebsite {
       <p>Phone: <a href="tel:${phone.replace(/\s/g, "")}">${phone}</a></p>
       ${whatsappButton}
     </section>
+    ${aboutSection}
     <section id="services">
       <h2>Services</h2>
       <p>Local services for South African customers.</p>
@@ -252,13 +275,78 @@ export function mockGenerateImages(
   }));
 }
 
+function instructionMentionsImage(instruction: string): boolean {
+  return /\b(image|images|photo|photos|picture|pictures|img|logo|hero)\b/i.test(
+    instruction,
+  );
+}
+
+export function mockPlanImageEdits(
+  instruction: string,
+  existingImagePaths: string[],
+): WebsiteImagePlan {
+  if (!instructionMentionsImage(instruction)) {
+    return { imageIntent: false, images: [] };
+  }
+
+  const replacePath =
+    existingImagePaths.find((filePath) => /about/i.test(filePath)) ||
+    existingImagePaths[0] ||
+    "";
+
+  if (replacePath) {
+    const newPath = replacePath.replace(/(\.[a-z0-9]+)$/i, "-updated.png");
+    return {
+      imageIntent: true,
+      images: [
+        {
+          action: "replace",
+          path: newPath.endsWith(".png") ? newPath : `${newPath}.png`,
+          prompt: instruction.trim(),
+          replacePath,
+          placement: "Matching existing website image from the user request",
+        },
+      ],
+    };
+  }
+
+  return {
+    imageIntent: true,
+    images: [
+      {
+        action: "add",
+        path: "images/photo.png",
+        prompt: instruction.trim(),
+        replacePath: "",
+        placement: "Main website page, before the footer",
+      },
+    ],
+  };
+}
+
 export function mockPlanEditFiles(
   instruction: string,
   manifest: Array<{ path: string; type: string }>,
-): string[] {
+): { files: string[]; imageIntent: boolean; imagePlanReady: boolean } {
   const text = instruction.toLowerCase();
   const pathsFor = (type: string) =>
     manifest.filter((entry) => entry.type === type).map((entry) => entry.path);
+  const imageIntent = instructionMentionsImage(instruction);
+  const hasTarget =
+    /\b(about|hero|logo|banner|header|footer|services?|team|contact)\b/i.test(
+      instruction,
+    );
+  const words = instruction
+    .trim()
+    .split(/\s+/)
+    .filter((word) => word.length > 2);
+  const imagePlanReady = imageIntent && hasTarget && words.length >= 6;
+  const withIntent = (files: string[]) => ({ files, imageIntent, imagePlanReady });
+
+  if (imageIntent) {
+    const html = pathsFor("html");
+    return withIntent(html.length > 0 ? html : manifest.map((entry) => entry.path));
+  }
 
   const adding = /\b(add|remove|new|create|delete)\b/.test(text);
   const styleOnly =
@@ -272,31 +360,32 @@ export function mockPlanEditFiles(
 
   if (styleOnly && !adding && !behavior) {
     const css = pathsFor("css");
-    if (css.length > 0) return css;
+    if (css.length > 0) return withIntent(css);
   }
 
   if (behavior && !adding) {
     const js = pathsFor("javascript");
-    if (js.length > 0) return js;
+    if (js.length > 0) return withIntent(js);
   }
 
   if (adding) {
     const selected = [...pathsFor("html"), ...pathsFor("css")];
     if (behavior) selected.push(...pathsFor("javascript"));
-    if (selected.length > 0) return [...new Set(selected)];
+    if (selected.length > 0) return withIntent([...new Set(selected)]);
   }
 
   const html = pathsFor("html");
   if (html.length > 0 && !styleOnly && !behavior) {
-    return html;
+    return withIntent(html);
   }
 
-  return manifest.map((entry) => entry.path);
+  return withIntent(manifest.map((entry) => entry.path));
 }
 
 export function mockEditWebsite(
   files: WebsiteFile[],
   instruction: string,
+  imagePlan?: WebsiteImagePlan,
 ): WebsiteFile[] {
   const phoneMatch =
     instruction.match(/(?:phone|number|it's|is)\s*[:\s]*([+\d][\d\s-]{8,})/i) ??
@@ -339,6 +428,19 @@ export function mockEditWebsite(
         );
       } else {
         content = `${content}\n<!-- Mock edit applied: ${note} -->`;
+      }
+
+      for (const image of imagePlan?.images ?? []) {
+        if (image.action === "replace" && image.replacePath) {
+          content = content.replaceAll(image.replacePath, image.path);
+          continue;
+        }
+        if (image.action === "add" && content.includes("</body>")) {
+          content = content.replace(
+            "</body>",
+            `  <img src="${image.path}" alt="${note}">\n</body>`,
+          );
+        }
       }
 
       updated.push({ path: file.path, content });

@@ -1,10 +1,7 @@
 import { NextResponse } from "next/server";
-import { jsonAuthError, type AuthUser } from "@/lib/auth-server";
-import { provisionDomain } from "@/lib/domains-co-za";
+import { isNextResponse, parseDeployJson, requireDeployTarget } from "@/lib/deploy-target";
 import { readDeployableWebsiteFiles } from "@/lib/file-manager";
-import { GeneratorError, isValidWebsiteId } from "@/lib/validation";
-import { requireOwnedSite } from "@/lib/sites";
-import { requireActiveSubscription } from "@/lib/subscription";
+import { GeneratorError } from "@/lib/validation";
 
 export const runtime = "nodejs";
 export const maxDuration = 120;
@@ -12,77 +9,13 @@ export const maxDuration = 120;
 const DEFAULT_AGENT_URL = "http://localhost:8080";
 
 export async function POST(request: Request) {
-  let body: unknown;
+  const parsed = await parseDeployJson(request);
+  if (!parsed.ok) return parsed.response;
 
-  try {
-    body = await request.json();
-  } catch {
-    return NextResponse.json(
-      { success: false, error: "Request body must be valid JSON." },
-      { status: 400 },
-    );
-  }
+  const target = await requireDeployTarget(request, parsed.websiteId, parsed.requestedDomain);
+  if (isNextResponse(target)) return target;
 
-  const websiteId =
-    typeof body === "object" &&
-    body !== null &&
-    "websiteId" in body &&
-    typeof body.websiteId === "string"
-      ? body.websiteId.trim()
-      : "";
-
-  const requestedDomain =
-    typeof body === "object" &&
-    body !== null &&
-    "domain" in body &&
-    typeof body.domain === "string"
-      ? body.domain.trim().toLowerCase()
-      : "";
-
-  if (!websiteId || !isValidWebsiteId(websiteId)) {
-    return NextResponse.json(
-      { success: false, error: "A valid websiteId is required." },
-      { status: 400 },
-    );
-  }
-
-  let user: AuthUser;
-  try {
-    ({ user } = await requireOwnedSite(request, websiteId));
-  } catch (error) {
-    const authResponse = jsonAuthError(error);
-    if (authResponse) return authResponse;
-    return NextResponse.json(
-      { success: false, error: "Sign in to continue." },
-      { status: 401 },
-    );
-  }
-
-  let subscription;
-  try {
-    subscription = await requireActiveSubscription(websiteId);
-  } catch {
-    return NextResponse.json(
-      {
-        success: false,
-        error: "Subscribe before deploying your website.",
-        paywall: true,
-      },
-      { status: 402 },
-    );
-  }
-
-  const domain = subscription.domain;
-  if (requestedDomain && requestedDomain !== domain) {
-    return NextResponse.json(
-      {
-        success: false,
-        error: `This subscription is for ${domain}.`,
-      },
-      { status: 400 },
-    );
-  }
-
+  const { user, websiteId, domain } = target;
   const agentUrl = (process.env.DEPLOYMENT_AGENT_URL || DEFAULT_AGENT_URL).replace(
     /\/$/,
     "",
@@ -94,16 +27,6 @@ export async function POST(request: Request) {
       { success: false, error: "DEPLOYMENT_API_KEY is not configured." },
       { status: 500 },
     );
-  }
-
-  try {
-    await provisionDomain(domain);
-  } catch (error) {
-    const message =
-      error instanceof Error
-        ? error.message
-        : "Could not register the domain or update DNS.";
-    return NextResponse.json({ success: false, error: message }, { status: 502 });
   }
 
   let files;

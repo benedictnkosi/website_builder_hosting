@@ -9,6 +9,21 @@ export interface WebsiteImageRequest {
   prompt: string;
 }
 
+export type WebsiteImageChangeAction = "replace" | "add";
+
+export interface WebsiteImageChange {
+  action: WebsiteImageChangeAction;
+  path: string;
+  prompt: string;
+  replacePath: string;
+  placement: string;
+}
+
+export interface WebsiteImagePlan {
+  imageIntent: boolean;
+  images: WebsiteImageChange[];
+}
+
 export interface GeneratedWebsite {
   files: WebsiteFile[];
   images?: WebsiteImageRequest[];

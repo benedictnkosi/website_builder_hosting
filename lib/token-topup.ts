@@ -22,6 +22,18 @@ export type TokenTopup = {
   lastPaymentStatus?: string;
 };
 
+export type TokenPurchase = {
+  paymentId: string;
+  amountZar: number;
+  tokens: number;
+  status: TokenTopupStatus;
+  mocked: boolean;
+  createdAt: string;
+  paidAt?: string;
+};
+
+const PURCHASE_LIMIT = 50;
+
 const TOPUP_COLLECTION = "tokenTopups";
 
 function isTopupStatus(value: unknown): value is TokenTopupStatus {
@@ -68,6 +80,38 @@ export async function readTokenTopup(paymentId: string): Promise<TokenTopup | nu
   const snap = await getAdminFirestore().collection(TOPUP_COLLECTION).doc(paymentId).get();
   if (!snap.exists) return null;
   return asTopup(snap.data() as Record<string, unknown>);
+}
+
+export function toTokenPurchase(topup: TokenTopup): TokenPurchase {
+  return {
+    paymentId: topup.paymentId,
+    amountZar: topup.amountZar,
+    tokens: topup.tokens,
+    status: topup.status,
+    mocked: topup.mocked,
+    createdAt: topup.createdAt,
+    paidAt: topup.paidAt,
+  };
+}
+
+function purchaseTime(purchase: TokenPurchase): number {
+  return Date.parse(purchase.paidAt || purchase.createdAt) || 0;
+}
+
+export async function listTokenTopupsForUser(uid: string): Promise<TokenPurchase[]> {
+  if (!uid || !isValidUid(uid) || !isFirebaseAdminConfigured()) return [];
+
+  const snap = await getAdminFirestore()
+    .collection(TOPUP_COLLECTION)
+    .where("ownerUid", "==", uid)
+    .get();
+
+  return snap.docs
+    .map((doc) => asTopup(doc.data() as Record<string, unknown>))
+    .filter((topup): topup is TokenTopup => Boolean(topup))
+    .map(toTokenPurchase)
+    .sort((a, b) => purchaseTime(b) - purchaseTime(a))
+    .slice(0, PURCHASE_LIMIT);
 }
 
 export async function writeTokenTopup(topup: TokenTopup): Promise<void> {

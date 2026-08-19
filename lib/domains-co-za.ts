@@ -232,7 +232,7 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-function getServerIp(): string {
+export function getServerIp(): string {
   const ip = process.env.NEXT_PUBLIC_SERVER_IP?.trim();
   if (!ip) {
     throw new Error("NEXT_PUBLIC_SERVER_IP is not configured.");
@@ -425,6 +425,7 @@ async function registerDomain(sld: string, tld: string): Promise<void> {
     tld,
     period: "1",
     dns: "managed",
+    autorenew: "true",
   });
 
   const contact = await loadRegistrantContact();

@@ -20,6 +20,25 @@ type DomainResult = {
 };
 
 type DeployStatus = "idle" | "deploying" | "success" | "error";
+type PublishStepState = "pending" | "active" | "done" | "error";
+
+const PUBLISH_STEPS = [
+  {
+    id: "register",
+    label: "Registering the domain",
+    hint: "Reserving your .co.za name",
+  },
+  {
+    id: "dns",
+    label: "Pointing DNS at the server",
+    hint: "Waiting for public DNS to update",
+  },
+  {
+    id: "publish",
+    label: "Publishing the website",
+    hint: "Putting your pages live",
+  },
+] as const;
 
 function SearchIcon() {
   return (
@@ -34,6 +53,144 @@ function SearchIcon() {
       <circle cx="11" cy="11" r="7" />
       <path d="M20 20l-3.5-3.5" strokeLinecap="round" />
     </svg>
+  );
+}
+
+function StepCheckIcon() {
+  return (
+    <svg aria-hidden="true" viewBox="0 0 20 20" className="h-3.5 w-3.5" fill="none">
+      <path
+        d="M5 10.5l3.2 3.2L15 6.8"
+        stroke="currentColor"
+        strokeWidth="2.4"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
+function StepErrorIcon() {
+  return (
+    <svg aria-hidden="true" viewBox="0 0 20 20" className="h-3.5 w-3.5" fill="none">
+      <path
+        d="M6 6l8 8M14 6l-8 8"
+        stroke="currentColor"
+        strokeWidth="2.4"
+        strokeLinecap="round"
+      />
+    </svg>
+  );
+}
+
+function publishStepState(
+  index: number,
+  publishStep: number,
+  deployStatus: DeployStatus,
+): PublishStepState {
+  if (index < publishStep) return "done";
+  if (index === publishStep && deployStatus === "error") return "error";
+  if (index === publishStep && deployStatus === "deploying") return "active";
+  if (deployStatus === "success") return "done";
+  return "pending";
+}
+
+function PublishProgress({
+  publishStep,
+  deployStatus,
+  activeHint,
+}: {
+  publishStep: number;
+  deployStatus: DeployStatus;
+  activeHint?: string;
+}) {
+  return (
+    <div
+      className="mt-4 overflow-hidden rounded-2xl border border-teal-100 bg-gradient-to-b from-teal-50/90 to-white p-4"
+      role="status"
+      aria-live="polite"
+    >
+      <ol className="space-y-0">
+        {PUBLISH_STEPS.map((step, index) => {
+          const state = publishStepState(index, publishStep, deployStatus);
+          const isLast = index === PUBLISH_STEPS.length - 1;
+          const caption =
+            state === "done"
+              ? "Done"
+              : state === "active"
+                ? activeHint || "In progress"
+                : state === "error"
+                  ? "Could not finish"
+                  : "Waiting";
+
+          return (
+            <li key={step.id} className="flex gap-3" aria-current={state === "active" ? "step" : undefined}>
+              <div className="flex flex-col items-center self-stretch">
+                <span
+                  className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-full ${
+                    state === "done"
+                      ? "bg-emerald-500 text-white shadow-sm shadow-emerald-500/25"
+                      : state === "active"
+                        ? "bg-white text-teal-800 ring-2 ring-teal-200"
+                        : state === "error"
+                          ? "bg-red-600 text-white"
+                          : "bg-white text-stone-300 ring-2 ring-stone-200"
+                  }`}
+                >
+                  {state === "done" ? (
+                    <StepCheckIcon />
+                  ) : state === "error" ? (
+                    <StepErrorIcon />
+                  ) : state === "active" ? (
+                    <span
+                      className="h-4 w-4 animate-spin rounded-full border-2 border-teal-200 border-t-teal-700"
+                      aria-hidden="true"
+                    />
+                  ) : (
+                    <span className="h-2 w-2 rounded-full bg-stone-300" />
+                  )}
+                </span>
+                {isLast ? null : (
+                  <span
+                    className={`my-1 w-0.5 min-h-3 grow rounded-full ${
+                      index < publishStep ? "bg-emerald-400" : "bg-stone-200"
+                    }`}
+                    aria-hidden="true"
+                  />
+                )}
+              </div>
+              <div className={isLast ? "min-w-0 pb-0 pt-0.5" : "min-w-0 pb-4 pt-0.5"}>
+                <p
+                  className={`text-sm font-semibold ${
+                    state === "done"
+                      ? "text-stone-900"
+                      : state === "active"
+                        ? "text-teal-900"
+                        : state === "error"
+                          ? "text-red-800"
+                          : "text-stone-500"
+                  }`}
+                >
+                  {step.label}
+                </p>
+                <p className="mt-0.5 text-xs text-stone-500">
+                  {state === "pending" ? step.hint : caption}
+                </p>
+              </div>
+            </li>
+          );
+        })}
+      </ol>
+      {deployStatus === "deploying" ? (
+        <p className="mt-3 border-t border-teal-100 pt-3 text-xs text-stone-500">
+          {publishStep === 1
+            ? "New domains can take up to 30 minutes for public DNS to update. You can leave this open — we\u2019ll play a sound when it\u2019s done."
+            : publishStep === 2
+              ? "Verifying the site is live. You\u2019ll hear a chime when it\u2019s ready."
+              : "This can take a minute."}
+        </p>
+      ) : null}
+    </div>
   );
 }
 
@@ -60,6 +217,8 @@ export default function DeployWorkspace({
   const [deployError, setDeployError] = useState<string | null>(null);
   const [deployedUrl, setDeployedUrl] = useState<string | null>(null);
   const [httpsReady, setHttpsReady] = useState(false);
+  const [publishStep, setPublishStep] = useState(0);
+  const [activeHint, setActiveHint] = useState<string | undefined>();
 
   useEffect(() => {
     if (subscribedDomain) {
@@ -99,6 +258,8 @@ export default function DeployWorkspace({
     setDeployError(null);
     setDeployedUrl(null);
     setHttpsReady(false);
+    setPublishStep(0);
+    setActiveHint(undefined);
 
     try {
       const params = new URLSearchParams({
@@ -128,6 +289,127 @@ export default function DeployWorkspace({
     }
   }
 
+  function formatElapsed(startMs: number): string {
+    const seconds = Math.round((Date.now() - startMs) / 1000);
+    if (seconds < 60) return `${seconds}s`;
+    const minutes = Math.floor(seconds / 60);
+    const remainder = seconds % 60;
+    return remainder > 0 ? `${minutes}m ${remainder}s` : `${minutes}m`;
+  }
+
+  async function waitForPublicDns(siteId: string) {
+    const deadline = Date.now() + 30 * 60 * 1000;
+    const startedAt = Date.now();
+    let attempt = 0;
+
+    while (Date.now() < deadline) {
+      const response = await authFetch(
+        `/api/deploy/dns?websiteId=${encodeURIComponent(siteId)}`,
+      );
+      const data = (await response.json()) as {
+        success?: boolean;
+        ready?: boolean;
+        error?: string;
+      };
+
+      if (response.status === 429) {
+        setActiveHint("Waiting before checking public DNS again");
+        await new Promise((resolve) => window.setTimeout(resolve, 5000));
+        continue;
+      }
+
+      if (!response.ok || !data.success) {
+        throw new Error(data.error || "Could not check public DNS.");
+      }
+
+      if (data.ready) {
+        return;
+      }
+
+      attempt += 1;
+      const elapsed = formatElapsed(startedAt);
+      setActiveHint(
+        attempt <= 2
+          ? "Waiting for public DNS to update"
+          : `Still waiting for public DNS (${elapsed})`,
+      );
+      const delay = attempt < 20 ? 5000 : 10000;
+      await new Promise((resolve) => window.setTimeout(resolve, delay));
+    }
+
+    throw new Error(
+      "Public DNS has not updated after 30 minutes. Try publishing again later.",
+    );
+  }
+
+  async function waitForLiveSite(siteId: string) {
+    const deadline = Date.now() + 30 * 60 * 1000;
+    const startedAt = Date.now();
+    let attempt = 0;
+
+    while (Date.now() < deadline) {
+      const response = await authFetch(
+        `/api/deploy/live?websiteId=${encodeURIComponent(siteId)}`,
+      );
+      const data = (await response.json()) as {
+        success?: boolean;
+        ready?: boolean;
+        error?: string;
+      };
+
+      if (response.status === 429) {
+        setActiveHint("Waiting before checking the live site again");
+        await new Promise((resolve) => window.setTimeout(resolve, 5000));
+        continue;
+      }
+
+      if (!response.ok || !data.success) {
+        throw new Error(data.error || "Could not reach the published website.");
+      }
+
+      if (data.ready) {
+        return;
+      }
+
+      attempt += 1;
+      const elapsed = formatElapsed(startedAt);
+      setActiveHint(
+        attempt <= 2
+          ? "Checking the live site"
+          : `Still checking the live site (${elapsed})`,
+      );
+      const delay = attempt < 20 ? 5000 : 10000;
+      await new Promise((resolve) => window.setTimeout(resolve, delay));
+    }
+
+    throw new Error(
+      "The website was published but is not returning 200 yet. Try again later.",
+    );
+  }
+
+  function playSuccessChime() {
+    try {
+      const ctx = new AudioContext();
+      const now = ctx.currentTime;
+
+      const notes = [523.25, 659.25, 783.99];
+      for (let i = 0; i < notes.length; i++) {
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.type = "sine";
+        osc.frequency.value = notes[i];
+        gain.gain.setValueAtTime(0, now + i * 0.15);
+        gain.gain.linearRampToValueAtTime(0.18, now + i * 0.15 + 0.04);
+        gain.gain.linearRampToValueAtTime(0, now + i * 0.15 + 0.35);
+        osc.connect(gain).connect(ctx.destination);
+        osc.start(now + i * 0.15);
+        osc.stop(now + i * 0.15 + 0.4);
+      }
+    } catch {
+      // Audio may not be available
+    }
+  }
+
   async function handleSearch(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     await searchDomains();
@@ -139,9 +421,36 @@ export default function DeployWorkspace({
     setDeployStatus("deploying");
     setDeployError(null);
     setHttpsReady(false);
+    setPublishStep(0);
+    setActiveHint("Reserving your .co.za name");
     trackDeployStart(result.domain);
 
     try {
+      const provisionResponse = await authFetch("/api/deploy/provision", {
+        method: "POST",
+        body: JSON.stringify({
+          websiteId,
+          domain: result.domain,
+        }),
+      });
+      const provisionData = (await provisionResponse.json()) as {
+        success?: boolean;
+        error?: string;
+      };
+      if (!provisionResponse.ok || !provisionData.success) {
+        setDeployStatus("error");
+        setDeployError(provisionData.error || "Could not register the domain.");
+        trackDeployFail();
+        return;
+      }
+
+      setPublishStep(1);
+      setActiveHint("Checking public DNS");
+      await waitForPublicDns(websiteId);
+
+      setPublishStep(2);
+      setActiveHint("Putting your pages live");
+
       const response = await authFetch("/api/deploy", {
         method: "POST",
         body: JSON.stringify({
@@ -164,13 +473,23 @@ export default function DeployWorkspace({
         return;
       }
 
+      setActiveHint("Checking the live site");
+      await waitForLiveSite(websiteId);
+
+      setPublishStep(3);
+      setActiveHint(undefined);
       setDeployStatus("success");
       setDeployedUrl(data.url || `https://${result.domain}`);
       setHttpsReady(data.httpsReady === true);
       trackDeploySuccess(result.domain);
-    } catch {
+      playSuccessChime();
+    } catch (error) {
       setDeployStatus("error");
-      setDeployError("Could not reach the deploy API. Please try again.");
+      setDeployError(
+        error instanceof Error
+          ? error.message
+          : "Could not reach the deploy API. Please try again.",
+      );
       trackDeployFail();
     }
   }
@@ -274,16 +593,13 @@ export default function DeployWorkspace({
               </span>
             </div>
 
-            {result.available && deployStatus !== "success" ? (
+            {result.available && deployStatus !== "success" && deployStatus !== "deploying" ? (
               <button
                 type="button"
                 onClick={handleDeploy}
-                disabled={deployStatus === "deploying"}
-                className="mt-4 inline-flex w-full items-center justify-center rounded-full bg-teal-800 px-5 py-3 text-sm font-semibold text-white transition hover:bg-teal-700 disabled:cursor-not-allowed disabled:bg-stone-400 sm:w-auto"
+                className="mt-4 inline-flex w-full items-center justify-center rounded-full bg-teal-800 px-5 py-3 text-sm font-semibold text-white transition hover:bg-teal-700 sm:w-auto"
               >
-                {deployStatus === "deploying"
-                  ? "Registering and publishing.."
-                  : `Publish  ${result.domain}`}
+                Publish {result.domain}
               </button>
             ) : null}
 
@@ -293,10 +609,14 @@ export default function DeployWorkspace({
               </p>
             ) : null}
 
-            {deployStatus === "deploying" ? (
-              <p className="mt-3 text-sm text-stone-600">
-                Registering the domain, pointing DNS at the server, then publishing. This can take a minute.
-              </p>
+            {deployStatus === "deploying" ||
+            deployStatus === "success" ||
+            deployStatus === "error" ? (
+              <PublishProgress
+                publishStep={publishStep}
+                deployStatus={deployStatus}
+                activeHint={activeHint}
+              />
             ) : null}
 
             {deployError ? (

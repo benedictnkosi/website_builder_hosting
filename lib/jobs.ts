@@ -6,14 +6,22 @@ import type { AuthUser } from "@/lib/auth-server";
 import {
   createWebsiteId,
   deleteWebsiteDirectory,
+  deleteWebsiteFiles,
   updateWebsiteFiles,
 } from "@/lib/file-manager";
+import {
+  generateWebsiteImageFile,
+  generateWebsiteImages,
+} from "@/lib/image-generator";
+import {
+  imageRequestsFromPlan,
+  replacePathsFromPlan,
+} from "@/lib/image-edit-planner";
 import {
   listUserJobDocuments,
   readUserJobDocument,
   writeUserJobDocument,
 } from "@/lib/firestore";
-import { generateWebsiteImageFile } from "@/lib/image-generator";
 import { isMockAiEnabled } from "@/lib/mock-ai";
 import {
   BackgroundUnsupportedError,
@@ -36,7 +44,7 @@ import { generateWebsite } from "@/lib/website-generator";
 import {
   applyMockWebsiteEdit,
   pollWebsiteEditBackground,
-  prepareEditFiles,
+  prepareWebsiteEdit,
   startWebsiteEditBackground,
 } from "@/lib/website-editor";
 
@@ -62,6 +70,7 @@ export type SiteJob = {
   files: WebsiteFile[];
   imageRequests: WebsiteImageRequest[];
   imageIndex: number;
+  replacePaths: string[];
   allowedPaths: string[];
   error: string;
   createdAt: string;
@@ -161,6 +170,7 @@ function asJob(data: Record<string, unknown>): SiteJob | null {
     files: asFiles(data.files),
     imageRequests: asImageRequests(data.imageRequests),
     imageIndex: Math.max(0, numberField(data.imageIndex)),
+    replacePaths: asStringArray(data.replacePaths),
     allowedPaths: asStringArray(data.allowedPaths),
     error: stringField(data.error),
     createdAt: stringField(data.createdAt) || nowIso(),
@@ -256,6 +266,7 @@ async function failJob(user: AuthUser, job: SiteJob, error: unknown): Promise<Si
     instruction: "",
     files: [],
     imageRequests: [],
+    replacePaths: [],
   });
 
   if (job.kind === "generate" && job.websiteId && job.step !== "done") {
@@ -285,6 +296,7 @@ async function completeJob(
     openaiResponseId: "",
     files: [],
     imageRequests: [],
+    replacePaths: [],
     allowedPaths: [],
   });
 }
@@ -359,6 +371,7 @@ export async function createGenerateJob(
     files: [],
     imageRequests: [],
     imageIndex: 0,
+    replacePaths: [],
     allowedPaths: [],
     error: "",
     createdAt: now,
@@ -398,6 +411,7 @@ export async function createEditJob(
     files: [],
     imageRequests: [],
     imageIndex: 0,
+    replacePaths: [],
     allowedPaths: [],
     error: "",
     createdAt: now,
@@ -441,13 +455,22 @@ async function storeEditDraft(
   user: AuthUser,
   job: SiteJob,
   files: WebsiteFile[],
+  imageRequests = job.imageRequests,
+  replacePaths = job.replacePaths,
 ): Promise<SiteJob> {
+  const nextStep: SiteJobStep = imageRequests.length > 0 ? "images" : "saving";
   return patchJob(user, job, {
     status: "running",
-    step: "saving",
-    progress: 82,
-    message: "Saving your changes...",
+    step: nextStep,
+    progress: imageRequests.length > 0 ? 48 : 82,
+    message:
+      imageRequests.length > 0
+        ? `Generating images (1 of ${imageRequests.length})...`
+        : "Saving your changes...",
     files,
+    imageRequests,
+    imageIndex: 0,
+    replacePaths,
     openaiResponseId: "",
   });
 }
@@ -501,16 +524,43 @@ async function startGenerateOpenAI(
 }
 
 async function startEditOpenAI(user: AuthUser, job: SiteJob): Promise<SiteJob> {
-  const filesToEdit = await prepareEditFiles(job.websiteId, job.instruction, user.idToken);
+  const { filesToEdit, imagePlan } = await prepareWebsiteEdit(
+    job.websiteId,
+    job.instruction,
+    user.idToken,
+  );
+  const imageRequests = imageRequestsFromPlan(imagePlan);
+  const replacePaths = replacePathsFromPlan(imagePlan);
 
   if (isMockAiEnabled()) {
-    await applyMockWebsiteEdit(job.websiteId, job.instruction, filesToEdit, user.idToken);
+    const updatedFiles = await applyMockWebsiteEdit(
+      job.websiteId,
+      job.instruction,
+      filesToEdit,
+      user.idToken,
+      imagePlan,
+    );
+    if (imageRequests.length > 0) {
+      const imageFiles = await generateWebsiteImages(imageRequests);
+      await updateWebsiteFiles(job.websiteId, imageFiles, user.idToken);
+    }
+    await deleteUnusedImages(
+      job.websiteId,
+      replacePaths,
+      updatedFiles,
+      imageRequests.map((image) => image.path),
+      user.idToken,
+    );
     return completeJob(user, job, job.websiteId, "Changes applied!");
   }
 
-  const started = await startWebsiteEditBackground(job.instruction, filesToEdit);
+  const started = await startWebsiteEditBackground(
+    job.instruction,
+    filesToEdit,
+    imagePlan,
+  );
   if (started.files) {
-    return storeEditDraft(user, job, started.files);
+    return storeEditDraft(user, job, started.files, imageRequests, replacePaths);
   }
   if (!started.id) {
     throw new GeneratorError("Could not start the edit request. Please try again.", 502);
@@ -520,8 +570,10 @@ async function startEditOpenAI(user: AuthUser, job: SiteJob): Promise<SiteJob> {
     status: "running",
     step: "openai",
     progress: 22,
-    message: "Applying your changes...",
+    message: imageRequests.length > 0 ? "Updating pages for the new photo..." : "Applying your changes...",
     openaiResponseId: started.id,
+    imageRequests,
+    replacePaths,
     allowedPaths: filesToEdit.map((file) => file.path),
     leaseUntil: "",
     claimId: "",
@@ -595,6 +647,22 @@ async function generateNextImage(user: AuthUser, job: SiteJob): Promise<SiteJob>
   });
 }
 
+async function deleteUnusedImages(
+  websiteId: string,
+  replacePaths: string[],
+  files: WebsiteFile[],
+  newPaths: string[],
+  idToken?: string,
+): Promise<void> {
+  const updatedMarkup = files.map((file) => file.content).join("\n");
+  const unused = replacePaths.filter((oldPath) => {
+    if (!oldPath || updatedMarkup.includes(oldPath)) return false;
+    return newPaths.some((newPath) => updatedMarkup.includes(newPath));
+  });
+  if (unused.length === 0) return;
+  await deleteWebsiteFiles(websiteId, unused, idToken);
+}
+
 async function saveJobResult(user: AuthUser, job: SiteJob): Promise<SiteJob> {
   if (job.kind === "generate") {
     await updateWebsiteFiles(job.websiteId, job.files, user.idToken);
@@ -608,6 +676,13 @@ async function saveJobResult(user: AuthUser, job: SiteJob): Promise<SiteJob> {
   }
 
   await updateWebsiteFiles(job.websiteId, job.files, user.idToken);
+  await deleteUnusedImages(
+    job.websiteId,
+    job.replacePaths,
+    job.files,
+    job.imageRequests.map((image) => image.path),
+    user.idToken,
+  );
   return completeJob(user, job, job.websiteId, "Changes applied!");
 }
 
@@ -682,7 +757,11 @@ export async function tickJob(
   }
 
   try {
-    await runWithTokenSpend(user.uid, () => advanceJob(user, job, allowSlow));
+    await runWithTokenSpend(
+      user.uid,
+      () => advanceJob(user, job, allowSlow),
+      job.kind === "edit" ? "edit" : "generate",
+    );
   } catch (error) {
     const latest = (await readJob(user, jobId)) ?? job;
     return failJob(user, latest, error);
@@ -710,6 +789,7 @@ export async function cancelJob(user: AuthUser, jobId: string): Promise<SiteJob 
     instruction: "",
     files: [],
     imageRequests: [],
+    replacePaths: [],
   });
 
   if (job.kind === "generate" && job.websiteId) {

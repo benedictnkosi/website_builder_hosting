@@ -1,5 +1,6 @@
 export const MONTHLY_SUBSCRIPTION_ZAR = 19;
-export const SUBSCRIPTION_TLD = "co.za";
+export const SUBSCRIPTION_TLD =
+  (typeof process !== "undefined" && process.env?.NEXT_PUBLIC_DOMAIN_TLD?.trim()) || "co.za";
 
 export const SIGNUP_TOKEN_GRANT = 20_000;
 export const SUBSCRIPTION_TOKEN_GRANT = 20_000;

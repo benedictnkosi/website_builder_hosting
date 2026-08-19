@@ -26,6 +26,10 @@ service cloud.firestore {
       match /jobs/{jobId} {
         allow read, write: if request.auth != null && request.auth.uid == uid;
       }
+
+      match /tokenUsages/{usageId} {
+        allow read, write: if false;
+      }
     }
 
     match /sites/{siteId} {
@@ -42,7 +46,8 @@ service cloud.firestore {
     }
 
     match /tokenTopups/{paymentId} {
-      allow read, write: if false;
+      allow read: if request.auth != null && resource.data.ownerUid == request.auth.uid;
+      allow write: if false;
     }
   }
 }

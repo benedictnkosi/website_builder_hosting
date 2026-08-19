@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { jsonAuthError, requireUser } from "@/lib/auth-server";
 import { clientKey, consumeRateLimit, jsonRateLimitError } from "@/lib/rate-limit";
 import { normalizeChatMessages, runIntakeChat } from "@/lib/intake-chat";
-import { assertChatTokens, jsonTokenError, runWithTokenSpend } from "@/lib/tokens";
+import { assertChatTokens, InsufficientTokensError, runWithTokenSpend } from "@/lib/tokens";
 import { GeneratorError } from "@/lib/validation";
 
 export const runtime = "nodejs";
@@ -16,8 +16,17 @@ export async function POST(request: Request) {
   } catch (error) {
     const limited = jsonRateLimitError(error);
     if (limited) return limited;
-    const tokenResponse = jsonTokenError(error);
-    if (tokenResponse) return tokenResponse;
+    if (error instanceof InsufficientTokensError) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: error.message,
+          chatTokensExhausted: true,
+          tokenBalance: error.tokenBalance,
+        },
+        { status: 402 },
+      );
+    }
     const authResponse = jsonAuthError(error);
     if (authResponse) return authResponse;
     return NextResponse.json(
@@ -50,7 +59,7 @@ export async function POST(request: Request) {
   }
 
   try {
-    const result = await runWithTokenSpend(user.uid, () => runIntakeChat(messages));
+    const result = await runWithTokenSpend(user.uid, () => runIntakeChat(messages), "chat");
     return NextResponse.json({ success: true, ...result });
   } catch (error) {
     console.error("Intake chat error:", error);

@@ -41,11 +41,20 @@ export const FALLBACK_TOKEN_USAGE = {
   plan: 200,
 } as const;
 
+export type TokenUsageKind = "generate" | "edit" | "chat" | "image" | "plan";
+
 type TokenSpendContext = {
   uid: string;
+  kind?: TokenUsageKind;
 };
 
 const tokenSpend = new AsyncLocalStorage<TokenSpendContext>();
+
+const USAGE_COLLECTION = "tokenUsages";
+
+function usageDocId(usageId: string): string {
+  return usageId.replaceAll("/", "_").slice(0, 700);
+}
 
 function asTokenCount(value: unknown): number {
   return typeof value === "number" && Number.isFinite(value) ? Math.max(0, Math.round(value)) : 0;
@@ -90,6 +99,7 @@ async function applyTokenDelta(
   uid: string,
   delta: number,
   grantId?: string,
+  kind?: TokenUsageKind,
 ): Promise<number> {
   if (!uid) {
     throw new Error("A user id is required to update tokens.");
@@ -133,6 +143,25 @@ async function applyTokenDelta(
     }
 
     tx.set(ref, payload, { merge: true });
+
+    if (delta < 0) {
+      const spent = current - next;
+      if (spent > 0) {
+        const usageRef = grantId
+          ? ref.collection(USAGE_COLLECTION).doc(usageDocId(grantId))
+          : ref.collection(USAGE_COLLECTION).doc();
+        const usage: Record<string, unknown> = {
+          uid,
+          tokens: spent,
+          createdAt: now,
+          balanceAfter: next,
+        };
+        if (kind) usage.kind = kind;
+        if (grantId) usage.usageId = grantId;
+        tx.set(usageRef, usage);
+      }
+    }
+
     return next;
   });
 }
@@ -180,7 +209,13 @@ export async function assertHasTokens(user: AuthUser, minimum: number): Promise<
   return balance;
 }
 
-export async function assertGenerateTokens(user: AuthUser): Promise<number> {
+export async function assertGenerateTokens(
+  user: AuthUser,
+  options?: { allowDepleted?: boolean },
+): Promise<number> {
+  if (options?.allowDepleted) {
+    return ensureSignupTokens(user);
+  }
   return assertHasTokens(user, GENERATE_MIN_TOKENS);
 }
 
@@ -192,26 +227,35 @@ export async function assertChatTokens(user: AuthUser): Promise<number> {
   return assertHasTokens(user, CHAT_MIN_TOKENS);
 }
 
-export function runWithTokenSpend<T>(uid: string, fn: () => Promise<T>): Promise<T> {
-  return tokenSpend.run({ uid }, fn);
+export function runWithTokenSpend<T>(
+  uid: string,
+  fn: () => Promise<T>,
+  kind?: TokenUsageKind,
+): Promise<T> {
+  return tokenSpend.run({ uid, kind }, fn);
 }
 
 export async function chargeTokens(
   amount: number,
   fallback = 0,
   usageId?: string,
+  kind?: TokenUsageKind,
 ): Promise<void> {
   const ctx = tokenSpend.getStore();
   const tokens = amount > 0 ? Math.round(amount) : fallback;
   if (!ctx || tokens <= 0) return;
   try {
-    await applyTokenDelta(ctx.uid, -tokens, usageId);
+    await applyTokenDelta(ctx.uid, -tokens, usageId, kind ?? ctx.kind);
   } catch (error) {
     console.error("Could not deduct tokens:", error);
   }
 }
 
-export async function chargeOpenAIUsage(payload: unknown, fallback: number): Promise<void> {
+export async function chargeOpenAIUsage(
+  payload: unknown,
+  fallback: number,
+  kind?: TokenUsageKind,
+): Promise<void> {
   const id =
     payload && typeof payload === "object" && "id" in payload
       ? String((payload as { id?: unknown }).id ?? "").trim()
@@ -220,5 +264,6 @@ export async function chargeOpenAIUsage(payload: unknown, fallback: number): Pro
     tokensFromOpenAIPayload(payload),
     fallback,
     id ? `openai:${id}` : undefined,
+    kind,
   );
 }

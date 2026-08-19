@@ -40,6 +40,7 @@ const INTAKE_JSON_SCHEMA = {
       additionalProperties: false,
       required: [
         "business_name",
+        "about",
         "services",
         "phone",
         "use_whatsapp",
@@ -54,6 +55,11 @@ const INTAKE_JSON_SCHEMA = {
       ],
       properties: {
         business_name: { type: "string" },
+        about: {
+          type: "string",
+          description:
+            "The About us story in the user's words: who they are, their background, or what makes them different. Empty if not yet known.",
+        },
         services: { type: "string" },
         phone: { type: "string" },
         use_whatsapp: { type: "string", enum: ["yes", "no", "unknown"] },
@@ -77,7 +83,7 @@ const INTAKE_JSON_SCHEMA = {
         extra_details: {
           type: "string",
           description:
-            "Any other useful details the user mentioned: hours, areas served, tagline, special requests, or extra notes. Empty if none. Keep this updated as they add more.",
+            "Any other useful details the user mentioned: hours, areas served, tagline, special requests, or extra notes. Do not put the About us story here — that belongs in about. Empty if none. Keep this updated as they add more.",
         },
         user_confirmed: {
           type: "boolean",
@@ -95,6 +101,7 @@ You write every user-facing message yourself. There is no script, template, or c
 
 Collect this information. Do not mention this list to the user:
 - Business name
+- About us. Ask who they are, their story, or what makes the business different. Capture their words. Do not invent a backstory, years in business, or credentials they did not mention.
 - What they offer (services or products)
 - Phone number
 - Whether they want a WhatsApp button. If yes, a WhatsApp number — it may be the same as the phone number.
@@ -111,9 +118,9 @@ Conversation rules:
 - Ask exactly one question per reply. Never combine topics. For example, do not ask about a contact form and photo people in the same message. If they want a contact form, ask for the email in a later turn, not in the same turn as the yes/no.
 - Keep replies short and warm — one or two sentences, then the single question.
 - Carry forward every field you already extracted. Empty strings and "unknown" mean not yet known.
-- If they mention extra useful details along the way (trading hours, suburbs they cover, a slogan, languages, and so on), store them in extra_details. Do not ask a dedicated question just to fill extra_details.
+- If they mention extra useful details along the way (trading hours, suburbs they cover, a slogan, languages, and so on), store them in extra_details. Do not ask a dedicated question just to fill extra_details. Do not put the About us story in extra_details.
 
-When business name, services, phone, WhatsApp preference, contact-form preference, people_ethnicity, and design_preference_resolved are all known:
+When business name, about, services, phone, WhatsApp preference, contact-form preference, people_ethnicity, and design_preference_resolved are all known:
 - Do not set complete or user_confirmed yet.
 - Do not recap or list the information you collected.
 - Tell them you have everything you need to go ahead, and ask if they are happy to proceed.
@@ -216,6 +223,7 @@ function parseIntakeResult(rawText: string): IntakeChatResult {
 
   const intake: WebsiteIntake = {
     business_name: typeof rawIntake.business_name === "string" ? rawIntake.business_name : "",
+    about: typeof rawIntake.about === "string" ? rawIntake.about.trim() : "",
     services: typeof rawIntake.services === "string" ? rawIntake.services : "",
     phone: typeof rawIntake.phone === "string" ? rawIntake.phone : "",
     use_whatsapp:
@@ -317,7 +325,7 @@ export async function runIntakeChat(messages: ChatMessage[]): Promise<IntakeChat
 
   const payload = await response.json();
   console.log("Intake chat response:", JSON.stringify(payload, null, 2));
-  await chargeOpenAIUsage(payload, FALLBACK_TOKEN_USAGE.chat);
+  await chargeOpenAIUsage(payload, FALLBACK_TOKEN_USAGE.chat, "chat");
 
   if (payload.error?.message) {
     throw new GeneratorError(payload.error.message, 502);

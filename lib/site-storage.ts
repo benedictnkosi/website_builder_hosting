@@ -285,6 +285,36 @@ export async function listSiteObjectPaths(input: {
   return paths;
 }
 
+export async function deleteSiteObject(input: {
+  websiteId: string;
+  relativePath: string;
+  idToken?: string;
+}): Promise<void> {
+  if (isFirebaseAdminConfigured()) {
+    await adminFile(input.websiteId, input.relativePath).delete({
+      ignoreNotFound: true,
+    });
+    return;
+  }
+
+  const response = await storageRequest(
+    objectApiUrl(siteObjectName(input.websiteId, input.relativePath)),
+    {
+      method: "DELETE",
+      headers: authHeaders(input.idToken),
+    },
+  );
+  if (response.status === 404 || response.ok) return;
+  if (!input.idToken && (response.status === 401 || response.status === 403)) {
+    return;
+  }
+  throwStorageError(
+    "delete",
+    response.status,
+    await response.text().catch(() => ""),
+  );
+}
+
 export async function deleteSiteObjects(input: {
   websiteId: string;
   idToken?: string;

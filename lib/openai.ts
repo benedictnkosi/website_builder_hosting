@@ -35,6 +35,11 @@ If the user describes a design preference such as colours, mood, or style, follo
 
 Do not invent missing business information.
 
+If the user provides an About us / business story:
+- Include an About section with id="about" using that text.
+- Do not invent history, years in business, credentials, awards, or a backstory they did not provide.
+- If no about text is provided, omit the About section rather than fabricating one.
+
 If the user asks for a Contact Us form:
 - Include a contact section with name, email, and message fields (phone optional).
 - Display the business email address visibly on the website (contact section, header or footer) as a mailto link.
@@ -57,9 +62,10 @@ Aggressive on-page SEO is required in index.html:
 - Semantic HTML: header, nav, main, section, footer. Exactly one h1. Logical h2/h3 headings that include real services and the location when known.
 - Descriptive alt text on every image. Never empty alt on meaningful photos.
 - Visible click-to-call tel: links and WhatsApp links when those details exist.
-- A JSON-LD <script type="application/ld+json"> LocalBusiness (or a more specific subtype such as Plumber, HairSalon, Restaurant, ProfessionalService) with name, description, telephone, address, areaServed, and url omitted if unknown. Add FAQPage JSON-LD only if the page includes a real FAQ section.
-- Include a short FAQ section when the prompt has enough service information. Do not invent reviews, star ratings, prices, licences, or credentials.
-- Use internal in-page links (#services, #contact, #faq) in the nav.
+- A JSON-LD <script type="application/ld+json"> LocalBusiness (or a more specific subtype such as Plumber, HairSalon, Restaurant, ProfessionalService) with name, description, telephone, address, areaServed, and url omitted if unknown. Do not add FAQPage JSON-LD.
+- Do not include an FAQ section.
+- Do not invent reviews, star ratings, prices, licences, or credentials.
+- Use internal in-page links (#about, #services, #contact) in the nav. Include #about only when an About section exists. Do not link to #faq.
 - Do not keyword-stuff, hide text, or repeat the same phrase unnaturally.`;
 
 const WEBSITE_JSON_SCHEMA = {
@@ -264,7 +270,7 @@ export async function generateWebsiteFromOpenAI(
   if (isMockAiEnabled()) {
     console.log("[mock-ai] Generating mock website");
     await mockDelay(900);
-    await chargeTokens(MOCK_TOKEN_USAGE.generate);
+    await chargeTokens(MOCK_TOKEN_USAGE.generate, 0, undefined, "generate");
     return mockGenerateWebsite(prompt);
   }
 
@@ -329,7 +335,7 @@ export async function generateWebsiteFromOpenAI(
 
   const payload = (await response.json()) as OpenAIResponsesPayload;
   console.log("OpenAI response:", JSON.stringify(payload, null, 2));
-  await chargeOpenAIUsage(payload, FALLBACK_TOKEN_USAGE.generate);
+  await chargeOpenAIUsage(payload, FALLBACK_TOKEN_USAGE.generate, "generate");
 
   if (payload.error?.message) {
     throw new GeneratorError(payload.error.message, 502);
@@ -531,7 +537,7 @@ export async function runForegroundStructuredResponse(input: {
     );
   }
 
-  await chargeOpenAIUsage(result, FALLBACK_TOKEN_USAGE.edit);
+  await chargeOpenAIUsage(result, FALLBACK_TOKEN_USAGE.edit, "edit");
   return collectOutputText(result);
 }
 

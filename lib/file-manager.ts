@@ -14,6 +14,7 @@ import {
 import {
   canUseObjectStorage,
   contentTypeForPath,
+  deleteSiteObject,
   deleteSiteObjects,
   downloadSiteObject,
   isObjectStorageEnabled,
@@ -419,6 +420,63 @@ export async function readDeployableWebsiteFiles(
   }
 
   return files;
+}
+
+export async function listWebsiteImagePaths(
+  websiteId: string,
+  idToken?: string,
+): Promise<string[]> {
+  const filePaths = await listStoredWebsiteFiles(websiteId, idToken);
+  return filePaths
+    .map((filePath) => normalizeRelativePath(filePath))
+    .filter((filePath) => {
+      return (
+        isSafeRelativePath(filePath) &&
+        filePath.toLowerCase().startsWith("images/") &&
+        /\.(png|jpe?g|gif|webp)$/i.test(filePath)
+      );
+    })
+    .sort();
+}
+
+export async function deleteWebsiteFiles(
+  websiteId: string,
+  filePaths: string[],
+  idToken?: string,
+): Promise<void> {
+  assertWebsiteId(websiteId);
+
+  const seen = new Set<string>();
+  for (const filePath of filePaths) {
+    if (typeof filePath !== "string") continue;
+    const normalized = normalizeRelativePath(filePath.trim());
+    if (
+      !normalized ||
+      seen.has(normalized) ||
+      !isSafeRelativePath(filePath) ||
+      !isSafeRelativePath(normalized) ||
+      !normalized.toLowerCase().startsWith("images/")
+    ) {
+      continue;
+    }
+    seen.add(normalized);
+
+    if (isObjectStorageEnabled() && canUseObjectStorage(idToken)) {
+      await deleteSiteObject({
+        websiteId,
+        relativePath: normalized,
+        idToken,
+      });
+    }
+
+    try {
+      await rm(resolveSafeFilePath(getWebsiteDirectory(websiteId), normalized), {
+        force: true,
+      });
+    } catch (error) {
+      console.warn(`Could not delete local website file ${normalized}:`, error);
+    }
+  }
 }
 
 export async function updateWebsiteFiles(

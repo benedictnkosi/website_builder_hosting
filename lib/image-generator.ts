@@ -110,7 +110,7 @@ async function generateImage(prompt: string): Promise<string> {
     data?: Array<{ b64_json?: string }>;
     usage?: unknown;
   };
-  await chargeOpenAIUsage(payload, FALLBACK_TOKEN_USAGE.image);
+  await chargeOpenAIUsage(payload, FALLBACK_TOKEN_USAGE.image, "image");
 
   const b64 = payload.data?.[0]?.b64_json;
 
@@ -146,7 +146,7 @@ export async function generateWebsiteImages(
   if (isMockAiEnabled()) {
     console.log("[mock-ai] Generating mock images");
     await mockDelay(400);
-    await chargeTokens(MOCK_TOKEN_USAGE.image * unique.length);
+    await chargeTokens(MOCK_TOKEN_USAGE.image * unique.length, 0, undefined, "image");
     return mockGenerateImages(unique);
   }
 
@@ -167,7 +167,7 @@ export async function generateWebsiteImageFile(
   console.log(`Generating image: ${validated.path}`);
   if (isMockAiEnabled()) {
     await mockDelay(400);
-    await chargeTokens(MOCK_TOKEN_USAGE.image);
+    await chargeTokens(MOCK_TOKEN_USAGE.image, 0, undefined, "image");
     const [file] = mockGenerateImages([validated]);
     if (!file) {
       throw new GeneratorError("Mock image generation failed.", 502);

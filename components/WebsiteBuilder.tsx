@@ -15,6 +15,7 @@ import {
 import { extractBusinessName, slugifyDomainName } from "@/lib/domain-name";
 import {
   compileBusinessDescription,
+  intakeFromPartialChat,
   type ChatMessage,
   type IntakeChatResult,
   type WebsiteIntake,
@@ -41,10 +42,13 @@ type GenerationStatus = "idle" | "chatting" | "generating" | "success" | "error"
 type ChatPhase = "intake" | "edit";
 
 const WELCOME_MESSAGE =
-  "Hi! I'm here to help build your website. Tell me about your business.";
+  "Hi! I'm here to help build your website. Tell me about your business.\n\nI'll need this information:\n• Business name\n• About us\n• List of services\n• Contact number\n• WhatsApp number, if WhatsApp is required\n• Email address, if a contact form is required";
 
 const READY_MESSAGE =
   "Your website is ready. Preview it, describe any changes, and subscribe when you want to deploy it live.";
+
+const CHAT_TOKENS_EXHAUSTED_MESSAGE =
+  "Your chat tokens have been used up. We're generating the website for you now with the information we already have.";
 
 function sleep(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -148,8 +152,10 @@ export default function WebsiteBuilder() {
   const [activeJobId, setActiveJobId] = useState<string | null>(null);
   const [jobProgress, setJobProgress] = useState<number | null>(null);
   const [jobMessage, setJobMessage] = useState<string | null>(null);
+  const [chatLocked, setChatLocked] = useState(false);
   const runEpochRef = useRef(0);
   const intakeStartedRef = useRef(false);
+  const latestIntakeRef = useRef<WebsiteIntake | null>(null);
 
   const isBusy =
     status === "chatting" ||
@@ -157,6 +163,7 @@ export default function WebsiteBuilder() {
     isEditing ||
     showAddressModal ||
     checkoutConfirming;
+  const chatDisabled = isBusy || chatLocked;
   const previewUrl = websiteId ? `/api/preview/${websiteId}/index.html` : null;
   const tokenShortage = Boolean(error?.toLowerCase().includes("token"));
   const suggestedDomainName = slugifyDomainName(
@@ -413,6 +420,13 @@ export default function WebsiteBuilder() {
   function buildGeneratePrompt(intake: WebsiteIntake): string {
     const promptParts = [compileBusinessDescription(intake)];
 
+    if (intake.about.trim()) {
+      promptParts.push(
+        `About the business:\n${intake.about.trim()}
+Include an About section with id="about" using this information. Do not invent extra history, years in business, credentials, or awards.`,
+      );
+    }
+
     if (intake.address.trim()) {
       promptParts.push(
         `Business address: ${intake.address.trim()}\nInclude an embedded Google Map on the website showing this location.`,
@@ -465,7 +479,10 @@ Use these details on the website where they fit. Do not invent extras beyond wha
     return promptParts.join("\n\n");
   }
 
-  async function runGeneration(intake: WebsiteIntake) {
+  async function runGeneration(
+    intake: WebsiteIntake,
+    options?: { allowDepleted?: boolean },
+  ) {
     const epoch = runEpochRef.current;
     const description = compileBusinessDescription(intake);
     const name = intake.business_name.trim() || extractBusinessName(description);
@@ -486,6 +503,7 @@ Use these details on the website where they fit. Do not invent extras beyond wha
           peopleEthnicity: intake.people_ethnicity || undefined,
           businessName: name,
           contactEmail: intake.contact_email || undefined,
+          continueWithAvailableInfo: options?.allowDepleted || undefined,
         }),
       });
 
@@ -502,6 +520,7 @@ Use these details on the website where they fit. Do not invent extras beyond wha
         const message = data.error || "Website generation failed.";
         setStatus("error");
         setError(message);
+        setChatLocked(false);
         clearJobView();
         trackGenerateFail();
         if (data.tokenTopup) {
@@ -537,6 +556,7 @@ Use these details on the website where they fit. Do not invent extras beyond wha
       setFiles([]);
       setStatus("success");
       setChatPhase("edit");
+      setChatLocked(false);
       setPendingIntake(null);
       setShowAddressModal(false);
       setIsSubscribed(false);
@@ -554,6 +574,7 @@ Use these details on the website where they fit. Do not invent extras beyond wha
       if (isStaleRun(epoch)) return;
       if (error instanceof Error && error.message === "cancelled") return;
       setStatus("error");
+      setChatLocked(false);
       setError(
         error instanceof Error && error.message
           ? error.message
@@ -565,6 +586,18 @@ Use these details on the website where they fit. Do not invent extras beyond wha
         "Could not reach the server. Please try again in a moment.",
       );
     }
+  }
+
+  async function generateFromExhaustedChat(history: ChatMessage[]) {
+    const intake = intakeFromPartialChat(latestIntakeRef.current, history);
+    latestIntakeRef.current = intake;
+    setPendingIntake(intake);
+    setShowAddressModal(false);
+    setChatLocked(true);
+    setStatus("generating");
+    setError(null);
+    addAssistantMessage(CHAT_TOKENS_EXHAUSTED_MESSAGE);
+    await runGeneration(intake, { allowDepleted: true });
   }
 
   async function continueIntake(history: ChatMessage[]) {
@@ -582,23 +615,25 @@ Use these details on the website where they fit. Do not invent extras beyond wha
         success?: boolean;
         error?: string;
         tokenTopup?: boolean;
+        chatTokensExhausted?: boolean;
       } & Partial<IntakeChatResult>;
 
       if (isStaleRun(epoch)) return;
 
       if (!response.ok || !data.success || !data.reply || !data.intake) {
-        if (data.tokenTopup) {
-          openTokenTopup();
-          throw new Error(data.error || "You don't have enough tokens to continue.");
+        if (data.chatTokensExhausted || data.tokenTopup || response.status === 402) {
+          await generateFromExhaustedChat(history);
+          return;
         }
         throw new Error(data.error || "Chat request failed.");
       }
 
+      latestIntakeRef.current = data.intake;
+      setPendingIntake(data.intake);
       addAssistantMessage(data.reply);
       notifyTokensChanged();
 
       if (data.complete) {
-        setPendingIntake(data.intake);
         setShowAddressModal(true);
         setStatus("idle");
         trackIntakeComplete();
@@ -614,11 +649,7 @@ Use these details on the website where they fit. Do not invent extras beyond wha
           ? error.message
           : "Could not continue the conversation. Please try again.";
       setError(message);
-      addAssistantMessage(
-        message.includes("tokens")
-          ? "You've used your building tokens. Buy more tokens to keep chatting."
-          : "I couldn't reply just now. Please try again.",
-      );
+      addAssistantMessage("I couldn't reply just now. Please try again.");
     }
   }
 
@@ -700,7 +731,7 @@ Use these details on the website where they fit. Do not invent extras beyond wha
     event.preventDefault();
 
     const text = chatInput.trim();
-    if (isBusy) return;
+    if (chatDisabled) return;
 
     if (!text) return;
 
@@ -765,6 +796,8 @@ Use these details on the website where they fit. Do not invent extras beyond wha
     setChatInput("");
     setChatPhase("intake");
     setPendingIntake(null);
+    latestIntakeRef.current = null;
+    setChatLocked(false);
     setShowAddressModal(false);
     setBusinessDescription("");
     setBusinessName("");
@@ -845,7 +878,7 @@ Use these details on the website where they fit. Do not invent extras beyond wha
               {messages.map((message, index) => (
                 <div
                   key={`${message.role}-${index}`}
-                  className={`max-w-[92%] rounded-2xl px-3.5 py-2.5 text-sm leading-relaxed ${
+                  className={`max-w-[92%] whitespace-pre-line rounded-2xl px-3.5 py-2.5 text-sm leading-relaxed ${
                     message.role === "assistant"
                       ? "rounded-tl-md bg-white text-stone-700 shadow-sm ring-1 ring-stone-200/80"
                       : "ml-auto rounded-tr-md bg-teal-800 text-white"
@@ -911,14 +944,18 @@ Use these details on the website where they fit. Do not invent extras beyond wha
                     value={chatInput}
                     onChange={(event) => setChatInput(event.target.value)}
                     placeholder={
-                      chatPhase === "edit" ? "Describe a change..." : "Message..."
+                      chatLocked
+                        ? "Chat tokens have been used up"
+                        : chatPhase === "edit"
+                          ? "Describe a change..."
+                          : "Message..."
                     }
-                    disabled={isBusy}
+                    disabled={chatDisabled}
                     className="w-full rounded-full border border-stone-300 bg-white px-4 py-2.5 text-sm text-stone-800 outline-none transition placeholder:text-stone-400 focus:border-teal-700 focus:ring-2 focus:ring-teal-700/20 disabled:bg-stone-100"
                   />
                   <button
                     type="submit"
-                    disabled={isBusy || !chatInput.trim()}
+                    disabled={chatDisabled || !chatInput.trim()}
                     className="shrink-0 rounded-full bg-teal-800 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-teal-700 disabled:cursor-not-allowed disabled:bg-stone-400"
                   >
                     Send

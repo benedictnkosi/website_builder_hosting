@@ -1,4 +1,5 @@
 import path from "node:path";
+import { looksLikeImageEdit, instructionHasImagePlanDetails } from "./image-edit-planner";
 import { isMockAiEnabled, mockPlanEditFiles } from "./mock-ai";
 import type { WebsiteFile } from "./types";
 import { chargeOpenAIUsage, chargeTokens, FALLBACK_TOKEN_USAGE, MOCK_TOKEN_USAGE } from "./tokens";
@@ -18,12 +19,22 @@ export type WebsiteFileManifestEntry = {
 const PLAN_SCHEMA = {
   type: "object",
   additionalProperties: false,
-  required: ["files"],
+  required: ["files", "imageIntent", "imagePlanReady"],
   properties: {
     files: {
       type: "array",
       description: "Relative paths of files that need to be edited.",
       items: { type: "string" },
+    },
+    imageIntent: {
+      type: "boolean",
+      description:
+        "True only when the user wants to add, replace, or regenerate a website photo.",
+    },
+    imagePlanReady: {
+      type: "boolean",
+      description:
+        "True only when imageIntent is true and the user already said what the photo should show and where it belongs or which current photo to replace.",
     },
   },
 } as const;
@@ -34,7 +45,21 @@ Return ONLY the smallest set of file paths that are sufficient to make the chang
 Typical mapping:
 - Visual styling (colour, spacing, fonts, hover) → CSS
 - Content or structure (text, sections, links, markup) → HTML
+- Photos, images, hero/about pictures (change src, alt, or add an img) → HTML
 - Behaviour (clicks, forms, animations) → JavaScript
+
+Set imageIntent to true only if the user wants to add, replace, or change a photo. Text, colour, phone, and layout changes are false.
+
+Set imagePlanReady to true only when imageIntent is true AND the user message itself already contains both:
+- what the new photo should show (subject, people, scene, or style)
+- where it belongs or which current photo to change (about, hero, logo, services, etc.)
+If either is missing, imagePlanReady is false. Do not guess. Do not use the file list as a substitute for the user saying this.
+Examples:
+- "change the about image to a Black woman plumber" → imageIntent true, imagePlanReady true
+- "change the image" or "make a nicer photo" → imageIntent true, imagePlanReady false
+- "make the heading green" → both false
+
+Do not read or require HTML for this decision.
 
 Include extra files only when the request clearly needs them, for example adding a new button often needs HTML and CSS.
 If you are unsure, include every file that might need to change.
@@ -54,6 +79,9 @@ function describeWebsiteFile(file: WebsiteFile, kind: WebsiteFileKind): string {
   const features: string[] = [];
 
   if (lower.includes("whatsapp")) features.push("WhatsApp");
+  if (lower.includes('id="about"') || lower.includes("id='about'")) {
+    features.push("about");
+  }
   if (lower.includes("contact-form") || lower.includes('id="contact"')) {
     features.push("contact form");
   }
@@ -154,7 +182,11 @@ function collectOutputText(payload: {
   return chunks.join("");
 }
 
-function parsePlannedPaths(rawText: string, allowedPaths: Set<string>): string[] {
+function parseEditPlan(
+  rawText: string,
+  allowedPaths: Set<string>,
+): { paths: string[]; imageIntent: boolean; imagePlanReady: boolean } {
+  const empty = { paths: [] as string[], imageIntent: false, imagePlanReady: false };
   const trimmed = rawText.trim();
   let parsed: unknown;
 
@@ -163,22 +195,29 @@ function parsePlannedPaths(rawText: string, allowedPaths: Set<string>): string[]
   } catch {
     const fenced = trimmed.match(/```(?:json)?\s*([\s\S]*?)```/i);
     if (!fenced?.[1]) {
-      return [];
+      return empty;
     }
     try {
       parsed = JSON.parse(fenced[1].trim());
     } catch {
-      return [];
+      return empty;
     }
   }
 
-  if (!parsed || typeof parsed !== "object" || !("files" in parsed)) {
-    return [];
+  if (!parsed || typeof parsed !== "object") {
+    return empty;
   }
 
-  const files = (parsed as { files?: unknown }).files;
+  const record = parsed as {
+    files?: unknown;
+    imageIntent?: unknown;
+    imagePlanReady?: unknown;
+  };
+  const imageIntent = record.imageIntent === true;
+  const imagePlanReady = imageIntent && record.imagePlanReady === true;
+  const files = record.files;
   if (!Array.isArray(files)) {
-    return [];
+    return { paths: [], imageIntent, imagePlanReady };
   }
 
   const selected: string[] = [];
@@ -192,7 +231,7 @@ function parsePlannedPaths(rawText: string, allowedPaths: Set<string>): string[]
     selected.push(normalized);
   }
 
-  return selected;
+  return { paths: selected, imageIntent, imagePlanReady };
 }
 
 export function selectFilesForEdit(
@@ -219,7 +258,7 @@ export function selectFilesForEdit(
 async function planEditFilesWithOpenAI(
   instruction: string,
   manifest: WebsiteFileManifestEntry[],
-): Promise<string[]> {
+): Promise<{ paths: string[]; imageIntent: boolean; imagePlanReady: boolean }> {
   const apiKey = process.env.OPENAI_API_KEY;
   if (!apiKey) {
     throw new GeneratorError(
@@ -278,38 +317,62 @@ async function planEditFilesWithOpenAI(
   }
 
   const payload = await response.json();
-  await chargeOpenAIUsage(payload, FALLBACK_TOKEN_USAGE.plan);
+  await chargeOpenAIUsage(payload, FALLBACK_TOKEN_USAGE.plan, "plan");
   if (payload.error?.message) {
     throw new GeneratorError(payload.error.message, 502);
   }
 
   const outputText = collectOutputText(payload);
-  return parsePlannedPaths(outputText, allowedPaths);
+  return parseEditPlan(outputText, allowedPaths);
 }
+
+export type EditFilePlan = {
+  files: WebsiteFile[];
+  imageIntent: boolean;
+  imagePlanReady: boolean;
+};
 
 export async function planRelevantEditFiles(
   instruction: string,
   files: WebsiteFile[],
-): Promise<WebsiteFile[]> {
+): Promise<EditFilePlan> {
   if (files.length <= 1) {
-    return files;
+    const imageIntent = looksLikeImageEdit(instruction);
+    return {
+      files,
+      imageIntent,
+      imagePlanReady: imageIntent && instructionHasImagePlanDetails(instruction),
+    };
   }
 
   const manifest = buildFileManifest(files);
 
   if (isMockAiEnabled()) {
-    const plannedPaths = mockPlanEditFiles(instruction, manifest);
-    console.log("[edit-planner] mock relevant files:", plannedPaths);
-    await chargeTokens(MOCK_TOKEN_USAGE.plan);
-    return selectFilesForEdit(files, plannedPaths);
+    const planned = mockPlanEditFiles(instruction, manifest);
+    console.log("[edit-planner] mock relevant files:", planned);
+    await chargeTokens(MOCK_TOKEN_USAGE.plan, 0, undefined, "plan");
+    return {
+      files: selectFilesForEdit(files, planned.files),
+      imageIntent: planned.imageIntent,
+      imagePlanReady: planned.imageIntent && planned.imagePlanReady,
+    };
   }
 
   try {
-    const plannedPaths = await planEditFilesWithOpenAI(instruction, manifest);
-    console.log("[edit-planner] relevant files:", plannedPaths);
-    return selectFilesForEdit(files, plannedPaths);
+    const planned = await planEditFilesWithOpenAI(instruction, manifest);
+    console.log("[edit-planner] relevant files:", planned);
+    return {
+      files: selectFilesForEdit(files, planned.paths),
+      imageIntent: planned.imageIntent,
+      imagePlanReady: planned.imageIntent && planned.imagePlanReady,
+    };
   } catch (error) {
     console.error("Edit planner failed, sending all files:", error);
-    return files;
+    const imageIntent = looksLikeImageEdit(instruction);
+    return {
+      files,
+      imageIntent,
+      imagePlanReady: imageIntent && instructionHasImagePlanDetails(instruction),
+    };
   }
 }
