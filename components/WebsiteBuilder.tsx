@@ -352,6 +352,16 @@ export default function WebsiteBuilder() {
 
   async function refreshSubscription(id: string, poll = false) {
     const epoch = runEpochRef.current;
+    if (poll) {
+      try {
+        await authFetch("/api/checkout/confirm", {
+          method: "POST",
+          body: JSON.stringify({ websiteId: id }),
+        });
+      } catch {
+        // Fall through to PayFast notify polling.
+      }
+    }
     const deadline = Date.now() + (poll ? 90_000 : 0);
 
     while (!isStaleRun(epoch)) {

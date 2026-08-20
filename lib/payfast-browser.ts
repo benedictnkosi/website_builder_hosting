@@ -4,7 +4,7 @@ export function submitPayfastForm(processUrl: string, fields: Record<string, str
   form.action = processUrl;
 
   for (const [name, value] of Object.entries(fields)) {
-    if (!value) continue;
+    if (value == null || value === "") continue;
     const input = document.createElement("input");
     input.type = "hidden";
     input.name = name;

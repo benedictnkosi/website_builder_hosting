@@ -79,7 +79,9 @@ export function subscriptionAmountZar(frequency: BillingFrequency): number {
 }
 
 export function payfastFrequencyCode(frequency: BillingFrequency): "3" | "6" {
-  return frequency === "annual" ? "6" : "3";
+  if (frequency === "annual") return "6";
+  if (frequency === "monthly") return "3";
+  throw new Error(`Unsupported PayFast billing frequency: ${String(frequency)}`);
 }
 
 export function formatBilledAmount(amountZar: number, frequency: BillingFrequency): string {

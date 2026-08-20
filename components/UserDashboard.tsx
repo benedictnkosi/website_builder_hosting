@@ -127,8 +127,41 @@ export default function UserDashboard() {
         return;
       }
 
+      let sites = data.sites ?? [];
+      const pendingIds = sites
+        .filter((site) => site.subscriptionStatus === "pending")
+        .map((site) => site.websiteId);
+
+      if (pendingIds.length > 0) {
+        const confirmed = await Promise.all(
+          pendingIds.map(async (websiteId) => {
+            try {
+              const confirmResponse = await authFetch("/api/checkout/confirm", {
+                method: "POST",
+                body: JSON.stringify({ websiteId }),
+              });
+              const confirmData = (await confirmResponse.json()) as { paid?: boolean };
+              return confirmResponse.ok && Boolean(confirmData.paid);
+            } catch {
+              return false;
+            }
+          }),
+        );
+
+        if (confirmed.some(Boolean)) {
+          const refreshed = await authFetch("/api/sites");
+          const refreshedData = (await refreshed.json()) as {
+            success?: boolean;
+            sites?: DashboardSite[];
+          };
+          if (refreshed.ok && refreshedData.success) {
+            sites = refreshedData.sites ?? sites;
+          }
+        }
+      }
+
       setError(null);
-      setSites(data.sites ?? []);
+      setSites(sites);
     } catch {
       setError("Could not load your websites. Please try again.");
     } finally {

@@ -195,10 +195,8 @@ export default function LandingPage() {
                 </li>
               ))}
             </ul>
-            <p className="mx-auto mt-5 max-w-xl text-lg leading-relaxed text-stone-600">
-              Design, a .co.za domain, and hosting are in the price — plus
-              WhatsApp and click-to-call. Preview is free. You only pay when
-              you publish.
+            <p className="mx-auto mt-5 max-w-xl text-xl font-bold leading-snug text-stone-900">
+              A Social Project for small businesses.
             </p>
             <LandingHeroSignIn />
           </section>

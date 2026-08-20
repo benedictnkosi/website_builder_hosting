@@ -1,5 +1,4 @@
 import { NextResponse } from "next/server";
-import { readSiteOwnerUid } from "@/lib/firestore";
 import {
   amountsMatch,
   getPayfastMerchantId,
@@ -7,10 +6,10 @@ import {
   parsePayfastNotify,
   verifyPayfastSignature,
 } from "@/lib/payfast";
+import { fulfillPaidEditTopup, fulfillPaidSubscription } from "@/lib/payfast-fulfill";
 import { EDIT_TOPUP_ZAR } from "@/lib/pricing";
 import { readSubscription, writeSubscription } from "@/lib/subscription";
 import { readEditTopup, writeEditTopup } from "@/lib/edit-topup";
-import { grantSubscriptionEdits, grantTopupEdits } from "@/lib/edits";
 
 export const runtime = "nodejs";
 
@@ -42,13 +41,8 @@ async function handleEditTopup(data: Record<string, string>) {
   const processedNotifyIds = [...(topup.processedNotifyIds ?? []), notifyId].slice(-20);
 
   if (status === "COMPLETE") {
-    await grantTopupEdits(topup.ownerUid, topup.paymentId, topup.edits);
-    await writeEditTopup({
-      ...topup,
-      status: "complete",
+    await fulfillPaidEditTopup(topup, {
       payfastPaymentId: data.pf_payment_id || topup.payfastPaymentId,
-      paidAt: topup.paidAt ?? now,
-      updatedAt: now,
       lastPaymentStatus: status,
       processedNotifyIds,
     });
@@ -103,24 +97,10 @@ async function handleSubscription(data: Record<string, string>) {
     -20,
   );
 
-    if (status === "COMPLETE") {
-      const ownerUid = subscription.ownerUid || (await readSiteOwnerUid(websiteId));
-      if (subscription.status !== "active" && ownerUid) {
-        try {
-          await grantSubscriptionEdits(ownerUid, websiteId);
-        } catch (error) {
-          console.error("Could not grant subscription Edits:", error);
-        }
-      }
-
-    await writeSubscription({
-      ...subscription,
-      ownerUid: ownerUid || subscription.ownerUid,
-      status: "active",
+  if (status === "COMPLETE") {
+    await fulfillPaidSubscription(subscription, {
       payfastPaymentId: data.pf_payment_id || subscription.payfastPaymentId,
       token: data.token || subscription.token,
-      paidAt: subscription.paidAt ?? now,
-      updatedAt: now,
       lastPaymentStatus: status,
       processedNotifyIds,
     });

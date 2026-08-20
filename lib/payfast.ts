@@ -279,7 +279,10 @@ export function buildPayfastSubscriptionCheckout(input: {
   const amount = payfastAmount(input.amountZar);
   const [firstName, ...lastParts] = (input.name ?? "").trim().split(/\s+/);
   const lastName = lastParts.join(" ");
-  const periodLabel = input.frequency === "annual" ? "Annual" : "Monthly";
+  const annual = input.frequency === "annual";
+  const periodLabel = annual ? "Annual" : "Monthly";
+  // PayFast 1=Daily, 2=Weekly, 3=Monthly, 4=Quarterly, 5=Biannually, 6=Annual
+  const frequency = payfastFrequencyCode(input.frequency);
 
   const unordered: Omit<PayfastCheckoutFields, "signature"> = {
     merchant_id: merchantId,
@@ -289,11 +292,11 @@ export function buildPayfastSubscriptionCheckout(input: {
     notify_url: `${input.origin}/api/payfast/notify`,
     m_payment_id: input.paymentId,
     amount,
-    item_name: `Lulaweb website + ${input.domain}`,
-    item_description: `${periodLabel} Lulaweb website and domain subscription for ${input.domain}`,
+    item_name: `${periodLabel} Lulaweb website + ${input.domain}`.slice(0, 100),
+    item_description: `${periodLabel} Lulaweb website and domain. Renews every ${annual ? "year" : "month"} for ${input.domain}.`.slice(0, 255),
     subscription_type: "1",
     recurring_amount: amount,
-    frequency: payfastFrequencyCode(input.frequency),
+    frequency,
     cycles: "0",
     custom_str1: input.websiteId,
     custom_str2: input.domain,
