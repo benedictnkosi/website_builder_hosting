@@ -15,6 +15,7 @@ import {
   isUserMigrated,
   listSiteRecords,
   markUserMigrated,
+  readPublicSiteRecord,
   readSiteRecord,
   upsertUserProfile,
   writeSiteRecord,
@@ -82,6 +83,9 @@ export async function readWebsiteMeta(
 ): Promise<WebsiteMeta | null> {
   if (user) {
     const stored = await readSiteRecord(websiteId, user);
+    if (stored) return stored;
+  } else {
+    const stored = await readPublicSiteRecord(websiteId);
     if (stored) return stored;
   }
   return readDiskMeta(websiteId);

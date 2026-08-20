@@ -123,7 +123,7 @@ export async function POST(request: Request) {
 
   const meta = await readWebsiteMeta(websiteId);
   const subscription = await readSubscription(websiteId);
-  const to = meta?.contactEmail || subscription?.email || "";
+  const to = meta?.contactEmail?.trim() || subscription?.email?.trim() || "";
 
   if (!to) {
     return NextResponse.json(

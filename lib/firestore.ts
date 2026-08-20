@@ -252,9 +252,10 @@ function asMeta(data: Record<string, unknown>): WebsiteMeta | null {
   return {
     websiteId,
     ownerUid,
-    ownerEmail: typeof data.ownerEmail === "string" ? data.ownerEmail : undefined,
+    ownerEmail: typeof data.ownerEmail === "string" ? data.ownerEmail.trim() || undefined : undefined,
     businessName: typeof data.businessName === "string" ? data.businessName : "Untitled site",
-    contactEmail: typeof data.contactEmail === "string" ? data.contactEmail : undefined,
+    contactEmail:
+      typeof data.contactEmail === "string" ? data.contactEmail.trim() || undefined : undefined,
     createdAt: typeof data.createdAt === "string" ? data.createdAt : new Date().toISOString(),
     updatedAt: typeof data.updatedAt === "string" ? data.updatedAt : new Date().toISOString(),
   };
@@ -275,6 +276,15 @@ export async function readSiteOwnerUid(websiteId: string): Promise<string | null
   const snap = await getAdminFirestore().collection("sites").doc(websiteId).get();
   const uid = snap.get("ownerUid");
   return typeof uid === "string" && uid ? uid : null;
+}
+
+export async function readPublicSiteRecord(
+  websiteId: string,
+): Promise<StoredSite | null> {
+  if (!websiteId || !isFirebaseAdminConfigured()) return null;
+  const snap = await getAdminFirestore().collection("sites").doc(websiteId).get();
+  if (!snap.exists) return null;
+  return asStoredSite((snap.data() ?? {}) as Record<string, unknown>);
 }
 
 export async function readUserProfile(
