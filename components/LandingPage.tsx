@@ -169,7 +169,7 @@ export default function LandingPage() {
             </p>
             <h1 className="text-4xl font-semibold tracking-tight text-stone-900 sm:text-6xl sm:leading-[1.05]">
               Describe your small business.
-              <span className="mt-1 block text-teal-800">Get a 10 rand website.</span>
+              <span className="mt-1 block text-teal-800">Get a website.</span>
             </h1>
             <p className="mt-8">
               <span className="block text-6xl font-semibold tracking-tight text-teal-800 sm:text-8xl">
