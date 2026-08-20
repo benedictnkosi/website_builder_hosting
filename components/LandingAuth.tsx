@@ -28,6 +28,10 @@ function GoogleIcon() {
   );
 }
 
+function postAuthPath(isNewUser: boolean): string {
+  return isNewUser ? "/builder?new=1" : "/dashboard";
+}
+
 function useLandingAuth() {
   const { signInWithGoogle } = useAuth();
   const router = useRouter();
@@ -39,8 +43,8 @@ function useLandingAuth() {
     setError(null);
 
     try {
-      await signInWithGoogle();
-      router.push("/dashboard");
+      const isNewUser = await signInWithGoogle();
+      router.push(postAuthPath(isNewUser));
     } catch (err) {
       const code =
         typeof err === "object" && err && "code" in err ? String(err.code) : "";
@@ -62,14 +66,30 @@ function useLandingAuth() {
 }
 
 export function LandingSignedInRedirect() {
-  const { user, loading } = useAuth();
+  const { user, loading, authFetch } = useAuth();
   const router = useRouter();
 
   useEffect(() => {
-    if (!loading && user) {
-      router.replace("/dashboard");
-    }
-  }, [loading, user, router]);
+    if (loading || !user) return;
+
+    let cancelled = false;
+
+    void (async () => {
+      try {
+        const response = await authFetch("/api/sites");
+        const data = (await response.json()) as { sites?: unknown[] };
+        if (cancelled) return;
+        const hasSites = Array.isArray(data.sites) && data.sites.length > 0;
+        router.replace(hasSites ? "/dashboard" : "/builder?new=1");
+      } catch {
+        if (!cancelled) router.replace("/dashboard");
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [authFetch, loading, router, user]);
 
   if (loading || !user) {
     return null;
@@ -85,7 +105,11 @@ export function LandingSignedInRedirect() {
   );
 }
 
-export function LandingHeaderSignIn() {
+export function LandingHeaderSignIn({
+  className = "",
+}: {
+  className?: string;
+}) {
   const { signingIn, handleGoogleSignIn } = useLandingAuth();
 
   return (
@@ -93,7 +117,7 @@ export function LandingHeaderSignIn() {
       type="button"
       onClick={handleGoogleSignIn}
       disabled={signingIn}
-      className="hidden items-center justify-center gap-2 rounded-full border border-stone-300 bg-white px-4 py-2 text-sm font-semibold text-stone-800 transition hover:bg-stone-50 disabled:cursor-not-allowed disabled:opacity-60 sm:inline-flex"
+      className={`inline-flex items-center justify-center gap-2 rounded-full border border-stone-300 bg-white px-4 py-2 text-sm font-semibold text-stone-800 transition hover:bg-stone-50 disabled:cursor-not-allowed disabled:opacity-60 ${className}`}
     >
       <GoogleIcon />
       {signingIn ? "Signing in..." : "Sign in"}

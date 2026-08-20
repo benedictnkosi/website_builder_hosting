@@ -3,37 +3,37 @@
 import { Suspense, useCallback, useEffect, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useAuth } from "@/components/AuthProvider";
-import TokenTopupModal from "@/components/TokenTopupModal";
-import { formatTokenCount } from "@/lib/pricing";
+import TopUpModal from "@/components/TopUpModal";
+import { formatEditsRemaining } from "@/lib/pricing";
 import {
-  notifyTokensChanged,
-  TOKENS_CHANGED_EVENT,
-  TOKENS_TOPUP_EVENT,
-} from "@/lib/token-events";
+  EDITS_CHANGED_EVENT,
+  EDITS_TOPUP_EVENT,
+  notifyEditsChanged,
+} from "@/lib/edit-events";
 
-function TokenControlsInner() {
+function EditsControlsInner() {
   const { user, authFetch } = useAuth();
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
-  const [balance, setBalance] = useState<number | null>(null);
+  const [remaining, setRemaining] = useState<number | null>(null);
   const [open, setOpen] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
 
   const loadBalance = useCallback(async () => {
     if (!user) {
-      setBalance(null);
+      setRemaining(null);
       return;
     }
 
     try {
-      const response = await authFetch("/api/tokens");
+      const response = await authFetch("/api/edits");
       const data = (await response.json()) as {
         success?: boolean;
-        tokenBalance?: number;
+        editsRemaining?: number;
       };
-      if (response.ok && data.success && typeof data.tokenBalance === "number") {
-        setBalance(data.tokenBalance);
+      if (response.ok && data.success && typeof data.editsRemaining === "number") {
+        setRemaining(data.editsRemaining);
       }
     } catch {
       // Keep the last known balance if the refresh fails.
@@ -52,35 +52,36 @@ function TokenControlsInner() {
       setOpen(true);
     }
 
-    window.addEventListener(TOKENS_CHANGED_EVENT, onChanged);
-    window.addEventListener(TOKENS_TOPUP_EVENT, onTopup);
+    window.addEventListener(EDITS_CHANGED_EVENT, onChanged);
+    window.addEventListener(EDITS_TOPUP_EVENT, onTopup);
     return () => {
-      window.removeEventListener(TOKENS_CHANGED_EVENT, onChanged);
-      window.removeEventListener(TOKENS_TOPUP_EVENT, onTopup);
+      window.removeEventListener(EDITS_CHANGED_EVENT, onChanged);
+      window.removeEventListener(EDITS_TOPUP_EVENT, onTopup);
     };
   }, [loadBalance]);
 
   useEffect(() => {
-    const tokens = searchParams.get("tokens");
-    if (tokens !== "return" && tokens !== "cancel") return;
+    const edits = searchParams.get("edits") || searchParams.get("tokens");
+    if (edits !== "return" && edits !== "cancel") return;
 
-    if (tokens === "cancel") {
-      setNotice("Token payment was cancelled.");
+    if (edits === "cancel") {
+      setNotice("Edit payment was cancelled.");
       setOpen(true);
     } else {
-      setNotice("Confirming your PayFast token payment...");
+      setNotice("Confirming your PayFast Edit payment...");
       void (async () => {
         for (let attempt = 0; attempt < 6; attempt += 1) {
           await loadBalance();
           await new Promise((resolve) => setTimeout(resolve, 1500));
         }
-        notifyTokensChanged();
-        setNotice("If payment succeeded, your tokens are now available.");
+        notifyEditsChanged();
+        setNotice("If payment succeeded, your Edits are now available.");
         window.setTimeout(() => setNotice(null), 8000);
       })();
     }
 
     const params = new URLSearchParams(searchParams.toString());
+    params.delete("edits");
     params.delete("tokens");
     const query = params.toString();
     router.replace(query ? `${pathname}?${query}` : pathname, { scroll: false });
@@ -94,13 +95,14 @@ function TokenControlsInner() {
         type="button"
         onClick={() => setOpen(true)}
         className="inline-flex items-center gap-2 rounded-full border border-stone-300 bg-white px-3 py-1.5 text-sm font-medium text-stone-700 transition hover:bg-stone-50"
-        title="Buy more tokens"
+        title="Buy more Edits"
       >
+        <span aria-hidden="true">✏️</span>
         <span className="hidden sm:inline">
-          {balance == null ? "Tokens" : `${formatTokenCount(balance)} tokens`}
+          {remaining == null ? "Edits Remaining" : formatEditsRemaining(remaining)}
         </span>
         <span className="sm:hidden">
-          {balance == null ? "Tokens" : formatTokenCount(balance)}
+          {remaining == null ? "Edits" : remaining}
         </span>
       </button>
       {notice ? (
@@ -108,22 +110,22 @@ function TokenControlsInner() {
           {notice}
         </span>
       ) : null}
-      <TokenTopupModal
+      <TopUpModal
         open={open}
         onClose={() => {
           setOpen(false);
           setNotice(null);
         }}
-        onPurchased={(tokenBalance) => setBalance(tokenBalance)}
+        onPurchased={(editsRemaining) => setRemaining(editsRemaining)}
       />
     </>
   );
 }
 
-export default function TokenControls() {
+export default function EditsControls() {
   return (
     <Suspense fallback={null}>
-      <TokenControlsInner />
+      <EditsControlsInner />
     </Suspense>
   );
 }

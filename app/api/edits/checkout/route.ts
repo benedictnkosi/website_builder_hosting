@@ -1,15 +1,18 @@
 import { NextResponse } from "next/server";
 import { jsonAuthError, requireUser } from "@/lib/auth-server";
 import {
-  buildPayfastTokenTopupCheckout,
+  buildPayfastEditTopupCheckout,
   isPayfastConfigured,
   isPayfastMockAllowed,
 } from "@/lib/payfast";
-import { TOKEN_TOPUP_TOKENS, TOKEN_TOPUP_ZAR } from "@/lib/pricing";
+import {
+  DEFAULT_EDIT_TOPUP_PACKAGE_ID,
+  editTopupPackage,
+} from "@/lib/pricing";
 import { clientKey, consumeRateLimit, jsonRateLimitError } from "@/lib/rate-limit";
 import { createPaymentId } from "@/lib/subscription";
-import { writeTokenTopup, type TokenTopup } from "@/lib/token-topup";
-import { ensureSignupTokens, grantTopupTokens } from "@/lib/tokens";
+import { writeEditTopup, type EditTopup } from "@/lib/edit-topup";
+import { ensureSignupEdits, grantTopupEdits } from "@/lib/edits";
 
 export const runtime = "nodejs";
 
@@ -44,14 +47,14 @@ export async function POST(request: Request) {
   let user;
   try {
     user = await requireUser(request);
-    consumeRateLimit(`token-topup:${clientKey(request, user.uid)}`, 8, 60 * 60 * 1000);
+    consumeRateLimit(`edit-topup:${clientKey(request, user.uid)}`, 8, 60 * 60 * 1000);
   } catch (error) {
     const limited = jsonRateLimitError(error);
     if (limited) return limited;
     const authResponse = jsonAuthError(error);
     if (authResponse) return authResponse;
     return NextResponse.json(
-      { success: false, error: "Sign in to buy tokens." },
+      { success: false, error: "Sign in to buy Edits." },
       { status: 401 },
     );
   }
@@ -64,13 +67,24 @@ export async function POST(request: Request) {
   }
 
   const returnPath = safeReturnPath(stringField(body, "returnPath") || "/dashboard");
+  const requestedPackageId = stringField(body, "packageId");
+  const pack = requestedPackageId
+    ? editTopupPackage(requestedPackageId)
+    : editTopupPackage(DEFAULT_EDIT_TOPUP_PACKAGE_ID);
+  if (!pack) {
+    return NextResponse.json(
+      { success: false, error: "Choose an Edit pack." },
+      { status: 400 },
+    );
+  }
   const now = new Date().toISOString();
   const paymentId = createPaymentId();
-  const topup: TokenTopup = {
+  const topup: EditTopup = {
     paymentId,
     ownerUid: user.uid,
-    amountZar: TOKEN_TOPUP_ZAR,
-    tokens: TOKEN_TOPUP_TOKENS,
+    packageId: pack.id,
+    amountZar: pack.amountZar,
+    edits: pack.edits,
     status: "pending",
     mocked: false,
     email: user.email,
@@ -79,7 +93,7 @@ export async function POST(request: Request) {
   };
 
   try {
-    await ensureSignupTokens(user);
+    await ensureSignupEdits(user);
 
     if (!isPayfastConfigured()) {
       if (!isPayfastMockAllowed()) {
@@ -92,26 +106,27 @@ export async function POST(request: Request) {
       topup.status = "complete";
       topup.mocked = true;
       topup.paidAt = now;
-      await writeTokenTopup(topup);
-      const tokenBalance = await grantTopupTokens(user.uid, paymentId);
+      await writeEditTopup(topup);
+      const editsRemaining = await grantTopupEdits(user.uid, paymentId, pack.edits);
       return NextResponse.json({
         success: true,
         paid: true,
         mocked: true,
-        tokenBalance,
-        tokens: TOKEN_TOPUP_TOKENS,
-        amountZar: TOKEN_TOPUP_ZAR,
+        editsRemaining,
+        packageId: pack.id,
+        edits: pack.edits,
+        amountZar: pack.amountZar,
       });
     }
 
-    await writeTokenTopup(topup);
-    const checkout = buildPayfastTokenTopupCheckout({
+    await writeEditTopup(topup);
+    const checkout = buildPayfastEditTopupCheckout({
       origin: requestOrigin(request),
       returnPath,
       paymentId,
       uid: user.uid,
-      amountZar: TOKEN_TOPUP_ZAR,
-      tokens: TOKEN_TOPUP_TOKENS,
+      amountZar: pack.amountZar,
+      edits: pack.edits,
       email: user.email,
       name: user.displayName,
     });
@@ -122,11 +137,12 @@ export async function POST(request: Request) {
       mocked: false,
       processUrl: checkout.processUrl,
       fields: checkout.fields,
-      tokens: TOKEN_TOPUP_TOKENS,
-      amountZar: TOKEN_TOPUP_ZAR,
+      packageId: pack.id,
+      edits: pack.edits,
+      amountZar: pack.amountZar,
     });
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Could not start token checkout.";
+    const message = error instanceof Error ? error.message : "Could not start Edit checkout.";
     return NextResponse.json({ success: false, error: message }, { status: 502 });
   }
 }

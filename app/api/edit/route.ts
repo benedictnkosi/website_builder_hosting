@@ -3,13 +3,18 @@ import { jsonAuthError, type AuthUser } from "@/lib/auth-server";
 import { createEditJob, jobJsonHeaders, scheduleJobTick, toJobView } from "@/lib/jobs";
 import { clientKey, consumeRateLimit, jsonRateLimitError } from "@/lib/rate-limit";
 import { requireOwnedSite } from "@/lib/sites";
-import { assertEditTokens, jsonTokenError } from "@/lib/tokens";
+import { assertEditEdits, jsonEditError } from "@/lib/edits";
 import { isValidWebsiteId } from "@/lib/validation";
+import { runWithMockAiFromRequest } from "@/lib/mock-ai";
 
 export const runtime = "nodejs";
 export const maxDuration = 30;
 
 export async function POST(request: Request) {
+  return runWithMockAiFromRequest(request, () => handlePost(request));
+}
+
+async function handlePost(request: Request) {
   let body: unknown;
 
   try {
@@ -41,12 +46,12 @@ export async function POST(request: Request) {
   try {
     ({ user } = await requireOwnedSite(request, websiteId));
     consumeRateLimit(`edit:${clientKey(request, user.uid)}`, 20, 60 * 60 * 1000);
-    await assertEditTokens(user);
+    await assertEditEdits(user);
   } catch (error) {
     const limited = jsonRateLimitError(error);
     if (limited) return limited;
-    const tokenResponse = jsonTokenError(error);
-    if (tokenResponse) return tokenResponse;
+    const editResponse = jsonEditError(error);
+    if (editResponse) return editResponse;
     const authResponse = jsonAuthError(error);
     if (authResponse) return authResponse;
     return NextResponse.json(

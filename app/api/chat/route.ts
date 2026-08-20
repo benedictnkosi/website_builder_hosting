@@ -1,32 +1,32 @@
 import { NextResponse } from "next/server";
 import { jsonAuthError, requireUser } from "@/lib/auth-server";
+import { coerceWebsiteIntake, type WebsiteIntake } from "@/lib/intake";
+import {
+  normalizeChatMessages,
+  parseIntakeUpload,
+  runIntakeChat,
+  runIntakeFromDocument,
+  type IntakeUpload,
+} from "@/lib/intake-chat";
 import { clientKey, consumeRateLimit, jsonRateLimitError } from "@/lib/rate-limit";
-import { normalizeChatMessages, runIntakeChat } from "@/lib/intake-chat";
-import { assertChatTokens, InsufficientTokensError, runWithTokenSpend } from "@/lib/tokens";
 import { GeneratorError } from "@/lib/validation";
+import { runWithMockAiFromRequest } from "@/lib/mock-ai";
 
 export const runtime = "nodejs";
+export const maxDuration = 60;
 
 export async function POST(request: Request) {
+  return runWithMockAiFromRequest(request, () => handlePost(request));
+}
+
+async function handlePost(request: Request) {
   let user;
   try {
     user = await requireUser(request);
     consumeRateLimit(`chat:${clientKey(request, user.uid)}`, 40, 10 * 60 * 1000);
-    await assertChatTokens(user);
   } catch (error) {
     const limited = jsonRateLimitError(error);
     if (limited) return limited;
-    if (error instanceof InsufficientTokensError) {
-      return NextResponse.json(
-        {
-          success: false,
-          error: error.message,
-          chatTokensExhausted: true,
-          tokenBalance: error.tokenBalance,
-        },
-        { status: 402 },
-      );
-    }
     const authResponse = jsonAuthError(error);
     if (authResponse) return authResponse;
     return NextResponse.json(
@@ -46,10 +46,8 @@ export async function POST(request: Request) {
     );
   }
 
-  const messages =
-    typeof body === "object" && body !== null && "messages" in body
-      ? normalizeChatMessages(body.messages)
-      : null;
+  const payload = typeof body === "object" && body !== null ? (body as Record<string, unknown>) : null;
+  const messages = payload ? normalizeChatMessages(payload.messages) : null;
 
   if (!messages) {
     return NextResponse.json(
@@ -58,8 +56,40 @@ export async function POST(request: Request) {
     );
   }
 
+  let document: IntakeUpload | undefined;
+  let currentIntake: WebsiteIntake | null = null;
+
   try {
-    const result = await runWithTokenSpend(user.uid, () => runIntakeChat(messages), "chat");
+    if (payload?.intake != null && typeof payload.intake === "object") {
+      currentIntake = coerceWebsiteIntake(payload.intake);
+      currentIntake.address = "";
+    }
+    if (payload?.document != null) {
+      if (currentIntake?.flyer_uploaded) {
+        throw new GeneratorError("You can upload one flyer or PDF per website.", 400);
+      }
+      consumeRateLimit(`chat-upload:${clientKey(request, user.uid)}`, 8, 60 * 60 * 1000);
+      document = parseIntakeUpload(payload.document);
+    }
+  } catch (error) {
+    const limited = jsonRateLimitError(error);
+    if (limited) return limited;
+    if (error instanceof GeneratorError) {
+      return NextResponse.json(
+        { success: false, error: error.message },
+        { status: error.statusCode },
+      );
+    }
+    return NextResponse.json(
+      { success: false, error: "Could not read that file." },
+      { status: 400 },
+    );
+  }
+
+  try {
+    const result = document
+      ? await runIntakeFromDocument(messages, document, currentIntake)
+      : await runIntakeChat(messages, currentIntake);
     return NextResponse.json({ success: true, ...result });
   } catch (error) {
     console.error("Intake chat error:", error);

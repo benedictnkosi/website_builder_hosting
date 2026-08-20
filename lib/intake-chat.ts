@@ -1,20 +1,27 @@
 import "server-only";
 
 import {
-  isIntakeComplete,
+  coerceWebsiteIntake,
+  emptyWebsiteIntake,
+  hasCoreIntakeForWebsite,
+  lastUserMessageIsConfirmation,
+  mergeWebsiteIntake,
   type ChatMessage,
   type IntakeChatResult,
   type WebsiteIntake,
 } from "./intake";
-import {
-  PEOPLE_ETHNICITY_OPTIONS,
-  getPeopleEthnicityOption,
-  type PeopleEthnicityId,
-} from "./people-ethnicity";
+import { PEOPLE_ETHNICITY_OPTIONS } from "./people-ethnicity";
 import { GeneratorError } from "./validation";
-import { chargeOpenAIUsage, FALLBACK_TOKEN_USAGE } from "./tokens";
+import { isMockAiEnabled, mockDelay } from "./mock-ai";
+import {
+  INTAKE_UPLOAD_MAX_BYTES,
+  isAllowedIntakeUploadType,
+  sanitizeIntakeFilename,
+  type IntakeUpload,
+} from "./intake-upload";
 
 export type { ChatMessage, IntakeChatResult, WebsiteIntake } from "./intake";
+export type { IntakeUpload } from "./intake-upload";
 
 const OPENAI_RESPONSES_URL = "https://api.openai.com/v1/responses";
 const OPENAI_MODEL = "gpt-4o-mini";
@@ -47,6 +54,8 @@ const INTAKE_JSON_SCHEMA = {
         "whatsapp_number",
         "use_contact_form",
         "contact_email",
+        "use_trading_hours",
+        "trading_hours",
         "people_ethnicity",
         "design_preference",
         "design_preference_resolved",
@@ -58,7 +67,7 @@ const INTAKE_JSON_SCHEMA = {
         about: {
           type: "string",
           description:
-            "The About us story in the user's words: who they are, their background, or what makes them different. Empty if not yet known.",
+            "About us copy. From a flyer or PDF, use the visible description, tagline, intro, or who-we-are text. Empty only if neither the document nor the chat describes the business.",
         },
         services: { type: "string" },
         phone: { type: "string" },
@@ -66,6 +75,17 @@ const INTAKE_JSON_SCHEMA = {
         whatsapp_number: { type: "string" },
         use_contact_form: { type: "string", enum: ["yes", "no", "unknown"] },
         contact_email: { type: "string" },
+        use_trading_hours: {
+          type: "string",
+          enum: ["yes", "no", "unknown"],
+          description:
+            "yes if they have trading hours, no if they do not, unknown until asked.",
+        },
+        trading_hours: {
+          type: "string",
+          description:
+            "The days and times they are open, in their words. Empty if they have no hours or it is not yet known.",
+        },
         people_ethnicity: {
           type: "string",
           enum: ["", ...ETHNICITY_IDS],
@@ -83,7 +103,7 @@ const INTAKE_JSON_SCHEMA = {
         extra_details: {
           type: "string",
           description:
-            "Any other useful details the user mentioned: hours, areas served, tagline, special requests, or extra notes. Do not put the About us story here — that belongs in about. Empty if none. Keep this updated as they add more.",
+            "Any other useful details the user mentioned: areas served, tagline, special requests, or extra notes. Do not put the About us story or trading hours here. Empty if none. Keep this updated as they add more.",
         },
         user_confirmed: {
           type: "boolean",
@@ -101,11 +121,12 @@ You write every user-facing message yourself. There is no script, template, or c
 
 Collect this information. Do not mention this list to the user:
 - Business name
-- About us. Ask who they are, their story, or what makes the business different. Capture their words. Do not invent a backstory, years in business, or credentials they did not mention.
+- About us. Capture who they are, their story, or what makes the business different, in their words or from a flyer. Do not invent a backstory, years in business, or credentials they did not mention. If a flyer already described the business, that is the About us — do not ask again.
 - What they offer (services or products)
 - Phone number
 - Whether they want a WhatsApp button. If yes, a WhatsApp number — it may be the same as the phone number.
 - Whether they want a Contact Us form. If yes, the email address that should receive submissions.
+- Whether they have trading hours. Ask if they have opening hours. If no, set use_trading_hours to no and leave trading_hours empty. If yes, ask for the days and times in a later turn (unless they already gave them) and store that in trading_hours.
 - If website photos include people, who those people should look like. Map their answer to one of: black-african, coloured, indian, white, asian, diverse.
 - Design preference. Ask if they have a look, mood, or colours in mind. This is optional — if they have none, leave design_preference empty and set design_preference_resolved to true. If they do, capture it in design_preference and set design_preference_resolved to true.
 
@@ -115,20 +136,41 @@ Conversation rules:
 - Talk like a helpful person. Never mention buttons, skip, forms, menus, or how the user should reply.
 - Never list the required fields as a checklist or tell them what format to use.
 - Infer from what they already said. Do not re-ask for something they already gave you.
-- Ask exactly one question per reply. Never combine topics. For example, do not ask about a contact form and photo people in the same message. If they want a contact form, ask for the email in a later turn, not in the same turn as the yes/no.
+- If they uploaded a flyer, business card, or PDF, treat facts already in the intake as given. Do not re-ask those. Still ask for anything missing. Never invent details that are not clearly in the document or chat.
+- Ask exactly one question per reply. Never combine topics. For example, do not ask about a contact form and photo people in the same message. If they want a contact form, ask for the email in a later turn, not in the same turn as the yes/no. If they have trading hours, ask for the days and times in a later turn, not in the same turn as the yes/no.
 - Keep replies short and warm — one or two sentences, then the single question.
 - Carry forward every field you already extracted. Empty strings and "unknown" mean not yet known.
-- If they mention extra useful details along the way (trading hours, suburbs they cover, a slogan, languages, and so on), store them in extra_details. Do not ask a dedicated question just to fill extra_details. Do not put the About us story in extra_details.
+- If they mention extra useful details along the way (suburbs they cover, a slogan, languages, and so on), store them in extra_details. Do not ask a dedicated question just to fill extra_details. Do not put the About us story or trading hours in extra_details.
 
-When business name, about, services, phone, WhatsApp preference, contact-form preference, people_ethnicity, and design_preference_resolved are all known:
+When business name, about, services, phone, WhatsApp preference, contact-form preference, trading-hours preference (and hours text if they have hours), people_ethnicity, and design_preference_resolved are all known:
 - Do not set complete or user_confirmed yet.
 - Do not recap or list the information you collected.
 - Tell them you have everything you need to go ahead, and ask if they are happy to proceed.
-- If they add extra details in that reply (hours, areas, a tagline, or anything else useful), store it in extra_details and still treat a clear yes as confirmation.
+- If they add extra details in that reply (areas, a tagline, or anything else useful), store it in extra_details and still treat a clear yes as confirmation.
 - If they want to change something, update the intake and ask again if they are happy to proceed. Still do not summarise the full intake.
 - Set user_confirmed to true and complete to true only when they clearly agree to proceed.
+- If they already agreed (yes, start, go ahead, proceed, I'm ready) and the required fields are known, set user_confirmed and complete to true immediately. Reply with one short sentence. Do not recap. Do not ask another question. Carry forward every field you already have.
 - Throughout the chat, keep extra_details updated with any relevant extras that do not fit the other fields.
 - If WhatsApp is wanted and no separate number was given, use the phone number. If a contact form is wanted, contact_email must be a valid email.`;
+
+const DOCUMENT_INTAKE_INSTRUCTION = `${INTAKE_SYSTEM_INSTRUCTION}
+
+The user uploaded a photo or PDF of their business information. Read all visible text carefully and fill intake fields from it. Do not invent missing facts.
+
+About us from the flyer (required if any description exists):
+- Fill about whenever the document describes the business. Do not wait for a heading that says "About".
+- Use taglines, intro paragraphs, who-we-are copy, mission lines, or a short paragraph made only from phrases on the flyer (what they do, who they serve, what they stand for).
+- A services list belongs in services. If the flyer also has a one-line description, that line still goes in about. If the only copy is a services list plus a name, write one factual about sentence from that copy (for example who they serve and what they offer). Do not leave about empty in that case.
+- After you fill about from the flyer, do not ask for an About us story.
+
+Other fields:
+- If a phone number is visible but WhatsApp is not mentioned, leave use_whatsapp as unknown.
+- If an email is visible, you may set use_contact_form to yes and contact_email to that address only when it is clearly for enquiries. Otherwise leave use_contact_form unknown.
+- If opening hours are clearly listed, set use_trading_hours to yes and copy them. If none are listed, leave use_trading_hours unknown.
+- If an address is visible, put it in extra_details. Do not put the address in about.
+- complete must be false. user_confirmed must be false.
+- Reply with one short thank-you for the upload, then ask the next missing question that is not About us if about is already filled.
+- Do not recap every field. If you mention a few facts, use a short plain bullet list like "Business name: ..." with no markdown asterisks, no "Unknown" values, and no assumptions in parentheses.`;
 
 function getApiKey(): string {
   const apiKey = process.env.OPENAI_API_KEY;
@@ -193,7 +235,11 @@ function collectOutputText(payload: {
   return chunks.join("");
 }
 
-function parseIntakeResult(rawText: string): IntakeChatResult {
+function parseIntakeResult(
+  rawText: string,
+  currentIntake?: WebsiteIntake | null,
+  messages: ChatMessage[] = [],
+): IntakeChatResult {
   const trimmed = rawText.trim();
   let parsed: unknown;
 
@@ -214,61 +260,189 @@ function parseIntakeResult(rawText: string): IntakeChatResult {
   const data = parsed as {
     reply?: string;
     complete?: boolean;
-    intake?: Partial<WebsiteIntake>;
+    intake?: unknown;
   };
-  const rawIntake = data.intake ?? {};
-  const ethnicity = getPeopleEthnicityOption(rawIntake.people_ethnicity)
-    ? (rawIntake.people_ethnicity as PeopleEthnicityId)
-    : "";
+  const intake = mergeWebsiteIntake(currentIntake, coerceWebsiteIntake(data.intake));
+  intake.address = "";
 
-  const intake: WebsiteIntake = {
-    business_name: typeof rawIntake.business_name === "string" ? rawIntake.business_name : "",
-    about: typeof rawIntake.about === "string" ? rawIntake.about.trim() : "",
-    services: typeof rawIntake.services === "string" ? rawIntake.services : "",
-    phone: typeof rawIntake.phone === "string" ? rawIntake.phone : "",
-    use_whatsapp:
-      rawIntake.use_whatsapp === "yes" || rawIntake.use_whatsapp === "no"
-        ? rawIntake.use_whatsapp
-        : "unknown",
-    whatsapp_number:
-      typeof rawIntake.whatsapp_number === "string" ? rawIntake.whatsapp_number : "",
-    use_contact_form:
-      rawIntake.use_contact_form === "yes" || rawIntake.use_contact_form === "no"
-        ? rawIntake.use_contact_form
-        : "unknown",
-    contact_email:
-      typeof rawIntake.contact_email === "string" ? rawIntake.contact_email : "",
-    people_ethnicity: ethnicity,
-    design_preference:
-      typeof rawIntake.design_preference === "string" ? rawIntake.design_preference.trim() : "",
-    design_preference_resolved: Boolean(rawIntake.design_preference_resolved),
-    extra_details:
-      typeof rawIntake.extra_details === "string" ? rawIntake.extra_details.trim() : "",
-    user_confirmed: Boolean(rawIntake.user_confirmed),
-    address: "",
-  };
-
-  if (intake.use_whatsapp === "yes" && !intake.whatsapp_number.trim()) {
-    intake.whatsapp_number = intake.phone;
+  const confirmed =
+    Boolean(data.complete) ||
+    intake.user_confirmed ||
+    lastUserMessageIsConfirmation(messages);
+  if (confirmed && hasCoreIntakeForWebsite(intake)) {
+    intake.user_confirmed = true;
+    if (!intake.design_preference_resolved) {
+      intake.design_preference_resolved = true;
+    }
   }
 
-  if (intake.design_preference && !intake.design_preference_resolved) {
-    intake.design_preference_resolved = true;
+  let reply = typeof data.reply === "string" ? data.reply.trim() : "";
+  const complete = intake.user_confirmed && hasCoreIntakeForWebsite(intake);
+  if (complete && (reply.length > 180 || /\*\*|Business Name/i.test(reply))) {
+    reply = "Great — I'll start on your website now.";
   }
-
-  const reply = typeof data.reply === "string" ? data.reply.trim() : "";
   if (!reply) {
     throw new GeneratorError("OpenAI returned an empty chat reply.", 502);
   }
 
   return {
     reply,
-    complete: Boolean(data.complete) && isIntakeComplete(intake),
+    complete,
     intake,
   };
 }
 
-export async function runIntakeChat(messages: ChatMessage[]): Promise<IntakeChatResult> {
+export async function runIntakeChat(
+  messages: ChatMessage[],
+  currentIntake?: WebsiteIntake | null,
+): Promise<IntakeChatResult> {
+  return requestIntake(
+    [
+      { role: "developer", content: INTAKE_SYSTEM_INSTRUCTION },
+      ...intakeContextMessage(currentIntake),
+      ...messages.map((message) => ({
+        role: message.role,
+        content: message.content,
+      })),
+    ],
+    30_000,
+    currentIntake,
+    messages,
+  );
+}
+
+export function parseIntakeUpload(raw: unknown): IntakeUpload {
+  if (!raw || typeof raw !== "object") {
+    throw new GeneratorError("The uploaded file was not readable. Please try again.", 400);
+  }
+  const data = raw as Record<string, unknown>;
+  if (typeof data.filename !== "string" || typeof data.mediaType !== "string" || typeof data.data !== "string") {
+    throw new GeneratorError("The uploaded file was not readable. Please try again.", 400);
+  }
+
+  const mediaType = data.mediaType.trim().toLowerCase();
+  if (!isAllowedIntakeUploadType(mediaType)) {
+    throw new GeneratorError("Upload a JPG, PNG, WebP, GIF, or PDF.", 400);
+  }
+
+  const dataBase64 = data.data.replace(/^data:[^;]+;base64,/, "").replace(/\s/g, "");
+  if (!dataBase64) {
+    throw new GeneratorError("The uploaded file was empty.", 400);
+  }
+
+  const bytes = Buffer.from(dataBase64, "base64");
+  if (bytes.length === 0) {
+    throw new GeneratorError("The uploaded file was empty.", 400);
+  }
+  if (bytes.length > INTAKE_UPLOAD_MAX_BYTES) {
+    throw new GeneratorError("That file is too large. Please use a file under 4 MB.", 400);
+  }
+
+  return {
+    filename: sanitizeIntakeFilename(data.filename),
+    mediaType,
+    data: dataBase64,
+  };
+}
+
+export async function runIntakeFromDocument(
+  messages: ChatMessage[],
+  document: IntakeUpload,
+  currentIntake?: WebsiteIntake | null,
+): Promise<IntakeChatResult> {
+  if (isMockAiEnabled()) {
+    await mockDelay(800);
+    return withFlyerUploaded(mockIntakeFromDocument(document.filename, currentIntake));
+  }
+
+  const prior = messages.slice(0, -1);
+  const last = messages[messages.length - 1];
+  const dataUrl = `data:${document.mediaType};base64,${document.data}`;
+  const filePart =
+    document.mediaType === "application/pdf"
+      ? { type: "input_file", filename: document.filename, file_data: dataUrl }
+      : { type: "input_image", image_url: dataUrl };
+
+  const result = await requestIntake(
+    [
+      { role: "developer", content: DOCUMENT_INTAKE_INSTRUCTION },
+      ...intakeContextMessage(currentIntake),
+      ...prior.map((message) => ({
+        role: message.role,
+        content: message.content,
+      })),
+      {
+        role: "user",
+        content: [
+          filePart,
+          {
+            type: "input_text",
+            text:
+              last?.content ||
+              "I uploaded a file with my business information.",
+          },
+          {
+            type: "input_text",
+            text: "Extract every visible fact. Fill about from the flyer's description, tagline, intro, or who-we-are copy. Do not leave about empty if the flyer describes the business. Do not ask for About us if you can fill it from this file.",
+          },
+        ],
+      },
+    ],
+    60_000,
+    currentIntake,
+    messages,
+  );
+  return withFlyerUploaded(result);
+}
+
+function withFlyerUploaded(result: IntakeChatResult): IntakeChatResult {
+  return {
+    ...result,
+    intake: { ...result.intake, flyer_uploaded: true },
+  };
+}
+
+function intakeContextMessage(intake?: WebsiteIntake | null): Array<{ role: "developer"; content: string }> {
+  if (!intake) return [];
+  return [
+    {
+      role: "developer",
+      content: `Already collected intake (carry these forward; only change a field when the user or document clearly updates it):\n${JSON.stringify(intake)}`,
+    },
+  ];
+}
+
+function mockIntakeFromDocument(
+  filename: string,
+  currentIntake?: WebsiteIntake | null,
+): IntakeChatResult {
+  const intake: WebsiteIntake = {
+    ...emptyWebsiteIntake(),
+    ...currentIntake,
+    business_name: currentIntake?.business_name || "Thando Plumbing",
+    about: currentIntake?.about || "Local plumbing services in Durban.",
+    services: currentIntake?.services || "Geyser repairs, blocked drains, leak detection",
+    phone: currentIntake?.phone || "082 123 4567",
+    extra_details: [currentIntake?.extra_details, `Details read from ${filename}.`]
+      .filter(Boolean)
+      .join(" "),
+    user_confirmed: false,
+    address: "",
+  };
+  return {
+    reply:
+      "Thanks, I read your file. Do you want a WhatsApp button on the website as well?",
+    complete: false,
+    intake,
+  };
+}
+
+async function requestIntake(
+  input: unknown[],
+  timeoutMs: number,
+  currentIntake?: WebsiteIntake | null,
+  messages: ChatMessage[] = [],
+): Promise<IntakeChatResult> {
   const apiKey = getApiKey();
   let response: Response;
 
@@ -282,13 +456,7 @@ export async function runIntakeChat(messages: ChatMessage[]): Promise<IntakeChat
       body: JSON.stringify({
         model: OPENAI_MODEL,
         max_output_tokens: 2048,
-        input: [
-          { role: "developer", content: INTAKE_SYSTEM_INSTRUCTION },
-          ...messages.map((message) => ({
-            role: message.role,
-            content: message.content,
-          })),
-        ],
+        input,
         text: {
           format: {
             type: "json_schema",
@@ -298,7 +466,7 @@ export async function runIntakeChat(messages: ChatMessage[]): Promise<IntakeChat
           },
         },
       }),
-      signal: AbortSignal.timeout(30_000),
+      signal: AbortSignal.timeout(timeoutMs),
     });
   } catch (error) {
     if (error instanceof GeneratorError) {
@@ -325,7 +493,6 @@ export async function runIntakeChat(messages: ChatMessage[]): Promise<IntakeChat
 
   const payload = await response.json();
   console.log("Intake chat response:", JSON.stringify(payload, null, 2));
-  await chargeOpenAIUsage(payload, FALLBACK_TOKEN_USAGE.chat, "chat");
 
   if (payload.error?.message) {
     throw new GeneratorError(payload.error.message, 502);
@@ -336,7 +503,7 @@ export async function runIntakeChat(messages: ChatMessage[]): Promise<IntakeChat
     throw new GeneratorError("OpenAI returned an empty chat response.", 502);
   }
 
-  return parseIntakeResult(outputText);
+  return parseIntakeResult(outputText, currentIntake, messages);
 }
 
 export function normalizeChatMessages(value: unknown): ChatMessage[] | null {

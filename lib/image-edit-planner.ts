@@ -5,11 +5,10 @@ import type {
   WebsiteImageChangeAction,
   WebsiteImagePlan,
 } from "./types";
-import { chargeOpenAIUsage, chargeTokens, FALLBACK_TOKEN_USAGE, MOCK_TOKEN_USAGE } from "./tokens";
 import { GeneratorError, isSafeRelativePath, normalizeRelativePath } from "./validation";
 
 const OPENAI_RESPONSES_URL = "https://api.openai.com/v1/responses";
-const OPENAI_PLANNER_MODEL = "gpt-5-mini";
+const OPENAI_PLANNER_MODEL = "gpt-4o-mini";
 const MAX_IMAGE_CHANGES = 3;
 
 const IMAGE_PLAN_SCHEMA = {
@@ -63,7 +62,7 @@ const PLANNER_INSTRUCTION = `You plan website image changes before any files are
 Decide whether the user wants to add, replace, or regenerate a photo.
 If they do not, set imageIntent to false and return an empty images array.
 
-If they do, set imageIntent to true and return 1-3 concrete image changes. You MUST identify all of the following for every change before any update can proceed:
+If they do, set imageIntent to true and return concrete image changes. You MUST identify all of the following for every change before any update can proceed:
 - action: "replace" an existing photo, or "add" a new one
 - prompt: a detailed photorealistic generation prompt for what the new image should show
 - path: the new file to generate, under images/ and ending with .webp
@@ -374,7 +373,6 @@ async function planImageEditsWithOpenAI(
   }
 
   const payload = await response.json();
-  await chargeOpenAIUsage(payload, FALLBACK_TOKEN_USAGE.plan, "plan");
   if (payload.error?.message) {
     throw new GeneratorError(payload.error.message, 502);
   }
@@ -390,7 +388,6 @@ export async function planImageEdits(
   if (isMockAiEnabled()) {
     const planned = mockPlanImageEdits(instruction, existingImagePaths);
     console.log("[image-edit-planner] mock plan:", planned);
-    await chargeTokens(MOCK_TOKEN_USAGE.plan, 0, undefined, "plan");
     return planned;
   }
 

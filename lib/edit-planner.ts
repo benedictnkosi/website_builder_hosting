@@ -2,11 +2,10 @@ import path from "node:path";
 import { looksLikeImageEdit, instructionHasImagePlanDetails } from "./image-edit-planner";
 import { isMockAiEnabled, mockPlanEditFiles } from "./mock-ai";
 import type { WebsiteFile } from "./types";
-import { chargeOpenAIUsage, chargeTokens, FALLBACK_TOKEN_USAGE, MOCK_TOKEN_USAGE } from "./tokens";
 import { GeneratorError, normalizeRelativePath } from "./validation";
 
 const OPENAI_RESPONSES_URL = "https://api.openai.com/v1/responses";
-const OPENAI_PLANNER_MODEL = "gpt-5-mini";
+const OPENAI_PLANNER_MODEL = "gpt-4o-mini";
 
 export type WebsiteFileKind = "html" | "css" | "javascript" | "other";
 
@@ -317,7 +316,6 @@ async function planEditFilesWithOpenAI(
   }
 
   const payload = await response.json();
-  await chargeOpenAIUsage(payload, FALLBACK_TOKEN_USAGE.plan, "plan");
   if (payload.error?.message) {
     throw new GeneratorError(payload.error.message, 502);
   }
@@ -350,7 +348,6 @@ export async function planRelevantEditFiles(
   if (isMockAiEnabled()) {
     const planned = mockPlanEditFiles(instruction, manifest);
     console.log("[edit-planner] mock relevant files:", planned);
-    await chargeTokens(MOCK_TOKEN_USAGE.plan, 0, undefined, "plan");
     return {
       files: selectFilesForEdit(files, planned.files),
       imageIntent: planned.imageIntent,

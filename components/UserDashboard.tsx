@@ -12,16 +12,17 @@ import {
   trackStartBuilder,
 } from "@/lib/analytics";
 import SupportForm from "@/components/SupportForm";
-import { openTokenTopup, TOKENS_CHANGED_EVENT } from "@/lib/token-events";
+import { openEditTopup, EDITS_CHANGED_EVENT } from "@/lib/edit-events";
 import {
-  formatTokenCount,
+  formatBilledAmount,
+  formatEdits,
   formatZar,
-  TOKEN_TOPUP_TOKENS,
-  TOKEN_TOPUP_ZAR,
+  EDIT_TOPUP_ZAR,
+  type BillingFrequency,
 } from "@/lib/pricing";
 
 type SubscriptionStatus = "pending" | "active" | "cancelled";
-type TokenTopupStatus = "pending" | "complete" | "failed";
+type EditTopupStatus = "pending" | "complete" | "failed";
 
 type DashboardSite = {
   websiteId: string;
@@ -32,14 +33,15 @@ type DashboardSite = {
   domain: string | null;
   subscriptionStatus: SubscriptionStatus | null;
   amountZar: number | null;
+  frequency: BillingFrequency | null;
   mocked: boolean;
 };
 
-type TokenPurchase = {
+type EditPurchase = {
   paymentId: string;
   amountZar: number;
-  tokens: number;
-  status: TokenTopupStatus;
+  edits: number;
+  status: EditTopupStatus;
   mocked: boolean;
   createdAt: string;
   paidAt?: string;
@@ -86,13 +88,13 @@ function formatDateTime(value: string): string {
   });
 }
 
-function purchaseStatusLabel(status: TokenTopupStatus, mocked: boolean): string {
+function purchaseStatusLabel(status: EditTopupStatus, mocked: boolean): string {
   if (status === "complete") return mocked ? "Test payment" : "Paid";
   if (status === "pending") return "Payment pending";
   return "Failed";
 }
 
-function purchaseStatusClass(status: TokenTopupStatus): string {
+function purchaseStatusClass(status: EditTopupStatus): string {
   if (status === "complete") return "bg-teal-100 text-teal-900";
   if (status === "pending") return "bg-amber-100 text-amber-900";
   return "bg-red-50 text-red-800";
@@ -102,7 +104,7 @@ export default function UserDashboard() {
   const { user, authFetch } = useAuth();
   const router = useRouter();
   const [sites, setSites] = useState<DashboardSite[]>([]);
-  const [purchases, setPurchases] = useState<TokenPurchase[]>([]);
+  const [purchases, setPurchases] = useState<EditPurchase[]>([]);
   const [loading, setLoading] = useState(true);
   const [purchasesLoading, setPurchasesLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -136,10 +138,10 @@ export default function UserDashboard() {
 
   const loadPurchases = useCallback(async () => {
     try {
-      const response = await authFetch("/api/tokens/purchases");
+      const response = await authFetch("/api/edits/purchases");
       const data = (await response.json()) as {
         success?: boolean;
-        purchases?: TokenPurchase[];
+        purchases?: EditPurchase[];
         error?: string;
       };
 
@@ -164,11 +166,11 @@ export default function UserDashboard() {
   }, [loadPurchases, loadSites]);
 
   useEffect(() => {
-    function onTokensChanged() {
+    function onEditsChanged() {
       void loadPurchases();
     }
-    window.addEventListener(TOKENS_CHANGED_EVENT, onTokensChanged);
-    return () => window.removeEventListener(TOKENS_CHANGED_EVENT, onTokensChanged);
+    window.addEventListener(EDITS_CHANGED_EVENT, onEditsChanged);
+    return () => window.removeEventListener(EDITS_CHANGED_EVENT, onEditsChanged);
   }, [loadPurchases]);
 
   function openSite(site: DashboardSite) {
@@ -246,17 +248,17 @@ export default function UserDashboard() {
             Hi {firstName}
           </h1>
           <p className="mt-2 max-w-xl text-sm leading-relaxed text-stone-600">
-            Manage your websites, review token purchases, cancel monthly billing,
+            Manage your websites, review Edit purchases, cancel monthly billing,
             or delete a site you no longer need.
           </p>
         </div>
         <div className="flex flex-col gap-2 sm:items-end">
           <button
             type="button"
-            onClick={() => openTokenTopup()}
+            onClick={() => openEditTopup()}
             className="inline-flex items-center justify-center rounded-full border border-stone-300 bg-white px-5 py-2.5 text-sm font-semibold text-stone-700 transition hover:bg-stone-50"
           >
-            Buy {formatTokenCount(TOKEN_TOPUP_TOKENS)} tokens · {formatZar(TOKEN_TOPUP_ZAR)}
+            Buy Edits from {formatZar(EDIT_TOPUP_ZAR)}
           </button>
           <Link
             href="/builder?new=1"
@@ -336,7 +338,7 @@ export default function UserDashboard() {
                 <p className="mt-3 text-xs text-stone-500">
                   Updated {formatDate(site.updatedAt)}
                   {site.subscriptionStatus === "active" && site.amountZar != null
-                    ? ` · ${formatZar(site.amountZar)} / month`
+                    ? ` · ${formatBilledAmount(site.amountZar, site.frequency ?? "monthly")}`
                     : ""}
                 </p>
                 <div className="mt-4 flex flex-wrap gap-2">
@@ -385,13 +387,13 @@ export default function UserDashboard() {
 
       <section className="mt-12">
         <p className="text-xs font-semibold uppercase tracking-[0.22em] text-teal-800">
-          Purchases
+          Edits
         </p>
         <h2 className="mt-2 text-2xl font-semibold tracking-tight text-stone-900">
-          Token top-ups
+          Edit top-ups
         </h2>
         <p className="mt-1 max-w-xl text-sm leading-relaxed text-stone-600">
-          Card payments for building tokens, newest first.
+          Your last 5 card payments for Edits.
         </p>
 
         {purchasesError ? (
@@ -404,8 +406,8 @@ export default function UserDashboard() {
           <PurchasesLoadingSkeleton />
         ) : purchases.length === 0 ? (
           <div className="mt-4 rounded-[1.4rem] border border-stone-200/80 bg-white px-5 py-6 text-sm text-stone-600">
-            No token purchases yet. Buy tokens when you need more chat, generate,
-            or edit credit.
+            No Edit purchases yet. Buy Edits when you need more website changes
+            or a full rebuild.
           </div>
         ) : (
           <ul className="mt-4 overflow-hidden rounded-[1.4rem] border border-stone-200/80 bg-white">
@@ -416,7 +418,7 @@ export default function UserDashboard() {
               >
                 <div className="min-w-0">
                   <p className="font-semibold text-stone-900">
-                    {formatTokenCount(purchase.tokens)} tokens
+                    {formatEdits(purchase.edits)}
                   </p>
                   <p className="mt-0.5 text-sm text-stone-500">
                     {formatDateTime(purchase.paidAt || purchase.createdAt)}
@@ -440,7 +442,7 @@ export default function UserDashboard() {
       </section>
 
       <div className="mt-12">
-        <SupportForm description="Questions about billing, domains, tokens, or a site you built — send a message and we will reply to your email." />
+        <SupportForm description="Questions about billing, domains, Edits, or a site you built — send a message and we will reply to your email." />
       </div>
 
       {confirm ? (
@@ -464,11 +466,11 @@ export default function UserDashboard() {
             </h2>
             <p className="mt-2 text-sm leading-relaxed text-stone-600">
               {confirm.type === "cancel"
-                ? `This stops future PayFast charges${confirm.site.domain ? ` for ${confirm.site.domain}` : ""}. You can still preview and edit the site with tokens. Deploying stays locked until you subscribe again.`
+                ? `This stops future PayFast charges${confirm.site.domain ? ` for ${confirm.site.domain}` : ""}. You can still preview and edit the site with Edits. Deploying stays locked until you subscribe again.`
                 : `This permanently removes ${confirm.site.businessName} and its files.${
                     confirm.site.subscriptionStatus === "active" ||
                     confirm.site.subscriptionStatus === "pending"
-                      ? " It will also cancel the monthly subscription."
+                      ? " It will also cancel the subscription."
                       : ""
                   }`}
             </p>
@@ -578,7 +580,7 @@ function PurchasesLoadingSkeleton() {
       aria-busy="true"
       aria-live="polite"
     >
-      {["one", "two", "three"].map((key) => (
+      {["one", "two", "three", "four", "five"].map((key) => (
         <div
           key={key}
           className="flex items-center justify-between gap-3 border-b border-stone-100 px-4 py-4 last:border-b-0 sm:px-5"

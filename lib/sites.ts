@@ -22,6 +22,7 @@ import {
   type WebsiteMeta,
 } from "@/lib/firestore";
 import { cancelPayfastSubscription } from "@/lib/payfast";
+import type { BillingFrequency } from "@/lib/pricing";
 import {
   readSubscription,
   writeSubscription,
@@ -42,6 +43,7 @@ export type ManagedWebsite = {
   domain: string | null;
   subscriptionStatus: SubscriptionStatus | null;
   amountZar: number | null;
+  frequency: BillingFrequency | null;
   mocked: boolean;
 };
 
@@ -214,6 +216,7 @@ async function toManagedWebsite(
     domain: subscription?.domain ?? null,
     subscriptionStatus: subscription?.status ?? null,
     amountZar: subscription?.amountZar ?? null,
+    frequency: subscription?.frequency ?? null,
     mocked: Boolean(subscription?.mocked),
   };
 }

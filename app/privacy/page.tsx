@@ -22,7 +22,7 @@ const SECTIONS = [
   },
   {
     title: "Payments",
-    body: "Subscriptions and token top-ups are billed through PayFast. We store the domain you choose, subscription status, and PayFast payment references. Card details are handled by PayFast, not Lulaweb.",
+    body: "Subscriptions and Edit top-ups are billed through PayFast. We store the domain you choose, subscription status, and PayFast payment references. Card details are handled by PayFast, not Lulaweb.",
   },
   {
     title: "Analytics",

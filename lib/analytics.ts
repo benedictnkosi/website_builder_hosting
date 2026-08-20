@@ -9,7 +9,7 @@ import {
   type Analytics,
 } from "firebase/analytics";
 import { getFirebaseApp, isFirebaseClientConfigured } from "@/lib/firebase";
-import { MONTHLY_SUBSCRIPTION_ZAR, TOKEN_TOPUP_ZAR } from "@/lib/pricing";
+import { ANNUAL_PLAN_ZAR, EDIT_TOPUP_ZAR } from "@/lib/pricing";
 
 type EventParams = Record<string, string | number | boolean | undefined>;
 
@@ -105,35 +105,35 @@ export function trackPaywallView(websiteId: string) {
   trackEvent("paywall_view", { website_id: websiteId });
 }
 
-export function trackBeginCheckout(domain: string) {
+export function trackBeginCheckout(domain: string, amountZar: number) {
   trackEvent("begin_checkout", {
     currency: "ZAR",
-    value: MONTHLY_SUBSCRIPTION_ZAR,
+    value: amountZar,
     domain,
   });
 }
 
-export function trackPurchase(domain: string) {
+export function trackPurchase(domain: string, amountZar?: number) {
   trackEvent("purchase", {
     currency: "ZAR",
-    value: MONTHLY_SUBSCRIPTION_ZAR,
+    value: amountZar ?? ANNUAL_PLAN_ZAR,
     domain,
   });
 }
 
-export function trackTokenTopupStart() {
+export function trackEditTopupStart(amountZar = EDIT_TOPUP_ZAR) {
   trackEvent("begin_checkout", {
     currency: "ZAR",
-    value: TOKEN_TOPUP_ZAR,
-    item_name: "tokens",
+    value: amountZar,
+    item_name: "edits",
   });
 }
 
-export function trackTokenTopupSuccess() {
+export function trackEditTopupSuccess(amountZar = EDIT_TOPUP_ZAR) {
   trackEvent("purchase", {
     currency: "ZAR",
-    value: TOKEN_TOPUP_ZAR,
-    item_name: "tokens",
+    value: amountZar,
+    item_name: "edits",
   });
 }
 

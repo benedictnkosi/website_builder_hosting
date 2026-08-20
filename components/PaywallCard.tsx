@@ -1,7 +1,16 @@
 "use client";
 
 import { FormEvent, useEffect, useState } from "react";
-import { formatZar, MONTHLY_SUBSCRIPTION_ZAR, SUBSCRIPTION_TLD } from "@/lib/pricing";
+import {
+  ANNUAL_PLAN_MONTHLY_ZAR,
+  ANNUAL_PLAN_ZAR,
+  formatBilledAmount,
+  formatZar,
+  MONTHLY_PLAN_ZAR,
+  SUBSCRIPTION_TLD,
+  subscriptionAmountZar,
+  type BillingFrequency,
+} from "@/lib/pricing";
 import { useAuth } from "@/components/AuthProvider";
 import { trackBeginCheckout } from "@/lib/analytics";
 import { submitPayfastForm } from "@/lib/payfast-browser";
@@ -35,7 +44,7 @@ type PaywallCardProps = {
   websiteId: string;
   suggestedName: string;
   onClose: () => void;
-  onSubscribed: (domain: string) => void;
+  onSubscribed: (domain: string, amountZar?: number) => void;
 };
 
 export default function PaywallCard({
@@ -52,6 +61,8 @@ export default function PaywallCard({
   const [mocked, setMocked] = useState(false);
   const [checkingOut, setCheckingOut] = useState(false);
   const [checkoutError, setCheckoutError] = useState<string | null>(null);
+  const [frequency, setFrequency] = useState<BillingFrequency>("annual");
+  const billedAmount = subscriptionAmountZar(frequency);
 
   useEffect(() => {
     if (suggestedName) {
@@ -112,7 +123,7 @@ export default function PaywallCard({
 
     setCheckingOut(true);
     setCheckoutError(null);
-    trackBeginCheckout(result.domain);
+    trackBeginCheckout(result.domain, billedAmount);
 
     try {
       const response = await authFetch("/api/checkout", {
@@ -122,6 +133,7 @@ export default function PaywallCard({
           domain: result.domain,
           email: user?.email ?? "",
           name: user?.displayName ?? "",
+          frequency,
         }),
       });
 
@@ -140,7 +152,7 @@ export default function PaywallCard({
       }
 
       if (data.paid) {
-        onSubscribed(result.domain);
+        onSubscribed(result.domain, billedAmount);
         return;
       }
 
@@ -189,8 +201,9 @@ export default function PaywallCard({
           </button>
         </div>
         <p className="mt-2 text-sm text-stone-600">
-          Generating a website is free. Editing and publishing is{" "}
-          {formatZar(MONTHLY_SUBSCRIPTION_ZAR)} per month, billed through PayFast.
+          Generating a website is free. Publishing is{" "}
+          {formatZar(ANNUAL_PLAN_MONTHLY_ZAR)} per month billed annually, or{" "}
+          {formatZar(MONTHLY_PLAN_ZAR)} billed monthly, through PayFast.
         </p>
 
         <form onSubmit={handleSearch} className="mt-5">
@@ -249,13 +262,52 @@ export default function PaywallCard({
 
             {result.available ? (
               <>
-                <p className="mt-4 text-sm text-stone-600">
-                  Billed monthly at{" "}
-                  <span className="font-semibold text-teal-900">
-                    {formatZar(MONTHLY_SUBSCRIPTION_ZAR)} / month
-                  </span>
-                  .
-                </p>
+                <div className="mt-4 grid gap-2 sm:grid-cols-2">
+                  <button
+                    type="button"
+                    onClick={() => setFrequency("annual")}
+                    disabled={checkingOut}
+                    className={`rounded-2xl border px-4 py-3 text-left transition ${
+                      frequency === "annual"
+                        ? "border-teal-800 bg-teal-50"
+                        : "border-stone-200 bg-white hover:border-stone-300"
+                    }`}
+                  >
+                    <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-teal-800">
+                      Best value
+                    </p>
+                    <p className="mt-1 text-lg font-semibold text-stone-900">
+                      {formatZar(ANNUAL_PLAN_MONTHLY_ZAR)}
+                      <span className="ml-1 text-sm font-medium text-stone-500">
+                        / month
+                      </span>
+                    </p>
+                    <p className="mt-1 text-xs text-stone-500">
+                      Billed annually at {formatZar(ANNUAL_PLAN_ZAR)}
+                    </p>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setFrequency("monthly")}
+                    disabled={checkingOut}
+                    className={`rounded-2xl border px-4 py-3 text-left transition ${
+                      frequency === "monthly"
+                        ? "border-teal-800 bg-teal-50"
+                        : "border-stone-200 bg-white hover:border-stone-300"
+                    }`}
+                  >
+                    <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-stone-500">
+                      Monthly
+                    </p>
+                    <p className="mt-1 text-lg font-semibold text-stone-900">
+                      {formatZar(MONTHLY_PLAN_ZAR)}
+                      <span className="ml-1 text-sm font-medium text-stone-500">
+                        / month
+                      </span>
+                    </p>
+                    <p className="mt-1 text-xs text-stone-500">Billed every month</p>
+                  </button>
+                </div>
 
                 <button
                   type="button"
@@ -265,10 +317,12 @@ export default function PaywallCard({
                 >
                   {checkingOut
                     ? "Starting PayFast..."
-                    : `Subscribe · ${formatZar(MONTHLY_SUBSCRIPTION_ZAR)} / month`}
+                    : `Subscribe · ${formatBilledAmount(billedAmount, frequency)}`}
                 </button>
                 <p className="mt-2 text-xs text-stone-500">
-                  Monthly PayFast subscription. Renews each month at the same amount.
+                  {frequency === "annual"
+                    ? "Annual PayFast subscription. Renews each year at the same amount."
+                    : "Monthly PayFast subscription. Renews each month at the same amount."}
                 </p>
               </>
             ) : (

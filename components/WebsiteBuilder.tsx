@@ -1,8 +1,12 @@
 "use client";
 
-import { FormEvent, useCallback, useEffect, useRef, useState } from "react";
+import { ChangeEvent, FormEvent, useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import AddressModal from "@/components/AddressModal";
+import BulkEditTipModal, {
+  hasSeenBulkEditTip,
+  markBulkEditTipSeen,
+} from "@/components/BulkEditTipModal";
 import { useAuth } from "@/components/AuthProvider";
 import DeployWorkspace from "@/components/DeployWorkspace";
 import PaywallCard from "@/components/PaywallCard";
@@ -15,11 +19,13 @@ import {
 import { extractBusinessName, slugifyDomainName } from "@/lib/domain-name";
 import {
   compileBusinessDescription,
-  intakeFromPartialChat,
+  hasEnoughIntakeToGenerate,
+  lastUserMessageIsConfirmation,
   type ChatMessage,
   type IntakeChatResult,
   type WebsiteIntake,
 } from "@/lib/intake";
+import { fileToIntakeUpload, INTAKE_UPLOAD_ACCEPT, type IntakeUpload } from "@/lib/intake-upload";
 import { getPeopleEthnicityOption } from "@/lib/people-ethnicity";
 import type { SiteJobView, WebsiteFile } from "@/lib/types";
 import {
@@ -35,23 +41,91 @@ import {
   trackPaywallView,
   trackPurchase,
 } from "@/lib/analytics";
-import { notifyTokensChanged, openTokenTopup } from "@/lib/token-events";
-import { formatZar, TOKEN_TOPUP_ZAR } from "@/lib/pricing";
+import { notifyEditsChanged, openEditTopup, EDITS_CHANGED_EVENT } from "@/lib/edit-events";
+import { EDIT_TOPUP_ZAR, SUBSCRIPTION_EDITS_GRANT, formatEdits, formatZar } from "@/lib/pricing";
 
 type GenerationStatus = "idle" | "chatting" | "generating" | "success" | "error";
 type ChatPhase = "intake" | "edit";
 
 const WELCOME_MESSAGE =
-  "Hi! I'm here to help build your website. Tell me about your business.\n\nI'll need this information:\n• Business name\n• About us\n• List of services\n• Contact number\n• WhatsApp number, if WhatsApp is required\n• Email address, if a contact form is required";
+  "Hi! I'm here to help build your website. Tell me about your business, or upload one flyer, business card, or PDF if you have one.\n\nI'll need this information:\n• Business name\n• About us\n• List of services\n• Contact number\n• WhatsApp number, if WhatsApp is required\n• Email address, if a contact form is required\n• Trading hours, if you have them";
 
 const READY_MESSAGE =
   "Your website is ready. Preview it, describe any changes, and subscribe when you want to deploy it live.";
 
-const CHAT_TOKENS_EXHAUSTED_MESSAGE =
-  "Your chat tokens have been used up. We're generating the website for you now with the information we already have.";
-
 function sleep(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function renderInlineMarkdown(text: string): ReactNode[] {
+  const parts = text.split(/(\*\*[^*]+\*\*)/g);
+  return parts.map((part, index) => {
+    const bold = part.match(/^\*\*([^*]+)\*\*$/);
+    if (bold) {
+      return (
+        <strong key={index} className="font-semibold text-stone-800">
+          {bold[1]}
+        </strong>
+      );
+    }
+    return part;
+  });
+}
+
+function ChatBubbleBody({ content }: { content: string }) {
+  const lines = content.replace(/\r\n/g, "\n").split("\n");
+  const blocks: ReactNode[] = [];
+  let bullets: string[] = [];
+
+  function flushList() {
+    if (bullets.length === 0) return;
+    const items = bullets;
+    bullets = [];
+    blocks.push(
+      <ul key={`list-${blocks.length}`} className="mt-2 list-disc space-y-1 pl-4 marker:text-stone-400">
+        {items.map((item, index) => (
+          <li key={index}>{renderInlineMarkdown(item)}</li>
+        ))}
+      </ul>,
+    );
+  }
+
+  for (const line of lines) {
+    const bullet = line.match(/^\s*[-*•]\s+(.*)$/);
+    if (bullet) {
+      bullets.push(bullet[1]);
+      continue;
+    }
+    flushList();
+    if (!line.trim()) continue;
+    blocks.push(
+      <p key={`p-${blocks.length}`} className={blocks.length > 0 ? "mt-2" : undefined}>
+        {renderInlineMarkdown(line)}
+      </p>,
+    );
+  }
+  flushList();
+
+  return <div>{blocks}</div>;
+}
+
+function PaperclipIcon() {
+  return (
+    <svg
+      className="h-5 w-5"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      aria-hidden="true"
+    >
+      <path
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        d="M21.44 11.05l-8.49 8.49a5.25 5.25 0 01-7.42-7.43l8.48-8.48a3.5 3.5 0 014.95 4.95l-8.48 8.49a1.75 1.75 0 01-2.47-2.48l7.78-7.78"
+      />
+    </svg>
+  );
 }
 
 function SpinnerIcon() {
@@ -115,7 +189,7 @@ function EmptyPreview({ generating }: { generating: boolean }) {
         <p className="mt-2 text-sm leading-relaxed text-stone-600">
           {generating
             ? "We're writing the pages and generating images. The live preview will show up here when it's ready."
-            : "Chat about your business. We'll design the site and show a live preview on this side."}
+            : "Chat about your business, or upload a flyer if you have one. We'll design the site and show a live preview on this side."}
         </p>
       </div>
     </div>
@@ -133,6 +207,7 @@ export default function WebsiteBuilder() {
   const [chatPhase, setChatPhase] = useState<ChatPhase>("intake");
   const [pendingIntake, setPendingIntake] = useState<WebsiteIntake | null>(null);
   const [showAddressModal, setShowAddressModal] = useState(false);
+  const [showBulkEditTip, setShowBulkEditTip] = useState(false);
   const [businessDescription, setBusinessDescription] = useState("");
   const [businessName, setBusinessName] = useState("");
   const [status, setStatus] = useState<GenerationStatus>("idle");
@@ -142,6 +217,10 @@ export default function WebsiteBuilder() {
   const [isEditing, setIsEditing] = useState(false);
   const [iframeKey, setIframeKey] = useState(0);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const chatInputRef = useRef<HTMLInputElement>(null);
+  const [readingDocument, setReadingDocument] = useState(false);
+  const [flyerUploaded, setFlyerUploaded] = useState(false);
   const [showDeployCard, setShowDeployCard] = useState(false);
   const [autoDeploy, setAutoDeploy] = useState(false);
   const [showPaywall, setShowPaywall] = useState(false);
@@ -154,6 +233,7 @@ export default function WebsiteBuilder() {
   const [jobProgress, setJobProgress] = useState<number | null>(null);
   const [jobMessage, setJobMessage] = useState<string | null>(null);
   const [chatLocked, setChatLocked] = useState(false);
+  const [editsRemaining, setEditsRemaining] = useState<number | null>(null);
   const runEpochRef = useRef(0);
   const intakeStartedRef = useRef(false);
   const latestIntakeRef = useRef<WebsiteIntake | null>(null);
@@ -163,10 +243,14 @@ export default function WebsiteBuilder() {
     status === "generating" ||
     isEditing ||
     showAddressModal ||
+    showBulkEditTip ||
     checkoutConfirming;
-  const chatDisabled = isBusy || chatLocked;
+  const outOfEdits = editsRemaining !== null && editsRemaining < 1;
+  const chatDisabled = isBusy || chatLocked || outOfEdits;
   const previewUrl = websiteId ? `/api/preview/${websiteId}/index.html` : null;
-  const tokenShortage = Boolean(error?.toLowerCase().includes("token"));
+  const editShortage = Boolean(
+    error?.toLowerCase().includes("edit") || error?.toLowerCase().includes("top up"),
+  );
   const suggestedDomainName = slugifyDomainName(
     businessName || extractBusinessName(businessDescription),
   );
@@ -176,10 +260,37 @@ export default function WebsiteBuilder() {
   }, [messages, status, isEditing, checkoutNotice, checkoutConfirming]);
 
   useEffect(() => {
-    if (showPaywall && websiteId) {
-      trackPaywallView(websiteId);
+    if (chatDisabled || showPaywall || showDeployCard) return;
+    chatInputRef.current?.focus();
+  }, [chatDisabled, messages, showPaywall, showDeployCard]);
+
+  useEffect(() => {
+    async function loadEdits() {
+      try {
+        const response = await authFetch("/api/edits");
+        const data = (await response.json()) as {
+          success?: boolean;
+          editsRemaining?: number;
+        };
+        if (response.ok && data.success && typeof data.editsRemaining === "number") {
+          setEditsRemaining(data.editsRemaining);
+        }
+      } catch {
+        // Keep the last known balance if the refresh fails.
+      }
     }
-  }, [showPaywall, websiteId]);
+
+    function onEditsChanged() {
+      void loadEdits();
+      setChatLocked((locked) => {
+        if (!locked || status === "generating") return locked;
+        return false;
+      });
+    }
+    window.addEventListener(EDITS_CHANGED_EVENT, onEditsChanged);
+    void loadEdits();
+    return () => window.removeEventListener(EDITS_CHANGED_EVENT, onEditsChanged);
+  }, [authFetch, status]);
 
   function addAssistantMessage(content: string) {
     setMessages((prev) => [...prev, { role: "assistant", content }]);
@@ -251,7 +362,7 @@ export default function WebsiteBuilder() {
         const data = (await response.json()) as {
           success?: boolean;
           paid?: boolean;
-          subscription?: { domain?: string };
+          subscription?: { domain?: string; amountZar?: number };
         };
 
         if (response.ok && data.paid) {
@@ -262,10 +373,10 @@ export default function WebsiteBuilder() {
           setCheckoutNotice(null);
           setCheckoutConfirming(false);
           if (poll && data.subscription?.domain) {
-            trackPurchase(data.subscription.domain);
-            notifyTokensChanged();
+            trackPurchase(data.subscription.domain, data.subscription.amountZar);
+            notifyEditsChanged();
             addAssistantMessage(
-              `You're subscribed. Another 20,000 tokens were added to your balance. Describe a change, or deploy ${data.subscription.domain}.`,
+              `You're subscribed. Another ${formatEdits(SUBSCRIPTION_EDITS_GRANT)} were added. Describe a change, or deploy ${data.subscription.domain}.`,
             );
             setAutoDeploy(true);
             setShowDeployCard(true);
@@ -358,7 +469,7 @@ export default function WebsiteBuilder() {
               businessDescription: session?.businessDescription ?? "",
             });
             addAssistantMessage(READY_MESSAGE);
-            notifyTokensChanged();
+            notifyEditsChanged();
           } else if (job.kind === "edit") {
             setIframeKey((key) => key + 1);
             trackEditSuccess();
@@ -368,7 +479,7 @@ export default function WebsiteBuilder() {
               businessDescription: session?.businessDescription ?? "",
             });
             addAssistantMessage("Changes applied.");
-            notifyTokensChanged();
+            notifyEditsChanged();
           }
           clearJobView();
           setIsEditing(false);
@@ -470,6 +581,17 @@ Do not use mailto: as the primary submit method.`,
       );
     }
 
+    if (intake.use_trading_hours === "yes" && intake.trading_hours.trim()) {
+      promptParts.push(
+        `Trading hours:\n${intake.trading_hours.trim()}
+Include a trading hours section with id="hours" using exactly these hours. Link it in the nav. Do not invent extra days, times, or public-holiday notes they did not provide.`,
+      );
+    } else {
+      promptParts.push(
+        `The business did not provide trading hours. Do not add a trading hours, opening hours, or hours of business section, and do not invent hours.`,
+      );
+    }
+
     const ethnicity = getPeopleEthnicityOption(intake.people_ethnicity);
     if (ethnicity) {
       promptParts.push(
@@ -496,7 +618,6 @@ Use these details on the website where they fit. Do not invent extras beyond wha
 
   async function runGeneration(
     intake: WebsiteIntake,
-    options?: { allowDepleted?: boolean },
   ) {
     const epoch = runEpochRef.current;
     const description = compileBusinessDescription(intake);
@@ -517,7 +638,6 @@ Use these details on the website where they fit. Do not invent extras beyond wha
           peopleEthnicity: intake.people_ethnicity || undefined,
           businessName: name,
           contactEmail: intake.contact_email || undefined,
-          continueWithAvailableInfo: options?.allowDepleted || undefined,
           websiteId: websiteId || undefined,
         }),
       });
@@ -526,7 +646,7 @@ Use these details on the website where they fit. Do not invent extras beyond wha
         success?: boolean;
         jobId?: string;
         error?: string;
-        tokenTopup?: boolean;
+        editTopup?: boolean;
       };
 
       if (isStaleRun(epoch)) return;
@@ -538,11 +658,9 @@ Use these details on the website where they fit. Do not invent extras beyond wha
         setChatLocked(false);
         clearJobView();
         trackGenerateFail();
-        if (data.tokenTopup) {
-          openTokenTopup();
-          addAssistantMessage(
-            "You've used your building tokens. Buy more tokens to generate this website.",
-          );
+        if (data.editTopup) {
+          openEditTopup();
+          addAssistantMessage(message);
         } else {
           addAssistantMessage(
             "Something went wrong while generating your website. Please try again.",
@@ -583,7 +701,7 @@ Use these details on the website where they fit. Do not invent extras beyond wha
         businessDescription: description,
       });
       addAssistantMessage(READY_MESSAGE);
-      notifyTokensChanged();
+      notifyEditsChanged();
       void refreshSubscription(nextWebsiteId);
     } catch (error) {
       if (isStaleRun(epoch)) return;
@@ -603,41 +721,37 @@ Use these details on the website where they fit. Do not invent extras beyond wha
     }
   }
 
-  async function generateFromExhaustedChat(history: ChatMessage[]) {
-    const intake = intakeFromPartialChat(latestIntakeRef.current, history);
-    latestIntakeRef.current = intake;
-    setPendingIntake(intake);
-    setShowAddressModal(false);
-    setChatLocked(true);
-    setStatus("generating");
-    setError(null);
-    addAssistantMessage(CHAT_TOKENS_EXHAUSTED_MESSAGE);
-    await runGeneration(intake, { allowDepleted: true });
-  }
-
-  async function continueIntake(history: ChatMessage[]) {
+  async function continueIntake(history: ChatMessage[], document?: IntakeUpload) {
     const epoch = runEpochRef.current;
     setStatus("chatting");
+    setReadingDocument(Boolean(document));
     setError(null);
 
     try {
       const response = await authFetch("/api/chat", {
         method: "POST",
-        body: JSON.stringify({ messages: history }),
+        body: JSON.stringify({
+          messages: history,
+          intake: latestIntakeRef.current ?? undefined,
+          document,
+        }),
       });
 
       const data = (await response.json()) as {
         success?: boolean;
         error?: string;
-        tokenTopup?: boolean;
-        chatTokensExhausted?: boolean;
+        editTopup?: boolean;
       } & Partial<IntakeChatResult>;
 
       if (isStaleRun(epoch)) return;
 
       if (!response.ok || !data.success || !data.reply || !data.intake) {
-        if (data.chatTokensExhausted || data.tokenTopup || response.status === 402) {
-          await generateFromExhaustedChat(history);
+        if (data.editTopup || response.status === 402) {
+          setChatLocked(true);
+          setStatus("error");
+          setError(data.error || "You need Edits to keep building. Please top up.");
+          addAssistantMessage(data.error || "You need Edits to keep building. Please top up.");
+          openEditTopup();
           return;
         }
         throw new Error(data.error || "Chat request failed.");
@@ -645,10 +759,18 @@ Use these details on the website where they fit. Do not invent extras beyond wha
 
       latestIntakeRef.current = data.intake;
       setPendingIntake(data.intake);
+      if (document || data.intake.flyer_uploaded) {
+        setFlyerUploaded(true);
+      }
       addAssistantMessage(data.reply);
-      notifyTokensChanged();
+      notifyEditsChanged();
 
-      if (data.complete) {
+      const readyToBuild =
+        data.complete ||
+        (hasEnoughIntakeToGenerate(data.intake) &&
+          (Boolean(data.intake.user_confirmed) || lastUserMessageIsConfirmation(history)));
+
+      if (readyToBuild) {
         setShowAddressModal(true);
         setStatus("idle");
         trackIntakeComplete();
@@ -665,6 +787,10 @@ Use these details on the website where they fit. Do not invent extras beyond wha
           : "Could not continue the conversation. Please try again.";
       setError(message);
       addAssistantMessage("I couldn't reply just now. Please try again.");
+    } finally {
+      if (!isStaleRun(epoch)) {
+        setReadingDocument(false);
+      }
     }
   }
 
@@ -689,14 +815,14 @@ Use these details on the website where they fit. Do not invent extras beyond wha
         success?: boolean;
         jobId?: string;
         error?: string;
-        tokenTopup?: boolean;
+        editTopup?: boolean;
       };
 
       if (isStaleRun(epoch)) return;
 
       if (!response.ok || !data.success || !data.jobId) {
-        if (data.tokenTopup || response.status === 402) {
-          openTokenTopup();
+        if (data.editTopup || response.status === 402) {
+          openEditTopup();
         }
         setError(data.error || "Failed to apply changes.");
         clearJobView();
@@ -724,7 +850,7 @@ Use these details on the website where they fit. Do not invent extras beyond wha
         businessDescription,
       });
       addAssistantMessage("Changes applied.");
-      notifyTokensChanged();
+      notifyEditsChanged();
     } catch (error) {
       if (isStaleRun(epoch)) return;
       if (error instanceof Error && error.message === "cancelled") return;
@@ -742,6 +868,27 @@ Use these details on the website where they fit. Do not invent extras beyond wha
     }
   }
 
+  function submitEdit(text: string) {
+    const nextMessages: ChatMessage[] = [...messages, { role: "user", content: text }];
+    setMessages(nextMessages);
+    setChatInput("");
+    setError(null);
+    void applyEdit(text);
+  }
+
+  function handleBulkEditAddMore() {
+    markBulkEditTipSeen();
+    setShowBulkEditTip(false);
+  }
+
+  function handleBulkEditSend() {
+    markBulkEditTipSeen();
+    setShowBulkEditTip(false);
+    const text = chatInput.trim();
+    if (!text) return;
+    submitEdit(text);
+  }
+
   async function handleChatSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
 
@@ -750,15 +897,19 @@ Use these details on the website where they fit. Do not invent extras beyond wha
 
     if (!text) return;
 
+    if (chatPhase === "edit") {
+      if (!hasSeenBulkEditTip()) {
+        setShowBulkEditTip(true);
+        return;
+      }
+      submitEdit(text);
+      return;
+    }
+
     const nextMessages: ChatMessage[] = [...messages, { role: "user", content: text }];
     setMessages(nextMessages);
     setChatInput("");
     setError(null);
-
-    if (chatPhase === "edit") {
-      await applyEdit(text);
-      return;
-    }
 
     if (!intakeStartedRef.current) {
       intakeStartedRef.current = true;
@@ -766,6 +917,38 @@ Use these details on the website where they fit. Do not invent extras beyond wha
     }
 
     await continueIntake(nextMessages);
+  }
+
+  async function handleIntakeUpload(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (!file || chatDisabled || chatPhase !== "intake" || flyerUploaded) return;
+
+    try {
+      const document = await fileToIntakeUpload(file);
+      const nextMessages: ChatMessage[] = [
+        ...messages,
+        {
+          role: "user",
+          content: `I uploaded ${document.filename} with my business information.`,
+        },
+      ];
+      setMessages(nextMessages);
+      setError(null);
+
+      if (!intakeStartedRef.current) {
+        intakeStartedRef.current = true;
+        trackIntakeStart();
+      }
+
+      await continueIntake(nextMessages, document);
+    } catch (error) {
+      setError(
+        error instanceof Error && error.message
+          ? error.message
+          : "Could not read that file.",
+      );
+    }
   }
 
   function openDeployCard() {
@@ -777,16 +960,16 @@ Use these details on the website where they fit. Do not invent extras beyond wha
     setShowDeployCard(true);
   }
 
-  function handleSubscribed(domain: string) {
+  function handleSubscribed(domain: string, amountZar?: number) {
     setIsSubscribed(true);
     setSubscribedDomain(domain);
     setShowPaywall(false);
     setCheckoutNotice(null);
     setCheckoutConfirming(false);
-    trackPurchase(domain);
-    notifyTokensChanged();
+    trackPurchase(domain, amountZar);
+    notifyEditsChanged();
     addAssistantMessage(
-      `You're subscribed. Another 20,000 tokens were added to your balance. Describe a change, or deploy ${domain}.`,
+      `You're subscribed. Another ${formatEdits(SUBSCRIPTION_EDITS_GRANT)} were added. Describe a change, or deploy ${domain}.`,
     );
   }
 
@@ -818,6 +1001,8 @@ Use these details on the website where they fit. Do not invent extras beyond wha
     setBusinessDescription("");
     setBusinessName("");
     setStatus("idle");
+    setReadingDocument(false);
+    setFlyerUploaded(false);
     setError(null);
     setFiles([]);
     setIsEditing(false);
@@ -853,6 +1038,12 @@ Use these details on the website where they fit. Do not invent extras beyond wha
                 "No problem. Tell me what to change, or say you're ready to generate.",
               );
             }}
+          />
+        ) : null}
+        {showBulkEditTip ? (
+          <BulkEditTipModal
+            onAddMore={handleBulkEditAddMore}
+            onSend={handleBulkEditSend}
           />
         ) : null}
         {showPaywall && websiteId ? (
@@ -899,18 +1090,22 @@ Use these details on the website where they fit. Do not invent extras beyond wha
               {messages.map((message, index) => (
                 <div
                   key={`${message.role}-${index}`}
-                  className={`max-w-[92%] whitespace-pre-line rounded-2xl px-3.5 py-2.5 text-sm leading-relaxed ${
+                  className={`max-w-[92%] rounded-2xl px-3.5 py-2.5 text-sm leading-relaxed ${
                     message.role === "assistant"
                       ? "rounded-tl-md bg-white text-stone-700 shadow-sm ring-1 ring-stone-200/80"
-                      : "ml-auto rounded-tr-md bg-teal-800 text-white"
+                      : "ml-auto whitespace-pre-line rounded-tr-md bg-teal-800 text-white"
                   }`}
                 >
-                  {message.content}
+                  {message.role === "assistant" ? (
+                    <ChatBubbleBody content={message.content} />
+                  ) : (
+                    message.content
+                  )}
                 </div>
               ))}
               {status === "chatting" ? (
                 <div className="max-w-[92%] rounded-2xl rounded-tl-md bg-white px-3.5 py-2.5 text-sm text-stone-500 shadow-sm ring-1 ring-stone-200/80">
-                  ...
+                  {readingDocument ? "Reading your document..." : "..."}
                 </div>
               ) : null}
               {isEditing ? (
@@ -945,13 +1140,13 @@ Use these details on the website where they fit. Do not invent extras beyond wha
                   {checkoutNotice}
                 </div>
               ) : null}
-              {tokenShortage ? (
+              {editShortage ? (
                 <button
                   type="button"
-                  onClick={() => openTokenTopup()}
+                  onClick={() => openEditTopup()}
                   className="inline-flex max-w-[92%] items-center justify-center rounded-full bg-teal-800 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-teal-700"
                 >
-                  Buy tokens · {formatZar(TOKEN_TOPUP_ZAR)}
+                  Buy 1 Edit for {formatZar(EDIT_TOPUP_ZAR)}
                 </button>
               ) : null}
               <div ref={messagesEndRef} />
@@ -959,18 +1154,54 @@ Use these details on the website where they fit. Do not invent extras beyond wha
 
             <div className="border-t border-stone-200/80 bg-[#f6f4ef] p-3">
               <form onSubmit={handleChatSubmit} className="flex flex-col gap-2">
-                <div className="relative flex gap-2">
+                {chatPhase === "intake" ? (
                   <input
+                    ref={fileInputRef}
+                    type="file"
+                    accept={INTAKE_UPLOAD_ACCEPT}
+                    className="sr-only"
+                    tabIndex={-1}
+                    disabled={chatDisabled || flyerUploaded}
+                    onChange={handleIntakeUpload}
+                  />
+                ) : null}
+                <div className="relative flex gap-2">
+                  {chatPhase === "intake" ? (
+                    <button
+                      type="button"
+                      onClick={() => fileInputRef.current?.click()}
+                      disabled={chatDisabled || flyerUploaded}
+                      aria-label={
+                        flyerUploaded
+                          ? "A flyer or PDF has already been uploaded for this website"
+                          : "Upload a flyer, business card, or PDF"
+                      }
+                      title={
+                        flyerUploaded
+                          ? "You can upload one flyer or PDF per website"
+                          : "Upload a flyer, business card, or PDF"
+                      }
+                      className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-stone-300 bg-white text-stone-600 transition hover:bg-stone-50 hover:text-teal-800 disabled:cursor-not-allowed disabled:bg-stone-100 disabled:text-stone-400"
+                    >
+                      <PaperclipIcon />
+                    </button>
+                  ) : null}
+                  <input
+                    ref={chatInputRef}
                     type="text"
                     value={chatInput}
                     onChange={(event) => setChatInput(event.target.value)}
                     maxLength={500}
                     placeholder={
-                      chatLocked
-                        ? "Chat tokens have been used up"
-                        : chatPhase === "edit"
-                          ? "Describe a change..."
-                          : "Message..."
+                      outOfEdits
+                        ? "Buy Edits to continue"
+                        : chatLocked
+                          ? "Edits have been used up"
+                          : chatPhase === "edit"
+                            ? "Describe a change..."
+                            : flyerUploaded
+                              ? "Message..."
+                              : "Message, or upload a flyer..."
                     }
                     disabled={chatDisabled}
                     className="w-full rounded-full border border-stone-300 bg-white px-4 py-2.5 text-sm text-stone-800 outline-none transition placeholder:text-stone-400 focus:border-teal-700 focus:ring-2 focus:ring-teal-700/20 disabled:bg-stone-100"
@@ -983,6 +1214,18 @@ Use these details on the website where they fit. Do not invent extras beyond wha
                     Send
                   </button>
                 </div>
+                <p className="px-1 text-[11px] leading-relaxed text-stone-500">
+                  Making a change uses 1 Edit (2 Edits for full site generation).
+                </p>
+                {outOfEdits ? (
+                  <button
+                    type="button"
+                    onClick={() => openEditTopup()}
+                    className="inline-flex items-center justify-center rounded-full bg-teal-800 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-teal-700"
+                  >
+                    Buy 1 Edit for {formatZar(EDIT_TOPUP_ZAR)}
+                  </button>
+                ) : null}
                 <GenerationProgressBar
                   key={progressBarKey}
                   active={status === "generating" || isEditing}
@@ -999,13 +1242,13 @@ Use these details on the website where they fit. Do not invent extras beyond wha
               {error ? (
                 <div className="mt-2 flex flex-col gap-2">
                   <p className="text-xs text-red-700">{error}</p>
-                  {tokenShortage ? (
+                  {editShortage ? (
                     <button
                       type="button"
-                      onClick={() => openTokenTopup()}
+                      onClick={() => openEditTopup()}
                       className="self-start rounded-full bg-teal-800 px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-teal-700"
                     >
-                      Buy tokens
+                      Buy 1 Edit for {formatZar(EDIT_TOPUP_ZAR)}
                     </button>
                   ) : null}
                 </div>

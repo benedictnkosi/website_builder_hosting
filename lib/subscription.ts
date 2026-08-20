@@ -5,6 +5,7 @@ import path from "node:path";
 import { randomBytes } from "node:crypto";
 import { getAdminFirestore, isFirebaseAdminConfigured } from "@/lib/firebase-admin";
 import { getWebsiteDirectory } from "@/lib/file-manager";
+import { isBillingFrequency, type BillingFrequency } from "@/lib/pricing";
 import { isValidWebsiteId } from "@/lib/validation";
 
 export type SubscriptionStatus = "pending" | "active" | "cancelled";
@@ -21,7 +22,7 @@ export type WebsiteSubscription = {
   domainPriceZar: number;
   websiteFeeZar: number;
   currency: string;
-  frequency: "monthly" | "annual";
+  frequency: BillingFrequency;
   mocked: boolean;
   email?: string;
   payfastPaymentId?: string;
@@ -31,7 +32,6 @@ export type WebsiteSubscription = {
   processedNotifyIds?: string[];
   lastPaymentStatus?: string;
   paidAt?: string;
-  tokensGranted?: boolean;
 };
 
 const SUBSCRIPTION_FILE = ".subscription.json";
@@ -71,7 +71,7 @@ function asSubscription(
     domainPriceZar: typeof data.domainPriceZar === "number" ? data.domainPriceZar : 0,
     websiteFeeZar: typeof data.websiteFeeZar === "number" ? data.websiteFeeZar : 0,
     currency: typeof data.currency === "string" ? data.currency : "ZAR",
-    frequency: data.frequency === "annual" ? "annual" : "monthly",
+    frequency: isBillingFrequency(data.frequency) ? data.frequency : "monthly",
     mocked: Boolean(data.mocked),
     email: typeof data.email === "string" ? data.email : undefined,
     payfastPaymentId:
@@ -85,7 +85,6 @@ function asSubscription(
     lastPaymentStatus:
       typeof data.lastPaymentStatus === "string" ? data.lastPaymentStatus : undefined,
     paidAt: typeof data.paidAt === "string" ? data.paidAt : undefined,
-    tokensGranted: Boolean(data.tokensGranted),
   };
 }
 

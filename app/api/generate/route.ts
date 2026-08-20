@@ -4,13 +4,18 @@ import { createGenerateJob, jobJsonHeaders, scheduleJobTick, toJobView } from "@
 import { getPeopleEthnicityOption } from "@/lib/people-ethnicity";
 import { clientKey, consumeRateLimit, jsonRateLimitError } from "@/lib/rate-limit";
 import { requireOwnedWebsite } from "@/lib/sites";
-import { assertGenerateTokens, jsonTokenError } from "@/lib/tokens";
+import { assertGenerateEdits, jsonEditError } from "@/lib/edits";
 import { isValidWebsiteId } from "@/lib/validation";
+import { runWithMockAiFromRequest } from "@/lib/mock-ai";
 
 export const runtime = "nodejs";
 export const maxDuration = 30;
 
 export async function POST(request: Request) {
+  return runWithMockAiFromRequest(request, () => handlePost(request));
+}
+
+async function handlePost(request: Request) {
   let user;
   try {
     user = await requireUser(request);
@@ -69,12 +74,6 @@ export async function POST(request: Request) {
       ? body.contactEmail.trim()
       : "";
 
-  const continueWithAvailableInfo =
-    typeof body === "object" &&
-    body !== null &&
-    "continueWithAvailableInfo" in body &&
-    body.continueWithAvailableInfo === true;
-
   const websiteId =
     typeof body === "object" &&
     body !== null &&
@@ -98,10 +97,10 @@ export async function POST(request: Request) {
   }
 
   try {
-    await assertGenerateTokens(user, { allowDepleted: continueWithAvailableInfo });
+    await assertGenerateEdits(user);
   } catch (error) {
-    const tokenResponse = jsonTokenError(error);
-    if (tokenResponse) return tokenResponse;
+    const editResponse = jsonEditError(error);
+    if (editResponse) return editResponse;
     return NextResponse.json(
       { success: false, error: "Could not start website generation." },
       { status: 500 },

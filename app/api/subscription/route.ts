@@ -42,6 +42,7 @@ export async function GET(request: Request) {
           amountZar: subscription.amountZar,
           domainPriceZar: subscription.domainPriceZar,
           websiteFeeZar: subscription.websiteFeeZar,
+          frequency: subscription.frequency,
           mocked: subscription.mocked,
         }
       : null,

@@ -1,4 +1,6 @@
+import { AsyncLocalStorage } from "node:async_hooks";
 import { extractBusinessName } from "./domain-name";
+import { MOCK_AI_COOKIE, MOCK_AI_HEADER, parseMockAiFlag } from "./mock-ai-preference";
 import type {
   GeneratedWebsite,
   WebsiteFile,
@@ -9,7 +11,38 @@ import type {
 const MOCK_PNG_BASE64 =
   "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==";
 
+const mockAiOverride = new AsyncLocalStorage<boolean | undefined>();
+
+function cookieFlag(cookieHeader: string | null): boolean | undefined {
+  if (!cookieHeader) return undefined;
+  for (const part of cookieHeader.split(";")) {
+    const [key, ...rest] = part.trim().split("=");
+    if (key === MOCK_AI_COOKIE) {
+      return parseMockAiFlag(rest.join("="));
+    }
+  }
+  return undefined;
+}
+
+export function mockAiOverrideFromRequest(request: Request): boolean | undefined {
+  if (process.env.NODE_ENV !== "development") return undefined;
+  const header = parseMockAiFlag(request.headers.get(MOCK_AI_HEADER));
+  if (header !== undefined) return header;
+  return cookieFlag(request.headers.get("cookie"));
+}
+
+export function runWithMockAiOverride<T>(override: boolean | undefined, fn: () => T): T {
+  return mockAiOverride.run(override, fn);
+}
+
+export function runWithMockAiFromRequest<T>(request: Request, fn: () => T): T {
+  return runWithMockAiOverride(mockAiOverrideFromRequest(request), fn);
+}
+
 export function isMockAiEnabled(): boolean {
+  const override = mockAiOverride.getStore();
+  if (override === false) return false;
+  if (override === true) return true;
   if (process.env.MOCK_AI === "false") {
     return false;
   }
@@ -55,6 +88,12 @@ function extractAbout(text: string): string {
     return labeled[1].trim();
   }
   return "";
+}
+
+function extractTradingHours(text: string): string {
+  if (/did not provide trading hours/i.test(text)) return "";
+  const labeled = text.match(/trading hours:\s*([\s\S]+?)(?:\n\n|Include a trading hours|$)/i);
+  return labeled?.[1]?.trim() ?? "";
 }
 
 export function mockValidateDescription(prompt: string) {
@@ -110,6 +149,7 @@ export function mockGenerateWebsite(prompt: string): GeneratedWebsite {
   const contactEmail = extractContactEmail(prompt);
   const contactEndpoint = extractContactEndpoint(prompt);
   const about = extractAbout(prompt);
+  const tradingHours = extractTradingHours(prompt);
 
   const mapSection = includeMap
     ? `<section id="map">
@@ -126,6 +166,13 @@ export function mockGenerateWebsite(prompt: string): GeneratedWebsite {
     ? `<section id="about">
     <h2>About us</h2>
     <p>${about}</p>
+  </section>`
+    : "";
+
+  const hoursSection = tradingHours
+    ? `<section id="hours">
+    <h2>Trading hours</h2>
+    <p>${tradingHours}</p>
   </section>`
     : "";
 
@@ -170,26 +217,38 @@ export function mockGenerateWebsite(prompt: string): GeneratedWebsite {
   <meta name="twitter:title" content="${title}">
   <meta name="twitter:description" content="${description}">
   <meta name="twitter:image" content="images/hero.webp">
+  <link rel="icon" href="favicon.png" type="image/png">
+  <link rel="apple-touch-icon" href="favicon.png">
   <link rel="stylesheet" href="styles.css">
   <script type="application/ld+json">${jsonLd}</script>
 </head>
-<body>
-  <header>
-    <nav>
-      ${about ? '<a href="#about">About</a>' : ""}
-      <a href="#services">Services</a>
-      <a href="#contact">Contact</a>
+<body id="top">
+  <header class="site-header">
+    <nav class="navbar" aria-label="Main navigation">
+      <a class="brand" href="#top">${businessName}</a>
+      <button class="nav-toggle" type="button" aria-expanded="false" aria-controls="nav-menu" aria-label="Open menu">
+        <span></span><span></span><span></span>
+      </button>
+      <ul class="nav-menu" id="nav-menu">
+        ${about ? '<li><a href="#about">About</a></li>' : ""}
+        <li><a href="#services">Services</a></li>
+        ${tradingHours ? '<li><a href="#hours">Hours</a></li>' : ""}
+        ${includeMap ? '<li><a href="#map">Location</a></li>' : ""}
+        ${includeContactForm && contactEmail ? '<li><a href="#contact">Contact</a></li>' : ""}
+      </ul>
+      <a class="nav-cta" href="tel:${phone.replace(/\s/g, "")}">Call</a>
     </nav>
-    <h1>${businessName}</h1>
-    <p>Mock website generated locally for testing.</p>
   </header>
   <main>
     <section class="hero">
+      <h1>${businessName}</h1>
+      <p>Mock website generated locally for testing.</p>
       <img src="images/hero.webp" alt="${businessName} in South Africa">
       <p>Phone: <a href="tel:${phone.replace(/\s/g, "")}">${phone}</a></p>
       ${whatsappButton}
     </section>
     ${aboutSection}
+    ${hoursSection}
     <section id="services">
       <h2>Services</h2>
       <p>Local services for South African customers.</p>
@@ -206,18 +265,45 @@ export function mockGenerateWebsite(prompt: string): GeneratedWebsite {
 
   const stylesCss = `* { box-sizing: border-box; }
 body { font-family: system-ui, sans-serif; margin: 0; color: #1c1917; background: #fafaf9; }
-header, main { max-width: 960px; margin: 0 auto; padding: 24px; }
+main { max-width: 960px; margin: 0 auto; padding: 24px; }
+.site-header { position: sticky; top: 0; z-index: 20; background: rgba(250,250,249,.92); border-bottom: 1px solid #e7e5e4; backdrop-filter: blur(12px); }
+.navbar { position: relative; max-width: 960px; margin: 0 auto; padding: 12px 24px; display: flex; align-items: center; gap: 12px; }
+.brand { margin-right: auto; font-weight: 700; text-decoration: none; color: #1c1917; }
+.nav-menu { display: flex; gap: 4px; list-style: none; margin: 0; padding: 0; }
+.nav-menu a { display: inline-flex; padding: 8px 12px; border-radius: 999px; text-decoration: none; color: #57534e; font-weight: 600; font-size: 14px; }
+.nav-menu a:hover { background: #f5f5f4; color: #1c1917; }
+.nav-cta { display: inline-flex; padding: 8px 14px; border-radius: 999px; background: #115e59; color: #fff; text-decoration: none; font-weight: 700; font-size: 14px; }
+.nav-toggle { display: none; width: 40px; height: 40px; border: 1px solid #d6d3d1; border-radius: 999px; background: #fff; cursor: pointer; }
+.nav-toggle span { display: block; width: 16px; height: 2px; margin: 3px auto; background: #1c1917; border-radius: 999px; }
 .hero img { width: 100%; max-height: 320px; object-fit: cover; border-radius: 16px; }
 .whatsapp { display: inline-block; margin-top: 12px; padding: 10px 16px; background: #128c7e; color: white; text-decoration: none; border-radius: 999px; }
 #map iframe { border-radius: 16px; }
 #contact form { display: grid; gap: 12px; }
 #contact input, #contact textarea { width: 100%; padding: 10px 12px; border: 1px solid #d6d3d1; border-radius: 10px; }
 #contact button { justify-self: start; padding: 10px 16px; background: #115e59; color: white; border: 0; border-radius: 999px; }
-#contact-status { min-height: 1.2em; color: #57534e; }`;
+#contact-status { min-height: 1.2em; color: #57534e; }
+@media (max-width: 767px) {
+  .nav-toggle { display: inline-flex; flex-direction: column; justify-content: center; }
+  .nav-menu { display: none; position: absolute; top: calc(100% + 8px); left: 16px; right: 16px; flex-direction: column; padding: 8px; background: #fff; border: 1px solid #e7e5e4; border-radius: 16px; box-shadow: 0 16px 40px rgba(28,25,23,.12); }
+  .nav-menu.is-open { display: flex; }
+}`;
 
   const escapedBusiness = businessName.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
   const scriptJs = `document.addEventListener("DOMContentLoaded", () => {
   console.log("Mock website loaded for ${escapedBusiness}");
+  const toggle = document.querySelector(".nav-toggle");
+  const menu = document.getElementById("nav-menu");
+  if (toggle instanceof HTMLElement && menu) {
+    const setOpen = (open) => {
+      menu.classList.toggle("is-open", open);
+      toggle.setAttribute("aria-expanded", String(open));
+      toggle.setAttribute("aria-label", open ? "Close menu" : "Open menu");
+    };
+    toggle.addEventListener("click", () => setOpen(!menu.classList.contains("is-open")));
+    menu.querySelectorAll("a").forEach((link) => {
+      link.addEventListener("click", () => setOpen(false));
+    });
+  }
   const form = document.getElementById("contact-form");
   const status = document.getElementById("contact-status");
   if (!form || !status) return;

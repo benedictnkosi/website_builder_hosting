@@ -22,6 +22,12 @@ import {
   siteObjectExists,
   uploadSiteObject,
 } from "./site-storage";
+import {
+  getDefaultFaviconPreview,
+  injectDefaultFaviconLinks,
+  isDefaultFaviconRequest,
+  withDefaultFavicon,
+} from "./default-favicon";
 
 const GENERATED_SITES_DIR = "generated-sites";
 const EDITABLE_EXTENSIONS = new Set([".html", ".css", ".js"]);
@@ -360,7 +366,18 @@ export async function readWebsitePreviewFile(
   }
 
   const body = await readStoredWebsiteFile(websiteId, normalized);
-  if (!body) return null;
+  if (!body) {
+    if (isDefaultFaviconRequest(normalized)) {
+      return getDefaultFaviconPreview();
+    }
+    return null;
+  }
+
+  if (normalized.toLowerCase().endsWith(".html")) {
+    const html = injectDefaultFaviconLinks(body.toString("utf8"));
+    return { body: Buffer.from(html, "utf8"), contentType };
+  }
+
   return { body, contentType };
 }
 
@@ -419,7 +436,7 @@ export async function readDeployableWebsiteFiles(
     throw new GeneratorError("No website files found to deploy.");
   }
 
-  return files;
+  return withDefaultFavicon(files);
 }
 
 export async function listWebsiteImagePaths(
@@ -497,7 +514,7 @@ export async function updateWebsiteFiles(
   idToken?: string,
 ): Promise<void> {
   assertWebsiteId(websiteId);
-  const stamped = stampWebsiteIdInFiles(files, websiteId);
+  const stamped = stampWebsiteIdInFiles(withDefaultFavicon(files), websiteId);
   const stored = await writeStoredWebsiteFiles(websiteId, stamped, idToken);
 
   try {
@@ -514,10 +531,11 @@ export async function replaceWebsiteFiles(
   extraKeepPaths: string[] = [],
   idToken?: string,
 ): Promise<void> {
-  await updateWebsiteFiles(websiteId, files, idToken);
+  const filesWithFavicon = withDefaultFavicon(files);
+  await updateWebsiteFiles(websiteId, filesWithFavicon, idToken);
 
   const keep = new Set<string>();
-  for (const file of files) {
+  for (const file of filesWithFavicon) {
     keep.add(normalizeRelativePath(file.path));
   }
   for (const extra of extraKeepPaths) {
@@ -571,7 +589,7 @@ export async function writeWebsiteFiles(
   const requestedId = websiteId?.trim() ?? "";
   const replacing = isValidWebsiteId(requestedId);
   const id = replacing ? requestedId : createWebsiteId();
-  const stamped = stampWebsiteIdInFiles(files, id);
+  const stamped = stampWebsiteIdInFiles(withDefaultFavicon(files), id);
 
   try {
     if (replacing) {

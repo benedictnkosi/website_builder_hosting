@@ -18,7 +18,6 @@ import {
   startBackgroundStructuredResponse,
 } from "@/lib/openai";
 import type { WebsiteFile, WebsiteImagePlan } from "@/lib/types";
-import { chargeTokens, MOCK_TOKEN_USAGE } from "@/lib/tokens";
 import { GeneratorError, normalizeRelativePath } from "@/lib/validation";
 
 const OPENAI_MODEL = "gpt-5.5";
@@ -61,7 +60,11 @@ If an IMAGE PLAN is provided, follow it exactly:
 
 If no IMAGE PLAN is provided, keep existing image paths as they are.
 
-Preserve existing SEO unless the user asks to change it: title, meta description, Open Graph tags, Twitter tags, JSON-LD, heading structure, and image alt text. If the requested edit changes the business name, about text, services, phone, address, or location, update those SEO fields so they stay accurate. Do not invent reviews, ratings, or credentials.
+Preserve existing SEO unless the user asks to change it: title, meta description, Open Graph tags, Twitter tags, JSON-LD, heading structure, image alt text, and favicon / apple-touch-icon link tags. If the requested edit changes the business name, about text, services, phone, address, location, or trading hours, update those SEO fields so they stay accurate. Do not invent reviews, ratings, or credentials.
+
+Keep the site header usable: desktop horizontal nav links, a Call or Book action when a phone number exists, and a mobile hamburger panel that closes after a link click. Do not collapse desktop navigation into a hamburger-only menu.
+
+If adding or updating trading hours, use exactly the hours the user provided, include a section with id="hours", and link it in the nav. If they ask to remove hours, omit the hours section and its nav link. Do not invent days, times, or holiday notes.
 
 If adding or updating a contact form, submit with fetch() POST JSON to the existing contact API endpoint. Send websiteId, name, email, phone, message, and businessName. Never send a recipient "to" address, API keys, Resend secrets, or server-side code.
 
@@ -226,7 +229,6 @@ export async function applyMockWebsiteEdit(
 ): Promise<WebsiteFile[]> {
   console.log("[mock-ai] Applying mock edit");
   await mockDelay(700);
-  await chargeTokens(MOCK_TOKEN_USAGE.edit, 0, undefined, "edit");
   const updatedFiles = mockEditWebsite(filesToEdit, instruction, imagePlan);
   await updateWebsiteFiles(websiteId, updatedFiles, idToken);
   return updatedFiles;

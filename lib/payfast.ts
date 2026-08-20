@@ -1,7 +1,12 @@
 import "server-only";
 
 import { createHash } from "node:crypto";
-import { payfastAmount } from "@/lib/pricing";
+import {
+  formatEdits,
+  payfastAmount,
+  payfastFrequencyCode,
+  type BillingFrequency,
+} from "@/lib/pricing";
 
 const CHECKOUT_FIELD_ORDER = [
   "merchant_id",
@@ -259,6 +264,7 @@ export function buildPayfastSubscriptionCheckout(input: {
   paymentId: string;
   domain: string;
   amountZar: number;
+  frequency: BillingFrequency;
   email?: string;
   name?: string;
 }): { processUrl: string; fields: PayfastCheckoutFields } {
@@ -273,6 +279,7 @@ export function buildPayfastSubscriptionCheckout(input: {
   const amount = payfastAmount(input.amountZar);
   const [firstName, ...lastParts] = (input.name ?? "").trim().split(/\s+/);
   const lastName = lastParts.join(" ");
+  const periodLabel = input.frequency === "annual" ? "Annual" : "Monthly";
 
   const unordered: Omit<PayfastCheckoutFields, "signature"> = {
     merchant_id: merchantId,
@@ -283,15 +290,16 @@ export function buildPayfastSubscriptionCheckout(input: {
     m_payment_id: input.paymentId,
     amount,
     item_name: `Lulaweb website + ${input.domain}`,
-    item_description: `Monthly Lulaweb website and domain subscription for ${input.domain}`,
+    item_description: `${periodLabel} Lulaweb website and domain subscription for ${input.domain}`,
     subscription_type: "1",
     recurring_amount: amount,
-    frequency: "3",
+    frequency: payfastFrequencyCode(input.frequency),
     cycles: "0",
     custom_str1: input.websiteId,
     custom_str2: input.domain,
     custom_str3: input.paymentId,
     custom_str4: "subscription",
+    custom_str5: input.frequency,
     ...(firstName ? { name_first: firstName.slice(0, 100) } : {}),
     ...(lastName ? { name_last: lastName.slice(0, 100) } : {}),
     ...(input.email ? { email_address: input.email.slice(0, 100) } : {}),
@@ -309,13 +317,13 @@ export function buildPayfastSubscriptionCheckout(input: {
   };
 }
 
-export function buildPayfastTokenTopupCheckout(input: {
+export function buildPayfastEditTopupCheckout(input: {
   origin: string;
   returnPath: string;
   paymentId: string;
   uid: string;
   amountZar: number;
-  tokens: number;
+  edits: number;
   email?: string;
   name?: string;
 }): { processUrl: string; fields: PayfastCheckoutFields } {
@@ -336,17 +344,17 @@ export function buildPayfastTokenTopupCheckout(input: {
   const unordered: Omit<PayfastCheckoutFields, "signature"> = {
     merchant_id: merchantId,
     merchant_key: merchantKey,
-    return_url: `${input.origin}${returnPath}${separator}tokens=return`,
-    cancel_url: `${input.origin}${returnPath}${separator}tokens=cancel`,
+    return_url: `${input.origin}${returnPath}${separator}edits=return`,
+    cancel_url: `${input.origin}${returnPath}${separator}edits=cancel`,
     notify_url: `${input.origin}/api/payfast/notify`,
     m_payment_id: input.paymentId,
     amount,
-    item_name: "Lulaweb token top-up",
-    item_description: `${input.tokens.toLocaleString("en-ZA")} website building tokens`,
+    item_name: `Lulaweb · ${formatEdits(input.edits)}`,
+    item_description: `${formatEdits(input.edits)} for website building`,
     payment_method: "cc",
     custom_str1: input.uid,
     custom_str2: input.paymentId,
-    custom_str4: "tokens",
+    custom_str4: "edits",
     ...(firstName ? { name_first: firstName.slice(0, 100) } : {}),
     ...(lastName ? { name_last: lastName.slice(0, 100) } : {}),
     ...(input.email ? { email_address: input.email.slice(0, 100) } : {}),

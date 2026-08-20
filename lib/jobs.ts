@@ -23,7 +23,7 @@ import {
   readUserJobDocument,
   writeUserJobDocument,
 } from "@/lib/firestore";
-import { isMockAiEnabled } from "@/lib/mock-ai";
+import { isMockAiEnabled, runWithMockAiOverride } from "@/lib/mock-ai";
 import {
   BackgroundUnsupportedError,
   cancelBackgroundStructuredResponse,
@@ -32,7 +32,7 @@ import {
   startWebsiteGenerationBackground,
 } from "@/lib/openai";
 import { createOwnedWebsite, requireOwnedWebsite } from "@/lib/sites";
-import { runWithTokenSpend } from "@/lib/tokens";
+import { consumeEditEdits, consumeGenerateEdits } from "@/lib/edits";
 import type {
   SiteJobKind,
   SiteJobStatus,
@@ -290,6 +290,16 @@ async function completeJob(
   websiteId: string,
   message: string,
 ): Promise<SiteJob> {
+  try {
+    if (job.kind === "edit") {
+      await consumeEditEdits(user.uid, job.jobId);
+    } else {
+      await consumeGenerateEdits(user.uid, job.jobId);
+    }
+  } catch (error) {
+    console.error("Could not consume Edits for completed job:", error);
+  }
+
   return patchJob(user, job, {
     status: "complete",
     step: "done",
@@ -451,8 +461,9 @@ export async function createEditJob(
 }
 
 export function scheduleJobTick(user: AuthUser, jobId: string): void {
+  const mockAi = isMockAiEnabled();
   after(() => {
-    void tickJob(user, jobId, { allowSlow: true });
+    void runWithMockAiOverride(mockAi, () => tickJob(user, jobId, { allowSlow: true }));
   });
 }
 
@@ -790,11 +801,7 @@ export async function tickJob(
   }
 
   try {
-    await runWithTokenSpend(
-      user.uid,
-      () => advanceJob(user, job, allowSlow),
-      job.kind === "edit" ? "edit" : "generate",
-    );
+    await advanceJob(user, job, allowSlow);
   } catch (error) {
     const latest = (await readJob(user, jobId)) ?? job;
     return failJob(user, latest, error);

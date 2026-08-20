@@ -21,12 +21,13 @@ import {
   isFirebaseClientConfigured,
 } from "@/lib/firebase";
 import { clearBuilderSession } from "@/lib/builder-session";
+import { applyMockAiHeaders, syncMockAiPreferenceFromUrl } from "@/lib/mock-ai-preference";
 import { trackLogin, trackLoginFailed, trackLogout } from "@/lib/analytics";
 
 type AuthContextValue = {
   user: User | null;
   loading: boolean;
-  signInWithGoogle: () => Promise<void>;
+  signInWithGoogle: () => Promise<boolean>;
   signOut: () => Promise<void>;
   getIdToken: () => Promise<string | null>;
   authFetch: (input: string, init?: RequestInit) => Promise<Response>;
@@ -50,6 +51,10 @@ async function syncSessionCookie(user: User | null) {
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    syncMockAiPreferenceFromUrl();
+  }, []);
 
   useEffect(() => {
     if (!isFirebaseClientConfigured()) {
@@ -88,8 +93,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             getFirebaseAuth(),
             getGoogleProvider(),
           );
-          trackLogin(Boolean(getAdditionalUserInfo(result)?.isNewUser));
+          const isNewUser = Boolean(getAdditionalUserInfo(result)?.isNewUser);
+          trackLogin(isNewUser);
           await syncSessionCookie(result.user);
+          return isNewUser;
         } catch (err) {
           const code =
             typeof err === "object" && err && "code" in err
@@ -121,6 +128,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
         const headers = new Headers(init.headers);
         headers.set("Authorization", `Bearer ${token}`);
+        applyMockAiHeaders(headers);
         if (init.body && !headers.has("Content-Type")) {
           headers.set("Content-Type", "application/json");
         }

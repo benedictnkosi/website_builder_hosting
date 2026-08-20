@@ -1,14 +1,52 @@
 import Link from "next/link";
 import BrandMark from "@/components/BrandMark";
-import SupportForm from "@/components/SupportForm";
 import {
   LandingCtaSignIn,
-  LandingHeaderSignIn,
   LandingHeroSignIn,
   LandingSignedInRedirect,
 } from "@/components/LandingAuth";
+import LandingHeader from "@/components/LandingHeader";
 import { HOME_FAQ } from "@/lib/seo";
-import { formatZar, MONTHLY_SUBSCRIPTION_ZAR } from "@/lib/pricing";
+import {
+  ANNUAL_PLAN_MONTHLY_ZAR,
+  ANNUAL_PLAN_ZAR,
+  formatZar,
+  MONTHLY_PLAN_ZAR,
+} from "@/lib/pricing";
+
+const INCLUDED_IN_PRICE = [
+  {
+    title: "Website design",
+    body: "Copy, layout, and images from one chat.",
+  },
+  {
+    title: ".co.za domain",
+    body: "A South African name bound at checkout.",
+  },
+  {
+    title: "Hosting",
+    body: "Your site stays live on Lulaweb.",
+  },
+] as const;
+
+function IncludedCheckIcon() {
+  return (
+    <svg
+      aria-hidden="true"
+      viewBox="0 0 20 20"
+      className="h-4 w-4 shrink-0 text-teal-800"
+      fill="none"
+    >
+      <path
+        d="M4.5 10.5 8 14l7.5-8"
+        stroke="currentColor"
+        strokeWidth="1.8"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
 
 function ProductPreview() {
   return (
@@ -114,26 +152,7 @@ export default function LandingPage() {
       >
         Skip to content
       </a>
-      <header className="mx-auto flex w-full max-w-6xl items-center justify-between px-4 py-5 sm:px-6 lg:px-8">
-        <Link href="/" aria-label="Lulaweb home">
-          <BrandMark />
-        </Link>
-        <nav aria-label="Primary" className="hidden items-center gap-6 text-sm font-medium text-stone-600 md:flex">
-          <a href="#how-it-works" className="hover:text-stone-900">
-            How it works
-          </a>
-          <a href="#pricing" className="hover:text-stone-900">
-            Pricing
-          </a>
-          <a href="#faq" className="hover:text-stone-900">
-            FAQ
-          </a>
-          <a href="#support" className="hover:text-stone-900">
-            Support
-          </a>
-        </nav>
-        <LandingHeaderSignIn />
-      </header>
+      <LandingHeader />
 
       <main id="main" className="relative isolate min-h-full overflow-x-hidden">
         <div className="pointer-events-none absolute inset-0 -z-10">
@@ -153,16 +172,33 @@ export default function LandingPage() {
             </h1>
             <p className="mt-8">
               <span className="block text-6xl font-semibold tracking-tight text-teal-800 sm:text-8xl">
-                R{MONTHLY_SUBSCRIPTION_ZAR}
+                R{ANNUAL_PLAN_MONTHLY_ZAR}
               </span>
               <span className="mt-2 block text-lg font-medium text-stone-800 sm:text-2xl">
-                per month, including hosting
+                per month, billed annually
+              </span>
+              <span className="mt-1 block text-sm font-medium text-stone-500 sm:text-base">
+                or {formatZar(MONTHLY_PLAN_ZAR)} per month
               </span>
             </p>
+            <ul
+              className="mx-auto mt-6 grid max-w-2xl gap-2 sm:grid-cols-3"
+              aria-label="Included in the monthly price"
+            >
+              {INCLUDED_IN_PRICE.map((item) => (
+                <li
+                  key={item.title}
+                  className="flex items-center justify-center gap-2 rounded-full bg-white px-4 py-2.5 text-sm font-semibold text-stone-900 shadow-sm ring-1 ring-teal-800/20"
+                >
+                  <IncludedCheckIcon />
+                  {item.title}
+                </li>
+              ))}
+            </ul>
             <p className="mx-auto mt-5 max-w-xl text-lg leading-relaxed text-stone-600">
-              We write the copy, design the pages, and put WhatsApp and your
-              phone on a live preview — built for South African businesses.
-              Preview is free. Publish to a .co.za when you are ready.
+              Design, a .co.za domain, and hosting are in the price — plus
+              WhatsApp and click-to-call. Preview is free. You only pay when
+              you publish.
             </p>
             <LandingHeroSignIn />
           </section>
@@ -193,12 +229,12 @@ export default function LandingPage() {
                 {
                   step: "02",
                   title: "Preview instantly",
-                  body: "Preview is free. Use your tokens to tweak the site, then subscribe to publish.",
+                  body: "Preview is free. Use Edits to tweak the site, then subscribe to publish.",
                 },
                 {
                   step: "03",
                   title: "Publish on a .co.za",
-                  body: `Domain and hosting, ${formatZar(MONTHLY_SUBSCRIPTION_ZAR)} a month, when the site looks right.`,
+                  body: `Design, domain, and hosting are included — from ${formatZar(ANNUAL_PLAN_MONTHLY_ZAR)} a month billed annually when the site looks right.`,
                   featured: true,
                 },
               ].map((item) => (
@@ -260,21 +296,33 @@ export default function LandingPage() {
             className="mx-auto mt-16 w-full max-w-5xl scroll-mt-24"
           >
             <h2 className="text-center text-2xl font-semibold tracking-tight text-stone-900">
-              What your Lulaweb site includes
+              What {formatZar(ANNUAL_PLAN_MONTHLY_ZAR)} a month includes
             </h2>
-            <div className="mt-8 grid gap-4 sm:grid-cols-2">
+            <p className="mx-auto mt-3 max-w-2xl text-center text-sm leading-relaxed text-stone-600">
+              Design, domain, and hosting are in the subscription. No separate
+              designer, registrar, or hosting bill.
+            </p>
+            <div className="mt-8 grid gap-4 sm:grid-cols-3">
+              {INCLUDED_IN_PRICE.map((item) => (
+                <article
+                  key={item.title}
+                  className="rounded-2xl border border-teal-800/25 bg-teal-50/70 p-5 shadow-sm"
+                >
+                  <p className="flex items-center gap-2 text-base font-semibold text-stone-900">
+                    <IncludedCheckIcon />
+                    {item.title}
+                  </p>
+                  <p className="mt-2 text-sm leading-relaxed text-stone-600">
+                    {item.body}
+                  </p>
+                </article>
+              ))}
+            </div>
+            <div className="mt-4 grid gap-4 sm:grid-cols-2">
               {[
-                {
-                  title: "AI-written copy and layout",
-                  body: "Pages are generated from your chat, with headings, service lists, and a clear call to action instead of a blank template.",
-                },
                 {
                   title: "Click-to-call and WhatsApp",
                   body: "Customers can phone or WhatsApp you from their phone. Contact details stay visible on every page.",
-                },
-                {
-                  title: ".co.za domain and hosting",
-                  body: `Search an available .co.za name at checkout. Lulaweb hosts the site and publishes it when you subscribe for ${formatZar(MONTHLY_SUBSCRIPTION_ZAR)} a month.`,
                 },
                 {
                   title: "South Africa first",
@@ -298,35 +346,81 @@ export default function LandingPage() {
 
           <section
             id="pricing"
-            className="mx-auto mt-16 w-full max-w-3xl scroll-mt-24 text-center"
+            className="mx-auto mt-16 w-full max-w-5xl scroll-mt-24 text-center"
           >
             <h2 className="text-2xl font-semibold tracking-tight text-stone-900">
               Simple website pricing in South Africa
             </h2>
             <p className="mx-auto mt-3 max-w-xl text-sm leading-relaxed text-stone-600">
-              Preview is free. {formatZar(MONTHLY_SUBSCRIPTION_ZAR)}/month · .co.za
-              included when you go live.
+              Preview is free. Design, a .co.za domain, and hosting are included
+              when you go live.
             </p>
-            <article className="mt-8 rounded-[1.6rem] border border-stone-200/80 bg-white p-8 text-left shadow-[0_24px_80px_rgba(28,25,23,0.08)]">
-              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-teal-800">
-                Monthly website + domain
-              </p>
-              <p className="mt-3 text-4xl font-semibold tracking-tight text-stone-900">
-                {formatZar(MONTHLY_SUBSCRIPTION_ZAR)}
-                <span className="ml-2 text-base font-medium text-stone-500">
-                  / month
-                </span>
-              </p>
-              <ul className="mt-5 space-y-2 text-sm leading-relaxed text-stone-600">
-                <li>Live website hosted by Lulaweb</li>
-                <li>.co.za domain bound at checkout</li>
-                <li>Chat-based edits while you have tokens</li>
-                <li>Free preview before you pay</li>
-              </ul>
-              <div className="mt-6">
-                <LandingCtaSignIn />
-              </div>
-            </article>
+            <div className="mt-8 grid gap-4 text-left sm:grid-cols-2">
+              <article className="rounded-[1.6rem] border border-teal-800/30 bg-teal-50/60 p-8 shadow-[0_24px_80px_rgba(28,25,23,0.08)]">
+                <p className="text-xs font-semibold uppercase tracking-[0.18em] text-teal-800">
+                  Annual · best value
+                </p>
+                <p className="mt-3 text-4xl font-semibold tracking-tight text-stone-900">
+                  {formatZar(ANNUAL_PLAN_MONTHLY_ZAR)}
+                  <span className="ml-2 text-base font-medium text-stone-500">
+                    / month
+                  </span>
+                </p>
+                <p className="mt-1 text-sm text-stone-600">
+                  Billed annually at {formatZar(ANNUAL_PLAN_ZAR)}
+                </p>
+                <ul className="mt-5 space-y-2 text-sm leading-relaxed text-stone-600">
+                  {INCLUDED_IN_PRICE.map((item) => (
+                    <li key={item.title} className="flex items-start gap-2">
+                      <IncludedCheckIcon />
+                      <span>
+                        <span className="font-semibold text-stone-800">
+                          {item.title}
+                        </span>
+                        {" — "}
+                        {item.body}
+                      </span>
+                    </li>
+                  ))}
+                  <li>Chat-based edits while you have Edits remaining</li>
+                  <li>Free preview before you pay</li>
+                </ul>
+                <div className="mt-6">
+                  <LandingCtaSignIn />
+                </div>
+              </article>
+              <article className="rounded-[1.6rem] border border-stone-200/80 bg-white p-8 shadow-[0_24px_80px_rgba(28,25,23,0.08)]">
+                <p className="text-xs font-semibold uppercase tracking-[0.18em] text-stone-500">
+                  Monthly
+                </p>
+                <p className="mt-3 text-4xl font-semibold tracking-tight text-stone-900">
+                  {formatZar(MONTHLY_PLAN_ZAR)}
+                  <span className="ml-2 text-base font-medium text-stone-500">
+                    / month
+                  </span>
+                </p>
+                <p className="mt-1 text-sm text-stone-600">Billed every month</p>
+                <ul className="mt-5 space-y-2 text-sm leading-relaxed text-stone-600">
+                  {INCLUDED_IN_PRICE.map((item) => (
+                    <li key={`monthly-${item.title}`} className="flex items-start gap-2">
+                      <IncludedCheckIcon />
+                      <span>
+                        <span className="font-semibold text-stone-800">
+                          {item.title}
+                        </span>
+                        {" — "}
+                        {item.body}
+                      </span>
+                    </li>
+                  ))}
+                  <li>Chat-based edits while you have Edits remaining</li>
+                  <li>Free preview before you pay</li>
+                </ul>
+                <div className="mt-6">
+                  <LandingCtaSignIn />
+                </div>
+              </article>
+            </div>
           </section>
 
           <section id="faq" className="mx-auto mt-16 w-full max-w-3xl scroll-mt-24">
@@ -353,10 +447,6 @@ export default function LandingPage() {
               ))}
             </div>
           </section>
-
-          <div className="mx-auto mt-16 w-full max-w-5xl scroll-mt-24">
-            <SupportForm heading="Talk to us" />
-          </div>
         </div>
       </main>
 
@@ -367,8 +457,9 @@ export default function LandingPage() {
               <BrandMark />
             </Link>
             <p className="mt-3 max-w-sm text-sm leading-relaxed text-stone-600">
-              AI website builder for South African businesses. Create a
-              professional .co.za website in one conversation.
+              AI website builder for South African businesses. Design, a .co.za
+              domain, and hosting from R{ANNUAL_PLAN_MONTHLY_ZAR} a month billed
+              annually.
             </p>
           </div>
           <nav aria-label="Footer" className="flex flex-wrap gap-x-6 gap-y-2 text-sm text-stone-600">
@@ -381,16 +472,13 @@ export default function LandingPage() {
             <a href="#faq" className="hover:text-stone-900">
               FAQ
             </a>
-            <a href="#support" className="hover:text-stone-900">
-              Support
-            </a>
             <Link href="/privacy" className="hover:text-stone-900">
               Privacy
             </Link>
           </nav>
         </div>
         <p className="border-t border-stone-200/70 px-4 py-4 text-center text-xs text-stone-500">
-          © 2026 Lulaweb. Websites and .co.za hosting for
+          © 2026 Lulaweb. Website design, .co.za domains, and hosting for
           South African small businesses.
         </p>
       </footer>

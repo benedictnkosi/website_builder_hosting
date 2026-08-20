@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { jsonAuthError, verifyIdToken, sessionCookieOptions } from "@/lib/auth-server";
 import { upsertUserProfile } from "@/lib/firestore";
 import { SESSION_COOKIE } from "@/lib/session-cookie";
-import { ensureSignupTokens } from "@/lib/tokens";
+import { ensureSignupEdits } from "@/lib/edits";
 
 export const runtime = "nodejs";
 
@@ -14,7 +14,7 @@ export async function POST(request: Request) {
     const user = await verifyIdToken(token);
     try {
       await upsertUserProfile(user);
-      await ensureSignupTokens(user);
+      await ensureSignupEdits(user);
     } catch (error) {
       console.error("Could not save user profile to Firestore:", error);
     }

@@ -1,7 +1,6 @@
 import { GeneratorError, REQUIRED_FILES } from "./validation";
 import type { GeneratedWebsite } from "./types";
 import { isMockAiEnabled, mockDelay, mockGenerateWebsite } from "./mock-ai";
-import { chargeOpenAIUsage, chargeTokens, FALLBACK_TOKEN_USAGE, MOCK_TOKEN_USAGE } from "./tokens";
 
 const OPENAI_RESPONSES_URL = "https://api.openai.com/v1/responses";
 const OPENAI_MODEL = "gpt-5.5";
@@ -40,6 +39,12 @@ If the user provides an About us / business story:
 - Do not invent history, years in business, credentials, awards, or a backstory they did not provide.
 - If no about text is provided, omit the About section rather than fabricating one.
 
+If the user provides trading hours:
+- Include a trading hours section with id="hours" using exactly those days and times.
+- Do not invent extra days, times, public-holiday notes, or "open 24/7" claims they did not provide.
+- If JSON-LD is included, set openingHours from those hours when they are specific enough.
+If trading hours are not provided, omit any hours, opening times, or trading-hours section and do not invent them.
+
 If the user asks for a Contact Us form:
 - Include a contact section with name, email, and message fields (phone optional).
 - Display the business email address visibly on the website (contact section, header or footer) as a mailto link.
@@ -57,6 +62,7 @@ Aggressive on-page SEO is required in index.html:
 - Unique <title> of 50-60 characters: business name, primary service, and city/area if known.
 - <meta name="description"> of 140-160 characters with the main service, location, and a clear call to action. Do not invent claims.
 - <meta name="robots" content="index, follow">
+- <link rel="icon" href="favicon.png" type="image/png"> and <link rel="apple-touch-icon" href="favicon.png">. Do not generate the favicon file.
 - Open Graph tags: og:title, og:description, og:type=website, og:locale=en_ZA (if South Africa), og:image pointing at the hero image relative path.
 - Twitter card summary_large_image with twitter:title, twitter:description, and twitter:image.
 - Semantic HTML: header, nav, main, section, footer. Exactly one h1. Logical h2/h3 headings that include real services and the location when known.
@@ -65,7 +71,10 @@ Aggressive on-page SEO is required in index.html:
 - A JSON-LD <script type="application/ld+json"> LocalBusiness (or a more specific subtype such as Plumber, HairSalon, Restaurant, ProfessionalService) with name, description, telephone, address, areaServed, and url omitted if unknown. Do not add FAQPage JSON-LD.
 - Do not include an FAQ section.
 - Do not invent reviews, star ratings, prices, licences, or credentials.
-- Use internal in-page links (#about, #services, #contact) in the nav. Include #about only when an About section exists. Do not link to #faq.
+- Sticky site header with the brand on the left (business name, not the h1), in-page nav links, and a Call or Book button when a phone number exists.
+- At 768px and wider, keep nav links visible in a horizontal row. Do not hide desktop navigation behind a hamburger.
+- Below 768px, use a compact hamburger that opens a full-width panel with large tap targets. Set aria-expanded, close the panel after a link is clicked, and change the icon to an X while open.
+- Use internal in-page links (#about, #services, #hours, #contact) in the nav. Include #about only when an About section exists. Include #hours only when a trading hours section exists. Include #location or #map when a map section exists. Do not link to #faq.
 - Do not keyword-stuff, hide text, or repeat the same phrase unnaturally.`;
 
 const WEBSITE_JSON_SCHEMA = {
@@ -270,7 +279,6 @@ export async function generateWebsiteFromOpenAI(
   if (isMockAiEnabled()) {
     console.log("[mock-ai] Generating mock website");
     await mockDelay(900);
-    await chargeTokens(MOCK_TOKEN_USAGE.generate, 0, undefined, "generate");
     return mockGenerateWebsite(prompt);
   }
 
@@ -335,7 +343,6 @@ export async function generateWebsiteFromOpenAI(
 
   const payload = (await response.json()) as OpenAIResponsesPayload;
   console.log("OpenAI response:", JSON.stringify(payload, null, 2));
-  await chargeOpenAIUsage(payload, FALLBACK_TOKEN_USAGE.generate, "generate");
 
   if (payload.error?.message) {
     throw new GeneratorError(payload.error.message, 502);
@@ -468,7 +475,6 @@ export async function startBackgroundStructuredResponse(input: {
   }
 
   if (result?.status === "completed") {
-    await chargeOpenAIUsage(result, 0);
     return { id, outputText: collectOutputText(result) };
   }
 
@@ -537,7 +543,6 @@ export async function runForegroundStructuredResponse(input: {
     );
   }
 
-  await chargeOpenAIUsage(result, FALLBACK_TOKEN_USAGE.edit, "edit");
   return collectOutputText(result);
 }
 
@@ -601,7 +606,6 @@ export async function retrieveBackgroundStructuredResponse(
   }
 
   try {
-    await chargeOpenAIUsage(payload, 0);
     return { status: "complete", outputText: collectOutputText(payload) };
   } catch (error) {
     return {

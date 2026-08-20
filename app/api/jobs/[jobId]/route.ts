@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { jsonAuthError, requireUser } from "@/lib/auth-server";
 import { jobJsonHeaders, readJob, scheduleJobTick, tickJob, toJobView } from "@/lib/jobs";
 import { isValidWebsiteId } from "@/lib/validation";
+import { runWithMockAiFromRequest } from "@/lib/mock-ai";
 
 export const runtime = "nodejs";
 export const maxDuration = 120;
@@ -9,6 +10,13 @@ export const maxDuration = 120;
 export async function GET(
   request: Request,
   { params }: { params: Promise<{ jobId: string }> },
+) {
+  return runWithMockAiFromRequest(request, () => handleGet(request, params));
+}
+
+async function handleGet(
+  request: Request,
+  params: Promise<{ jobId: string }>,
 ) {
   const { jobId } = await params;
 

@@ -9,7 +9,12 @@ import {
   isPayfastConfigured,
   isPayfastMockAllowed,
 } from "@/lib/payfast";
-import { MONTHLY_SUBSCRIPTION_ZAR, SUBSCRIPTION_TLD } from "@/lib/pricing";
+import {
+  parseBillingFrequency,
+  SUBSCRIPTION_TLD,
+  subscriptionAmountZar,
+  type BillingFrequency,
+} from "@/lib/pricing";
 import { clientKey, consumeRateLimit, jsonRateLimitError } from "@/lib/rate-limit";
 import { requireOwnedSite, writeWebsiteMeta } from "@/lib/sites";
 import {
@@ -18,7 +23,7 @@ import {
   writeSubscription,
   type WebsiteSubscription,
 } from "@/lib/subscription";
-import { grantSubscriptionTokens } from "@/lib/tokens";
+import { grantSubscriptionEdits } from "@/lib/edits";
 import { isValidWebsiteId } from "@/lib/validation";
 
 export const runtime = "nodejs";
@@ -60,6 +65,8 @@ export async function POST(request: Request) {
   const domain = stringField(body, "domain").toLowerCase();
   const email = stringField(body, "email");
   const name = stringField(body, "name");
+  const frequency = parseBillingFrequency(stringField(body, "frequency"));
+  const amountZar = subscriptionAmountZar(frequency);
 
   if (!websiteId || !isValidWebsiteId(websiteId)) {
     return NextResponse.json(
@@ -119,36 +126,32 @@ export async function POST(request: Request) {
       );
     }
 
-    if (!isPayfastConfigured()) {
-      if (!isPayfastMockAllowed()) {
+    if (
+      existing.frequency === frequency &&
+      existing.amountZar === amountZar
+    ) {
+      if (!isPayfastConfigured()) {
+        if (!isPayfastMockAllowed()) {
+          return NextResponse.json(
+            { success: false, error: "PayFast is not configured." },
+            { status: 503 },
+          );
+        }
+      } else {
         return NextResponse.json(
-          { success: false, error: "PayFast is not configured." },
-          { status: 503 },
+          payfastCheckoutResponse({
+            origin: requestOrigin(request),
+            websiteId,
+            paymentId: existing.paymentId,
+            domain: existing.domain,
+            amountZar: existing.amountZar,
+            websiteFeeZar: existing.websiteFeeZar,
+            frequency: existing.frequency,
+            email: email || existing.email,
+            name: name || undefined,
+          }),
         );
       }
-    } else {
-      const checkout = buildPayfastSubscriptionCheckout({
-        origin: requestOrigin(request),
-        websiteId,
-        paymentId: existing.paymentId,
-        domain: existing.domain,
-        amountZar: existing.amountZar,
-        email: email || existing.email,
-        name: name || undefined,
-      });
-      return NextResponse.json({
-        success: true,
-        paid: false,
-        mocked: false,
-        processUrl: checkout.processUrl,
-        fields: checkout.fields,
-        subscription: {
-          websiteId,
-          domain: existing.domain,
-          amountZar: existing.amountZar,
-          websiteFeeZar: existing.websiteFeeZar,
-        },
-      });
     }
   }
 
@@ -189,11 +192,11 @@ export async function POST(request: Request) {
       sld,
       tld,
       status: "pending",
-      amountZar: MONTHLY_SUBSCRIPTION_ZAR,
+      amountZar,
       domainPriceZar: 0,
-      websiteFeeZar: MONTHLY_SUBSCRIPTION_ZAR,
+      websiteFeeZar: amountZar,
       currency: "ZAR",
-      frequency: "monthly",
+      frequency,
       mocked: false,
       email: email || existing?.email,
       createdAt: existing?.createdAt ?? now,
@@ -212,7 +215,6 @@ export async function POST(request: Request) {
       subscription.status = "active";
       subscription.mocked = true;
       subscription.paidAt = now;
-      subscription.tokensGranted = true;
       await writeSubscription(subscription);
       await writeWebsiteMeta(
         { ...owner.meta, updatedAt: subscription.updatedAt },
@@ -220,9 +222,9 @@ export async function POST(request: Request) {
         subscription,
       );
       try {
-        await grantSubscriptionTokens(owner.user.uid, websiteId);
+        await grantSubscriptionEdits(owner.user.uid, websiteId);
       } catch (error) {
-        console.error("Could not grant subscription tokens:", error);
+        console.error("Could not grant subscription Edits:", error);
       }
       return NextResponse.json({
         success: true,
@@ -239,32 +241,50 @@ export async function POST(request: Request) {
       subscription,
     );
 
-    const checkout = buildPayfastSubscriptionCheckout({
-      origin: requestOrigin(request),
-      websiteId,
-      paymentId,
-      domain: result.domain,
-      amountZar: MONTHLY_SUBSCRIPTION_ZAR,
-      email: email || undefined,
-      name: name || undefined,
-    });
-
-    return NextResponse.json({
-      success: true,
-      paid: false,
-      mocked: false,
-      processUrl: checkout.processUrl,
-      fields: checkout.fields,
-      subscription: {
+    return NextResponse.json(
+      payfastCheckoutResponse({
+        origin: requestOrigin(request),
         websiteId,
+        paymentId,
         domain: result.domain,
-        amountZar: MONTHLY_SUBSCRIPTION_ZAR,
-        websiteFeeZar: MONTHLY_SUBSCRIPTION_ZAR,
-      },
-    });
+        amountZar,
+        websiteFeeZar: amountZar,
+        frequency,
+        email: email || undefined,
+        name: name || undefined,
+      }),
+    );
   } catch (error) {
     const message =
       error instanceof Error ? error.message : "Could not start checkout.";
     return NextResponse.json({ success: false, error: message }, { status: 502 });
   }
+}
+
+function payfastCheckoutResponse(input: {
+  origin: string;
+  websiteId: string;
+  paymentId: string;
+  domain: string;
+  amountZar: number;
+  websiteFeeZar: number;
+  frequency: BillingFrequency;
+  email?: string;
+  name?: string;
+}) {
+  const checkout = buildPayfastSubscriptionCheckout(input);
+  return {
+    success: true,
+    paid: false,
+    mocked: false,
+    processUrl: checkout.processUrl,
+    fields: checkout.fields,
+    subscription: {
+      websiteId: input.websiteId,
+      domain: input.domain,
+      amountZar: input.amountZar,
+      websiteFeeZar: input.websiteFeeZar,
+      frequency: input.frequency,
+    },
+  };
 }

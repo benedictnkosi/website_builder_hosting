@@ -1,15 +1,19 @@
+import { readFile } from "node:fs/promises";
+import { join } from "node:path";
 import { ImageResponse } from "next/og";
-import { MONTHLY_SUBSCRIPTION_ZAR } from "@/lib/pricing";
+import { ANNUAL_PLAN_MONTHLY_ZAR } from "@/lib/pricing";
 
-export const alt =
-  "Lulaweb — AI website builder for South African businesses. Get a .co.za website from R19 a month.";
+export const alt = `Lulaweb — AI website builder for South African businesses. Design, a .co.za domain, and hosting from R${ANNUAL_PLAN_MONTHLY_ZAR} a month billed annually.`;
 export const size = {
   width: 1200,
   height: 630,
 };
 export const contentType = "image/png";
 
-export default function Image() {
+export default async function Image() {
+  const logo = await readFile(join(process.cwd(), "public/logo.png"));
+  const logoSrc = `data:image/png;base64,${logo.toString("base64")}`;
+
   return new ImageResponse(
     (
       <div
@@ -31,22 +35,7 @@ export default function Image() {
             gap: "16px",
           }}
         >
-          <div
-            style={{
-              width: 56,
-              height: 56,
-              borderRadius: 16,
-              background: "#115e59",
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              color: "white",
-              fontSize: 28,
-              fontWeight: 700,
-            }}
-          >
-            L
-          </div>
+          <img src={logoSrc} width={56} height={56} alt="" />
           <div style={{ display: "flex", fontSize: 32, fontWeight: 600 }}>
             Lulaweb
           </div>
@@ -72,7 +61,7 @@ export default function Image() {
               maxWidth: 820,
             }}
           >
-            {`Chat about your business. Get a live website and a .co.za domain from R${MONTHLY_SUBSCRIPTION_ZAR}/month.`}
+            {`Chat about your business. Design, a .co.za domain, and hosting from R${ANNUAL_PLAN_MONTHLY_ZAR}/month billed annually.`}
           </div>
         </div>
         <div
@@ -84,11 +73,11 @@ export default function Image() {
             fontWeight: 600,
           }}
         >
-          <span>Free preview</span>
+          <span>Website design</span>
           <span>·</span>
-          <span>.co.za hosting</span>
+          <span>.co.za domain</span>
           <span>·</span>
-          <span>WhatsApp + call buttons</span>
+          <span>Hosting included</span>
         </div>
       </div>
     ),

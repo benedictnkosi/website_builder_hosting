@@ -7,21 +7,21 @@ import {
   parsePayfastNotify,
   verifyPayfastSignature,
 } from "@/lib/payfast";
-import { TOKEN_TOPUP_ZAR } from "@/lib/pricing";
+import { EDIT_TOPUP_ZAR } from "@/lib/pricing";
 import { readSubscription, writeSubscription } from "@/lib/subscription";
-import { readTokenTopup, writeTokenTopup } from "@/lib/token-topup";
-import { grantSubscriptionTokens, grantTopupTokens } from "@/lib/tokens";
+import { readEditTopup, writeEditTopup } from "@/lib/edit-topup";
+import { grantSubscriptionEdits, grantTopupEdits } from "@/lib/edits";
 
 export const runtime = "nodejs";
 
-async function handleTokenTopup(data: Record<string, string>) {
+async function handleEditTopup(data: Record<string, string>) {
   const paymentId = data.m_payment_id?.trim() || data.custom_str2?.trim() || "";
   const uid = data.custom_str1?.trim() || "";
   if (!paymentId) {
     return rejectNotify("Missing payment details.", 400, data);
   }
 
-  const topup = await readTokenTopup(paymentId);
+  const topup = await readEditTopup(paymentId);
   if (!topup || (uid && topup.ownerUid !== uid)) {
     return new NextResponse("Unknown payment.", { status: 404 });
   }
@@ -33,7 +33,7 @@ async function handleTokenTopup(data: Record<string, string>) {
     return new NextResponse("OK", { status: 200 });
   }
 
-  if (!amountsMatch(topup.amountZar || TOKEN_TOPUP_ZAR, data.amount_gross)) {
+  if (!amountsMatch(topup.amountZar || EDIT_TOPUP_ZAR, data.amount_gross)) {
     return rejectNotify("Amount mismatch.", 400, data);
   }
 
@@ -42,8 +42,8 @@ async function handleTokenTopup(data: Record<string, string>) {
   const processedNotifyIds = [...(topup.processedNotifyIds ?? []), notifyId].slice(-20);
 
   if (status === "COMPLETE") {
-    await grantTopupTokens(topup.ownerUid, topup.paymentId);
-    await writeTokenTopup({
+    await grantTopupEdits(topup.ownerUid, topup.paymentId, topup.edits);
+    await writeEditTopup({
       ...topup,
       status: "complete",
       payfastPaymentId: data.pf_payment_id || topup.payfastPaymentId,
@@ -53,7 +53,7 @@ async function handleTokenTopup(data: Record<string, string>) {
       processedNotifyIds,
     });
   } else if (status === "FAILED") {
-    await writeTokenTopup({
+    await writeEditTopup({
       ...topup,
       status: "failed",
       payfastPaymentId: data.pf_payment_id || topup.payfastPaymentId,
@@ -62,7 +62,7 @@ async function handleTokenTopup(data: Record<string, string>) {
       processedNotifyIds,
     });
   } else {
-    await writeTokenTopup({
+    await writeEditTopup({
       ...topup,
       payfastPaymentId: data.pf_payment_id || topup.payfastPaymentId,
       updatedAt: now,
@@ -106,7 +106,11 @@ async function handleSubscription(data: Record<string, string>) {
     if (status === "COMPLETE") {
       const ownerUid = subscription.ownerUid || (await readSiteOwnerUid(websiteId));
       if (subscription.status !== "active" && ownerUid) {
-        await grantSubscriptionTokens(ownerUid, websiteId);
+        try {
+          await grantSubscriptionEdits(ownerUid, websiteId);
+        } catch (error) {
+          console.error("Could not grant subscription Edits:", error);
+        }
       }
 
     await writeSubscription({
@@ -119,7 +123,6 @@ async function handleSubscription(data: Record<string, string>) {
       updatedAt: now,
       lastPaymentStatus: status,
       processedNotifyIds,
-      tokensGranted: true,
     });
   } else if (status === "CANCELLED") {
     await writeSubscription({
@@ -185,8 +188,8 @@ export async function POST(request: Request) {
     return rejectNotify("Merchant mismatch.", 400, data);
   }
 
-  if (data.custom_str4?.trim() === "tokens") {
-    return handleTokenTopup(data);
+  if (data.custom_str4?.trim() === "edits" || data.custom_str4?.trim() === "tokens") {
+    return handleEditTopup(data);
   }
 
   return handleSubscription(data);
