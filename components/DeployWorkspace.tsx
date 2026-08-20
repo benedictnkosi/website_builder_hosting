@@ -56,6 +56,31 @@ function SearchIcon() {
   );
 }
 
+function SpinnerIcon({ className = "h-5 w-5" }: { className?: string }) {
+  return (
+    <svg
+      className={`animate-spin ${className}`}
+      viewBox="0 0 24 24"
+      fill="none"
+      aria-hidden="true"
+    >
+      <circle
+        className="opacity-25"
+        cx="12"
+        cy="12"
+        r="10"
+        stroke="currentColor"
+        strokeWidth="4"
+      />
+      <path
+        className="opacity-90"
+        fill="currentColor"
+        d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"
+      />
+    </svg>
+  );
+}
+
 function StepCheckIcon() {
   return (
     <svg aria-hidden="true" viewBox="0 0 20 20" className="h-3.5 w-3.5" fill="none">
@@ -513,6 +538,7 @@ export default function DeployWorkspace({
       <section
         role="dialog"
         aria-labelledby="domain-card-title"
+        aria-busy={searching || deployStatus === "deploying"}
         className="max-h-full w-full max-w-xl overflow-y-auto rounded-[1.4rem] border border-stone-200 bg-white p-5 shadow-[0_24px_80px_rgba(28,25,23,0.2)] sm:p-6"
         onClick={(event) => event.stopPropagation()}
       >
@@ -566,11 +592,33 @@ export default function DeployWorkspace({
               aria-label={searching ? "Checking domain" : "Search domain"}
               className="flex w-12 items-center justify-center bg-teal-800 text-white transition hover:bg-teal-700 disabled:cursor-not-allowed disabled:bg-stone-400 sm:w-14"
             >
-              <SearchIcon />
+              {searching ? <SpinnerIcon className="h-5 w-5" /> : <SearchIcon />}
             </button>
           </div>
         </form>
         )}
+
+        {searching ? (
+          <div
+            className="mt-5 rounded-2xl border border-stone-200 bg-stone-50 p-4"
+            role="status"
+            aria-live="polite"
+          >
+            <div className="flex items-center gap-3">
+              <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-teal-800 text-white">
+                <SpinnerIcon className="h-5 w-5" />
+              </span>
+              <div>
+                <p className="text-sm font-semibold text-stone-900">
+                  Checking availability
+                </p>
+                <p className="mt-0.5 text-xs text-stone-500">
+                  Looking up {query.trim()}.{SUBSCRIPTION_TLD}
+                </p>
+              </div>
+            </div>
+          </div>
+        ) : null}
 
         {searchError ? (
           <p className="mt-3 text-sm text-red-700">{searchError}</p>
