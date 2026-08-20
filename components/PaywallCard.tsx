@@ -40,6 +40,31 @@ function SearchIcon() {
   );
 }
 
+function SpinnerIcon({ className = "h-5 w-5" }: { className?: string }) {
+  return (
+    <svg
+      className={`animate-spin ${className}`}
+      viewBox="0 0 24 24"
+      fill="none"
+      aria-hidden="true"
+    >
+      <circle
+        className="opacity-25"
+        cx="12"
+        cy="12"
+        r="10"
+        stroke="currentColor"
+        strokeWidth="4"
+      />
+      <path
+        className="opacity-90"
+        fill="currentColor"
+        d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"
+      />
+    </svg>
+  );
+}
+
 type PaywallCardProps = {
   websiteId: string;
   suggestedName: string;
@@ -148,23 +173,25 @@ export default function PaywallCard({
 
       if (!response.ok || !data.success) {
         setCheckoutError(data.error || "Could not start checkout.");
+        setCheckingOut(false);
         return;
       }
 
       if (data.paid) {
+        setCheckingOut(false);
         onSubscribed(result.domain, billedAmount);
         return;
       }
 
       if (!data.processUrl || !data.fields) {
         setCheckoutError("PayFast did not return checkout details.");
+        setCheckingOut(false);
         return;
       }
 
       submitPayfastForm(data.processUrl, data.fields);
     } catch {
       setCheckoutError("Could not start PayFast checkout. Please try again.");
-    } finally {
       setCheckingOut(false);
     }
   }
@@ -172,14 +199,36 @@ export default function PaywallCard({
   return (
     <div
       className="absolute inset-0 z-20 flex items-end justify-center bg-stone-900/35 p-3 sm:items-center sm:p-6"
-      onClick={onClose}
+      onClick={() => {
+        if (!checkingOut) onClose();
+      }}
     >
       <section
         role="dialog"
         aria-labelledby="paywall-card-title"
-        className="max-h-full w-full max-w-xl overflow-y-auto rounded-[1.4rem] border border-stone-200 bg-white p-5 shadow-[0_24px_80px_rgba(28,25,23,0.2)] sm:p-6"
+        aria-busy={checkingOut}
+        className="relative max-h-full w-full max-w-xl overflow-y-auto rounded-[1.4rem] border border-stone-200 bg-white p-5 shadow-[0_24px_80px_rgba(28,25,23,0.2)] sm:p-6"
         onClick={(event) => event.stopPropagation()}
       >
+        {checkingOut ? (
+          <div
+            className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-3 rounded-[1.4rem] bg-white/90 px-6 text-center"
+            role="status"
+            aria-live="polite"
+          >
+            <span className="flex h-12 w-12 items-center justify-center rounded-2xl bg-teal-800 text-white">
+              <SpinnerIcon className="h-6 w-6" />
+            </span>
+            <div>
+              <p className="text-sm font-semibold text-stone-900">
+                Redirecting to PayFast
+              </p>
+              <p className="mt-1 text-xs text-stone-500">
+                Stay on this page. Checkout opens in a moment.
+              </p>
+            </div>
+          </div>
+        ) : null}
         <div className="flex items-start justify-between gap-3">
           <div>
             <p className="text-xs font-semibold uppercase tracking-[0.22em] text-teal-800">
@@ -195,7 +244,8 @@ export default function PaywallCard({
           <button
             type="button"
             onClick={onClose}
-            className="shrink-0 rounded-full px-3 py-1.5 text-sm font-medium text-teal-800 transition hover:bg-teal-50"
+            disabled={checkingOut}
+            className="shrink-0 rounded-full px-3 py-1.5 text-sm font-medium text-teal-800 transition hover:bg-teal-50 disabled:cursor-not-allowed disabled:opacity-50"
           >
             Back to chat
           </button>
@@ -313,11 +363,16 @@ export default function PaywallCard({
                   type="button"
                   onClick={() => void handleSubscribe()}
                   disabled={checkingOut}
-                  className="mt-4 inline-flex w-full items-center justify-center rounded-full bg-teal-800 px-5 py-3 text-sm font-semibold text-white transition hover:bg-teal-700 disabled:cursor-not-allowed disabled:bg-stone-400"
+                  className="mt-4 inline-flex w-full items-center justify-center gap-2 rounded-full bg-teal-800 px-5 py-3 text-sm font-semibold text-white transition hover:bg-teal-700 disabled:cursor-not-allowed disabled:bg-stone-400"
                 >
-                  {checkingOut
-                    ? "Starting PayFast..."
-                    : `Subscribe · ${formatBilledAmount(billedAmount, frequency)}`}
+                  {checkingOut ? (
+                    <>
+                      <SpinnerIcon className="h-4 w-4" />
+                      Redirecting to PayFast...
+                    </>
+                  ) : (
+                    `Subscribe · ${formatBilledAmount(billedAmount, frequency)}`
+                  )}
                 </button>
                 <p className="mt-2 text-xs text-stone-500">
                   {frequency === "annual"

@@ -16,7 +16,7 @@ export const metadata: Metadata = {
 export default function BuilderPage() {
   return (
     <AuthGuard>
-      <main className="flex h-dvh min-h-0 flex-col overflow-hidden">
+      <main className="flex h-dvh min-h-0 min-w-0 flex-col overflow-x-hidden overflow-y-hidden">
         <AppHeader />
         <Suspense
           fallback={

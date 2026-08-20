@@ -9,6 +9,7 @@ const PRIMARY_LINKS = [
   { href: "#how-it-works", label: "How it works" },
   { href: "#pricing", label: "Pricing" },
   { href: "#faq", label: "FAQ" },
+  { href: "#support", label: "Support" },
 ] as const;
 
 function MenuIcon({ open }: { open: boolean }) {

@@ -99,7 +99,7 @@ export default function AppHeader() {
 
   return (
     <header className="sticky top-0 z-20 border-b border-stone-200/80 bg-[color:var(--background)]/85 backdrop-blur-md">
-      <div className="mx-auto flex w-full max-w-[90rem] items-center justify-between gap-3 px-4 py-2.5 sm:px-5">
+      <div className="mx-auto flex w-full min-w-0 max-w-[90rem] items-center justify-between gap-2 overflow-x-hidden px-4 py-2.5 sm:gap-3 sm:px-5">
         <Link href="/dashboard" aria-label="Go to dashboard" onClick={() => setMobileOpen(false)}>
           <BrandMark />
         </Link>

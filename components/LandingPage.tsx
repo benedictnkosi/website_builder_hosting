@@ -6,6 +6,7 @@ import {
   LandingSignedInRedirect,
 } from "@/components/LandingAuth";
 import LandingHeader from "@/components/LandingHeader";
+import SupportForm from "@/components/SupportForm";
 import { HOME_FAQ } from "@/lib/seo";
 import {
   ANNUAL_PLAN_MONTHLY_ZAR,
@@ -17,7 +18,7 @@ import {
 const INCLUDED_IN_PRICE = [
   {
     title: "Website design",
-    body: "Copy, layout, and images from one chat.",
+    body: "Free to start — copy, layout, and images from one chat.",
   },
   {
     title: ".co.za domain",
@@ -25,7 +26,7 @@ const INCLUDED_IN_PRICE = [
   },
   {
     title: "Hosting",
-    body: "Your site stays live on Lulaweb.",
+    body: "Website hosting included. Your site stays live on Lulaweb.",
   },
 ] as const;
 
@@ -164,11 +165,11 @@ export default function LandingPage() {
         <div className="mx-auto flex w-full max-w-6xl flex-col px-4 pb-16 pt-6 sm:px-6 lg:px-8">
           <section className="mx-auto max-w-3xl text-center">
             <p className="mb-4 text-xs font-semibold uppercase tracking-[0.14em] text-teal-800">
-              A website from one chat. Live in minutes.
+              Small business website South Africa
             </p>
             <h1 className="text-4xl font-semibold tracking-tight text-stone-900 sm:text-6xl sm:leading-[1.05]">
-              Describe your business.
-              <span className="mt-1 block text-teal-800">Get a website.</span>
+              Describe your small business.
+              <span className="mt-1 block text-teal-800">Get a 10 rand website.</span>
             </h1>
             <p className="mt-8">
               <span className="block text-6xl font-semibold tracking-tight text-teal-800 sm:text-8xl">
@@ -195,7 +196,11 @@ export default function LandingPage() {
                 </li>
               ))}
             </ul>
-            <p className="mx-auto mt-5 max-w-xl text-xl font-bold leading-snug text-stone-900">
+            <p className="mx-auto mt-5 max-w-xl text-sm leading-relaxed text-stone-600 sm:text-base">
+              Free website design to start. Website hosting and a .co.za domain
+              included when you publish.
+            </p>
+            <p className="mx-auto mt-3 max-w-xl text-xl font-bold leading-snug text-stone-900">
               A Social Project for small businesses.
             </p>
             <LandingHeroSignIn />
@@ -210,12 +215,13 @@ export default function LandingPage() {
             className="mx-auto mt-16 w-full max-w-5xl scroll-mt-24"
           >
             <h2 className="text-center text-2xl font-semibold tracking-tight text-stone-900">
-              How to create a website with Lulaweb
+              How to create a small business website
             </h2>
             <p className="mx-auto mt-3 max-w-2xl text-center text-sm leading-relaxed text-stone-600">
-              No templates, agencies, or long forms. Tell us what you do in
-              plain language and get a mobile-friendly South African business
-              website.
+              No templates, agencies, or long forms. Tell us what your small
+              business does in plain language, get free website design, and
+              publish a mobile-friendly South African site from{" "}
+              {formatZar(ANNUAL_PLAN_MONTHLY_ZAR)} a month.
             </p>
             <div className="mt-8 grid gap-4 sm:grid-cols-3">
               {[
@@ -263,12 +269,12 @@ export default function LandingPage() {
             className="mx-auto mt-16 w-full max-w-5xl scroll-mt-24"
           >
             <h2 className="text-center text-2xl font-semibold tracking-tight text-stone-900">
-              A cheap website for local South African businesses
+              The cheapest small business website in South Africa
             </h2>
             <p className="mx-auto mt-3 max-w-2xl text-center text-sm leading-relaxed text-stone-600">
-              Built for trades and local services that need to be found on
-              Google, called from a phone, or messaged on WhatsApp — not for
-              giant ecommerce catalogues.
+              A 10 rand website for SMMEs and local services that need to be
+              found on Google, called from a phone, or messaged on WhatsApp —
+              not for giant ecommerce catalogues.
             </p>
             <ul className="mt-8 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
               {[
@@ -277,7 +283,7 @@ export default function LandingPage() {
                 "Clinics, dentists, and therapists",
                 "Restaurants, bakeries, and caterers",
                 "Consultants, coaches, and accountants",
-                "Churches, NPOs, and community groups",
+                "Spaza shops, home businesses, and NPOs",
               ].map((item) => (
                 <li
                   key={item}
@@ -294,11 +300,12 @@ export default function LandingPage() {
             className="mx-auto mt-16 w-full max-w-5xl scroll-mt-24"
           >
             <h2 className="text-center text-2xl font-semibold tracking-tight text-stone-900">
-              What {formatZar(ANNUAL_PLAN_MONTHLY_ZAR)} a month includes
+              Free website design and hosting from {formatZar(ANNUAL_PLAN_MONTHLY_ZAR)} a month
             </h2>
             <p className="mx-auto mt-3 max-w-2xl text-center text-sm leading-relaxed text-stone-600">
-              Design, domain, and hosting are in the subscription. No separate
-              designer, registrar, or hosting bill.
+              Website design is free to start. Hosting and a .co.za domain are
+              in the subscription — no separate designer, registrar, or hosting
+              bill.
             </p>
             <div className="mt-8 grid gap-4 sm:grid-cols-3">
               {INCLUDED_IN_PRICE.map((item) => (
@@ -347,11 +354,11 @@ export default function LandingPage() {
             className="mx-auto mt-16 w-full max-w-5xl scroll-mt-24 text-center"
           >
             <h2 className="text-2xl font-semibold tracking-tight text-stone-900">
-              Simple website pricing in South Africa
+              Small business website pricing from 10 rand
             </h2>
             <p className="mx-auto mt-3 max-w-xl text-sm leading-relaxed text-stone-600">
-              Preview is free. Design, a .co.za domain, and hosting are included
-              when you go live.
+              Built for SMMEs. Free website design and preview to start.
+              Website hosting and a .co.za domain are included when you go live.
             </p>
             <div className="mt-8 grid gap-4 text-left sm:grid-cols-2">
               <article className="rounded-[1.6rem] border border-teal-800/30 bg-teal-50/60 p-8 shadow-[0_24px_80px_rgba(28,25,23,0.08)]">
@@ -445,6 +452,10 @@ export default function LandingPage() {
               ))}
             </div>
           </section>
+
+          <div className="mx-auto mt-16 w-full max-w-5xl">
+            <SupportForm description="Questions about pricing, domains, or getting a site live — send a message and we will reply to your email." />
+          </div>
         </div>
       </main>
 
@@ -455,9 +466,9 @@ export default function LandingPage() {
               <BrandMark />
             </Link>
             <p className="mt-3 max-w-sm text-sm leading-relaxed text-stone-600">
-              AI website builder for South African businesses. Design, a .co.za
-              domain, and hosting from R{ANNUAL_PLAN_MONTHLY_ZAR} a month billed
-              annually.
+              The cheapest small business website in South Africa. Free website
+              design to start, with hosting and a .co.za domain from{" "}
+              {formatZar(ANNUAL_PLAN_MONTHLY_ZAR)} a month billed annually.
             </p>
           </div>
           <nav aria-label="Footer" className="flex flex-wrap gap-x-6 gap-y-2 text-sm text-stone-600">
@@ -470,14 +481,17 @@ export default function LandingPage() {
             <a href="#faq" className="hover:text-stone-900">
               FAQ
             </a>
+            <a href="#support" className="hover:text-stone-900">
+              Support
+            </a>
             <Link href="/privacy" className="hover:text-stone-900">
               Privacy
             </Link>
           </nav>
         </div>
         <p className="border-t border-stone-200/70 px-4 py-4 text-center text-xs text-stone-500">
-          © 2026 Lulaweb. Website design, .co.za domains, and hosting for
-          South African small businesses.
+          © 2026 Lulaweb. The cheapest small business website in South Africa —
+          website design, .co.za domains, and hosting for SMMEs.
         </p>
       </footer>
     </>

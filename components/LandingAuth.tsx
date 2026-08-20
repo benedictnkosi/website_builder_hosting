@@ -139,7 +139,7 @@ function PreviewStartButton({
       disabled={signingIn}
       className="inline-flex items-center justify-center rounded-full bg-teal-800 px-6 py-3 text-sm font-semibold text-white shadow-[0_10px_24px_rgba(17,94,89,0.28)] transition hover:bg-teal-700 disabled:cursor-not-allowed disabled:opacity-60"
     >
-      {signingIn ? "Signing in..." : "Start a free preview"}
+      {signingIn ? "Signing in..." : "Try it free — No card needed"}
     </button>
   );
 }
@@ -151,7 +151,7 @@ export function LandingHeroSignIn() {
     <div className="mt-8 flex flex-col items-center gap-3">
       <PreviewStartButton signingIn={signingIn} onClick={handleGoogleSignIn} />
       <p className="text-sm text-stone-500">
-        You&apos;ll continue with Google. Free to preview. No payment to start.
+        Takes 1 minute • 100% Free to build &amp; test • No credit card required
       </p>
       {error ? <p className="text-sm text-red-700">{error}</p> : null}
     </div>
@@ -165,7 +165,7 @@ export function LandingCtaSignIn() {
     <div className="flex flex-col items-start gap-2">
       <PreviewStartButton signingIn={signingIn} onClick={handleGoogleSignIn} />
       <p className="text-sm text-stone-500">
-        You&apos;ll continue with Google. Free to preview.
+        Takes 1 minute • 100% Free to build &amp; test • No credit card required
       </p>
       {error ? <p className="text-sm text-red-700">{error}</p> : null}
     </div>

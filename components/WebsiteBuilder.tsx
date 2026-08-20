@@ -864,13 +864,13 @@ Use these details on the website where they fit. Do not invent extras beyond wha
     } catch (error) {
       if (isStaleRun(epoch)) return;
       if (error instanceof Error && error.message === "cancelled") return;
-      setError(
+      const message =
         error instanceof Error && error.message
           ? error.message
-          : "Could not apply changes. Please try again.",
-      );
+          : "Could not apply changes. Please try again.";
+      setError(message);
       clearJobView();
-      addAssistantMessage("Could not apply changes. Please try again.");
+      addAssistantMessage(message);
     } finally {
       if (!isStaleRun(epoch)) {
         setIsEditing(false);
@@ -1034,8 +1034,8 @@ Use these details on the website where they fit. Do not invent extras beyond wha
   }
 
   return (
-    <div className="mx-auto flex min-h-0 w-full max-w-[90rem] flex-1 flex-col px-3 pb-3 pt-3 sm:px-4 sm:pb-4">
-      <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden rounded-[1.6rem] border border-stone-200/80 bg-white shadow-[0_24px_80px_rgba(28,25,23,0.12)]">
+    <div className="mx-auto flex min-h-0 w-full min-w-0 max-w-[90rem] flex-1 flex-col overflow-x-hidden px-4 pb-4 pt-3 sm:px-5 sm:pb-4">
+      <div className="relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden rounded-[1.25rem] border border-stone-200/80 bg-white shadow-[0_24px_80px_rgba(28,25,23,0.12)] sm:rounded-[1.6rem]">
         {showAddressModal && pendingIntake ? (
           <AddressModal
             businessName={pendingIntake.business_name}
@@ -1073,11 +1073,11 @@ Use these details on the website where they fit. Do not invent extras beyond wha
             onClose={() => { setShowDeployCard(false); setAutoDeploy(false); }}
           />
         ) : null}
-        <div className="flex items-center gap-2 border-b border-stone-200 bg-stone-50 px-3 py-2.5 sm:px-4 sm:py-3">
-          <span className="h-2.5 w-2.5 rounded-full bg-stone-300" />
-          <span className="h-2.5 w-2.5 rounded-full bg-stone-300" />
-          <span className="h-2.5 w-2.5 rounded-full bg-stone-300" />
-          <div className="ml-2 min-w-0 flex-1 rounded-full bg-white px-3 py-1 text-center text-[11px] text-stone-400 ring-1 ring-stone-200">
+        <div className="flex min-w-0 items-center gap-2 border-b border-stone-200 bg-stone-50 px-4 py-2.5 sm:px-5 sm:py-3">
+          <span className="h-2.5 w-2.5 shrink-0 rounded-full bg-stone-300" />
+          <span className="h-2.5 w-2.5 shrink-0 rounded-full bg-stone-300" />
+          <span className="h-2.5 w-2.5 shrink-0 rounded-full bg-stone-300" />
+          <div className="ml-1 min-w-0 flex-1 truncate rounded-full bg-white px-3 py-1 text-center text-[11px] text-stone-400 ring-1 ring-stone-200">
             yoursite.co.za
           </div>
           <button
@@ -1089,18 +1089,18 @@ Use these details on the website where they fit. Do not invent extras beyond wha
           </button>
         </div>
 
-        <div className="grid min-h-0 flex-1 lg:grid-cols-[20.5rem_minmax(0,1fr)] xl:grid-cols-[22.5rem_minmax(0,1fr)]">
-          <aside className="flex min-h-0 flex-1 flex-col bg-[#f6f4ef] lg:border-r lg:border-stone-100">
-            <div className="px-4 pb-1 pt-4">
+        <div className="grid min-h-0 min-w-0 flex-1 grid-cols-1 lg:grid-cols-[20.5rem_minmax(0,1fr)] xl:grid-cols-[22.5rem_minmax(0,1fr)]">
+          <aside className="flex min-h-0 min-w-0 flex-1 flex-col bg-[#f6f4ef] lg:border-r lg:border-stone-100">
+            <div className="px-5 pb-1 pt-4">
               <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-teal-800">
                 Chat
               </p>
             </div>
-            <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto px-4 py-3">
+            <div className="flex min-h-0 min-w-0 flex-1 flex-col gap-3 overflow-x-hidden overflow-y-auto px-5 py-3">
               {messages.map((message, index) => (
                 <div
                   key={`${message.role}-${index}`}
-                  className={`max-w-[92%] rounded-2xl px-3.5 py-2.5 text-sm leading-relaxed ${
+                  className={`max-w-[min(92%,100%)] break-words rounded-2xl px-3.5 py-2.5 text-sm leading-relaxed ${
                     message.role === "assistant"
                       ? "rounded-tl-md bg-white text-stone-700 shadow-sm ring-1 ring-stone-200/80"
                       : "ml-auto whitespace-pre-line rounded-tr-md bg-teal-800 text-white"
@@ -1114,22 +1114,22 @@ Use these details on the website where they fit. Do not invent extras beyond wha
                 </div>
               ))}
               {status === "chatting" ? (
-                <div className="max-w-[92%] rounded-2xl rounded-tl-md bg-white px-3.5 py-2.5 text-sm text-stone-500 shadow-sm ring-1 ring-stone-200/80">
+                <div className="max-w-[min(92%,100%)] rounded-2xl rounded-tl-md bg-white px-3.5 py-2.5 text-sm text-stone-500 shadow-sm ring-1 ring-stone-200/80">
                   {readingDocument ? "Reading your document..." : "..."}
                 </div>
               ) : null}
               {isEditing ? (
-                <div className="max-w-[92%] rounded-2xl rounded-tl-md bg-white px-3.5 py-2.5 text-sm text-stone-500 shadow-sm ring-1 ring-stone-200/80">
+                <div className="max-w-[min(92%,100%)] rounded-2xl rounded-tl-md bg-white px-3.5 py-2.5 text-sm text-stone-500 shadow-sm ring-1 ring-stone-200/80">
                   Applying your changes...
                 </div>
               ) : null}
               {previewUrl && chatPhase === "edit" ? (
-                <div className="flex max-w-[92%] gap-2">
+                <div className="flex w-full min-w-0 gap-2">
                   <a
                     href={previewUrl}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="inline-flex flex-1 items-center justify-center rounded-full bg-teal-800 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-teal-700 lg:hidden"
+                    className="inline-flex min-w-0 flex-1 items-center justify-center rounded-full bg-teal-800 px-3 py-2.5 text-sm font-semibold text-white transition hover:bg-teal-700 sm:px-4 lg:hidden"
                   >
                     Preview
                   </a>
@@ -1137,7 +1137,7 @@ Use these details on the website where they fit. Do not invent extras beyond wha
                     type="button"
                     onClick={openDeployCard}
                     disabled={checkoutConfirming}
-                    className="inline-flex flex-1 items-center justify-center rounded-full border border-stone-300 bg-white px-4 py-2.5 text-sm font-semibold text-stone-700 transition hover:bg-stone-50 disabled:cursor-not-allowed disabled:border-stone-200 disabled:bg-stone-100 disabled:text-stone-400"
+                    className="inline-flex min-w-0 flex-1 items-center justify-center rounded-full border border-stone-300 bg-white px-3 py-2.5 text-center text-sm font-semibold leading-tight text-stone-700 transition hover:bg-stone-50 disabled:cursor-not-allowed disabled:border-stone-200 disabled:bg-stone-100 disabled:text-stone-400 sm:px-4"
                   >
                     🚀 Publish Website
                   </button>
@@ -1162,8 +1162,8 @@ Use these details on the website where they fit. Do not invent extras beyond wha
               <div ref={messagesEndRef} />
             </div>
 
-            <div className="border-t border-stone-200/80 bg-[#f6f4ef] p-3">
-              <form onSubmit={handleChatSubmit} className="flex flex-col gap-2">
+            <div className="min-w-0 border-t border-stone-200/80 bg-[#f6f4ef] px-5 py-3">
+              <form onSubmit={handleChatSubmit} className="flex min-w-0 flex-col gap-2">
                 {chatPhase === "intake" ? (
                   <input
                     ref={fileInputRef}
@@ -1175,7 +1175,7 @@ Use these details on the website where they fit. Do not invent extras beyond wha
                     onChange={handleIntakeUpload}
                   />
                 ) : null}
-                <div className="relative flex gap-2">
+                <div className="relative flex min-w-0 items-center gap-2">
                   {chatPhase === "intake" ? (
                     <button
                       type="button"
@@ -1214,12 +1214,12 @@ Use these details on the website where they fit. Do not invent extras beyond wha
                               : "Message, or upload a flyer..."
                     }
                     disabled={chatDisabled}
-                    className="w-full rounded-full border border-stone-300 bg-white px-4 py-2.5 text-sm text-stone-800 outline-none transition placeholder:text-stone-400 focus:border-teal-700 focus:ring-2 focus:ring-teal-700/20 disabled:bg-stone-100"
+                    className="min-w-0 flex-1 rounded-full border border-stone-300 bg-white px-3.5 py-2.5 text-sm text-stone-800 outline-none transition placeholder:text-stone-400 focus:border-teal-700 focus:ring-2 focus:ring-teal-700/20 disabled:bg-stone-100 sm:px-4"
                   />
                   <button
                     type="submit"
                     disabled={chatDisabled || !chatInput.trim()}
-                    className="shrink-0 rounded-full bg-teal-800 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-teal-700 disabled:cursor-not-allowed disabled:bg-stone-400"
+                    className="shrink-0 rounded-full bg-teal-800 px-3.5 py-2.5 text-sm font-semibold text-white transition hover:bg-teal-700 disabled:cursor-not-allowed disabled:bg-stone-400 sm:px-4"
                   >
                     Send
                   </button>
@@ -1251,7 +1251,7 @@ Use these details on the website where they fit. Do not invent extras beyond wha
               </form>
               {error ? (
                 <div className="mt-2 flex flex-col gap-2">
-                  <p className="text-xs text-red-700">{error}</p>
+                  <p className="break-words text-xs text-red-700">{error}</p>
                   {editShortage ? (
                     <button
                       type="button"

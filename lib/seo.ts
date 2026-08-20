@@ -20,24 +20,40 @@ export function getSiteUrl(): string {
   return SITE_DEFAULT_URL;
 }
 
-export const SITE_TAGLINE = "AI website builder for South African businesses";
+export const SITE_TAGLINE = `The cheapest small business website in South Africa from R${ANNUAL_PLAN_MONTHLY_ZAR} a month`;
 
-export const SITE_TITLE = `Lulaweb | AI Website Builder South Africa — .co.za Sites from R${ANNUAL_PLAN_MONTHLY_ZAR}/month`;
+export const SITE_TITLE = `Small Business Website South Africa from R${ANNUAL_PLAN_MONTHLY_ZAR} | Lulaweb`;
 
-export const SITE_DESCRIPTION = `Create a professional website for your South African business in one chat. Design, a .co.za domain, and hosting are included from R${ANNUAL_PLAN_MONTHLY_ZAR} a month billed annually, or R${MONTHLY_PLAN_ZAR} billed monthly.`;
+export const SITE_DESCRIPTION = `A cheap small business website in South Africa from R${ANNUAL_PLAN_MONTHLY_ZAR} a month. Built for SMMEs — free website design to start, plus hosting and a .co.za domain included.`;
 
 export const SITE_KEYWORDS = [
+  "small business website South Africa",
+  "website for small business South Africa",
+  "small business website builder South Africa",
+  "SMME website South Africa",
+  "SME website South Africa",
+  "affordable website for small business",
+  "small business web design South Africa",
+  "local business website South Africa",
+  "website for SMMEs",
+  "10 rand website",
+  "10 rand website South Africa",
+  `R${ANNUAL_PLAN_MONTHLY_ZAR} website`,
+  `R${ANNUAL_PLAN_MONTHLY_ZAR} website South Africa`,
+  "cheapest website in South Africa",
+  "cheapest website South Africa",
+  "cheapest website builder South Africa",
+  "cheap website South Africa",
+  "free website hosting South Africa",
+  "free website design South Africa",
+  "free website South Africa",
+  "free website builder South Africa",
   "AI website builder South Africa",
   "website builder South Africa",
-  "cheap website South Africa",
   "create a website South Africa",
   ".co.za website",
   "co.za domain website",
-  "small business website South Africa",
-  "AI website generator",
-  "website for plumbers South Africa",
   "affordable web hosting South Africa",
-  `R${ANNUAL_PLAN_MONTHLY_ZAR} website`,
   "Lulaweb",
 ];
 
@@ -49,7 +65,16 @@ export const HOME_FAQ = [
   },
   {
     question: "How much does a Lulaweb website cost?",
-    answer: `A live Lulaweb website is R${ANNUAL_PLAN_MONTHLY_ZAR} per month billed annually (R${ANNUAL_PLAN_ZAR} a year), or R${MONTHLY_PLAN_ZAR} per month. That includes website design, a .co.za domain, and hosting. Extra Edits start at R${EDIT_TOPUP_ZAR}: ${EDIT_TOPUP_PACKAGES.map((pack) => `${pack.name} R${pack.amountZar} (${formatEdits(pack.edits)})`).join(", ")}. A website change uses 1 Edit, and a full rebuild uses 2 Edits. Publishing on a .co.za domain requires an active subscription, billed through PayFast.`,
+    answer: `A 10 rand website: R${ANNUAL_PLAN_MONTHLY_ZAR} per month billed annually (R${ANNUAL_PLAN_ZAR} a year), or R${MONTHLY_PLAN_ZAR} per month. That includes website design, a .co.za domain, and hosting. Extra Edits start at R${EDIT_TOPUP_ZAR}: ${EDIT_TOPUP_PACKAGES.map((pack) => `${pack.name} R${pack.amountZar} (${formatEdits(pack.edits)})`).join(", ")}. A website change uses 1 Edit, and a full rebuild uses 2 Edits. Publishing on a .co.za domain requires an active subscription, billed through PayFast.`,
+  },
+  {
+    question: "Is Lulaweb the cheapest website in South Africa?",
+    answer: `Lulaweb is built as a 10 rand website for small South African businesses: R${ANNUAL_PLAN_MONTHLY_ZAR} a month billed annually, with website design, a .co.za domain, and hosting in one price. There is no separate designer, registrar, or hosting bill.`,
+  },
+  {
+    question: "Do I get free website design and hosting?",
+    answer:
+      "Website design and preview are free to start — new accounts get 4 Edits and no payment is needed to generate a site. When you publish, website hosting and a .co.za domain are included in the subscription, so you do not pay a separate hosting company or designer.",
   },
   {
     question: "Do I get a .co.za domain?",
@@ -62,9 +87,13 @@ export const HOME_FAQ = [
       "No. Preview and website changes use Edits. New accounts start with 4 Edits. You only pay a subscription when you publish. Billing is through PayFast — no payment is needed to sign in and generate a preview.",
   },
   {
+    question: "Is Lulaweb for small businesses and SMMEs?",
+    answer: `Yes. Lulaweb is a website builder for South African small businesses and SMMEs. A live site is R${ANNUAL_PLAN_MONTHLY_ZAR} a month billed annually and includes design, a .co.za domain, and hosting — so a plumber, salon, clinic, restaurant, or consultant can get online without an agency.`,
+  },
+  {
     question: "Who is Lulaweb for?",
     answer:
-      "Local South African businesses that need a clear, mobile-friendly site with a phone number, WhatsApp button, and contact form — plumbers, electricians, salons, clinics, restaurants, consultants, and similar trades.",
+      "South African small businesses that need a clear, mobile-friendly site with a phone number, WhatsApp button, and contact form — plumbers, electricians, salons, clinics, restaurants, consultants, spaza shops, and similar local trades. It is not built for giant ecommerce catalogues.",
   },
   {
     question: "Can I edit the website after it is generated?",
@@ -95,11 +124,19 @@ export function buildGraphJsonLd(siteUrl: string) {
         url: origin,
         logo: `${origin}/logo.png`,
         description: SITE_DESCRIPTION,
+        slogan: SITE_TAGLINE,
         areaServed: {
           "@type": "Country",
           name: "South Africa",
         },
         knowsAbout: [
+          "small business website South Africa",
+          "SMME website South Africa",
+          "website for small businesses",
+          "cheapest website in South Africa",
+          "10 rand website",
+          "free website design South Africa",
+          "free website hosting South Africa",
           "AI website builder",
           "South African small business websites",
           ".co.za domain hosting",
@@ -113,6 +150,11 @@ export function buildGraphJsonLd(siteUrl: string) {
         applicationCategory: "BusinessApplication",
         operatingSystem: "Web",
         description: SITE_DESCRIPTION,
+        audience: {
+          "@type": "BusinessAudience",
+          audienceType:
+            "Small, medium and micro enterprises (SMMEs) in South Africa",
+        },
         offers: {
           "@type": "AggregateOffer",
           lowPrice: ANNUAL_PLAN_MONTHLY_ZAR,
@@ -124,10 +166,12 @@ export function buildGraphJsonLd(siteUrl: string) {
         },
         featureList: [
           "Chat-based AI website generation",
+          "Free website design preview",
+          "Website hosting included",
           "Live website preview",
           ".co.za domain registration",
           "WhatsApp and click-to-call buttons",
-          "South African business hosting",
+          "South African small business hosting",
         ],
         publisher: { "@id": `${origin}/#organization` },
       },
