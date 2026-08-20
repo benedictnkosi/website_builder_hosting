@@ -98,8 +98,8 @@ export default function AppHeader() {
   }
 
   return (
-    <header className="sticky top-0 z-20 border-b border-stone-200/80 bg-[color:var(--background)]/85 backdrop-blur-md">
-      <div className="mx-auto flex w-full min-w-0 max-w-[90rem] items-center justify-between gap-2 overflow-x-hidden px-4 py-2.5 sm:gap-3 sm:px-5">
+    <header className="sticky top-0 z-40 border-b border-stone-200/80 bg-[color:var(--background)]/85 backdrop-blur-md">
+      <div className="mx-auto flex w-full min-w-0 max-w-[90rem] items-center justify-between gap-2 px-4 py-2.5 sm:gap-3 sm:px-5">
         <Link href="/dashboard" aria-label="Go to dashboard" onClick={() => setMobileOpen(false)}>
           <BrandMark />
         </Link>
@@ -126,7 +126,7 @@ export default function AppHeader() {
           </Link>
           <EditsControls />
 
-          <div className="relative hidden md:block" ref={accountRef}>
+          <div className="relative z-50 hidden md:block" ref={accountRef}>
             <button
               type="button"
               onClick={() => setAccountOpen((current) => !current)}
@@ -144,7 +144,7 @@ export default function AppHeader() {
             {accountOpen ? (
               <div
                 role="menu"
-                className="absolute right-0 mt-2 w-60 overflow-hidden rounded-2xl border border-stone-200 bg-white py-2 shadow-[0_16px_40px_rgba(28,25,23,0.14)]"
+                className="absolute right-0 z-50 mt-2 w-60 overflow-hidden rounded-2xl border border-stone-200 bg-white py-2 shadow-[0_16px_40px_rgba(28,25,23,0.14)]"
               >
                 <div className="border-b border-stone-100 px-3.5 py-2.5">
                   <p className="truncate text-sm font-semibold text-stone-900">

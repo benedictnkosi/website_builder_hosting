@@ -341,7 +341,7 @@ export default function UserDashboard() {
           {sites.map((site) => (
             <li
               key={site.websiteId}
-              className="flex flex-col overflow-hidden rounded-[1.4rem] border border-stone-200/80 bg-white shadow-sm"
+              className="relative z-0 flex flex-col overflow-hidden rounded-[1.4rem] border border-stone-200/80 bg-white shadow-sm"
             >
               <div className="relative h-36 overflow-hidden bg-[#f7f3ea]">
                 <iframe
@@ -480,7 +480,7 @@ export default function UserDashboard() {
 
       {confirm ? (
         <div
-          className="fixed inset-0 z-30 flex items-end justify-center bg-stone-900/35 p-3 sm:items-center sm:p-6"
+          className="fixed inset-0 z-50 flex items-end justify-center bg-stone-900/35 p-3 sm:items-center sm:p-6"
           onClick={() => (workingId ? null : setConfirm(null))}
         >
           <section
