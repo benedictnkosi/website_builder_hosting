@@ -2,7 +2,6 @@ import "server-only";
 
 import { createHash } from "node:crypto";
 import {
-  formatEdits,
   payfastAmount,
   payfastFrequencyCode,
   type BillingFrequency,
@@ -71,41 +70,105 @@ export type PayfastCheckoutFields = {
   signature: string;
 };
 
+function cleanEnv(value: string | undefined): string {
+  if (!value) return "";
+  return value.trim().replace(/^['"]|['"]$/g, "").trim();
+}
+
 function envValue(...keys: string[]): string {
   for (const key of keys) {
-    const value = process.env[key]?.trim();
+    const value = cleanEnv(process.env[key]);
     if (value) return value;
   }
   return "";
 }
 
+function envFlag(value: string | undefined): boolean | null {
+  const normalized = cleanEnv(value).toLowerCase();
+  if (!normalized) return null;
+  if (normalized === "true" || normalized === "1" || normalized === "yes" || normalized === "on") {
+    return true;
+  }
+  if (normalized === "false" || normalized === "0" || normalized === "no" || normalized === "off") {
+    return false;
+  }
+  return null;
+}
+
+type PayfastCredentials = {
+  merchantId: string;
+  merchantKey: string;
+  passphrase: string;
+};
+
+function liveCredentials(): PayfastCredentials {
+  return {
+    merchantId: envValue("PAYFAST_MERCHANT_ID", "NEXT_PUBLIC_PAYFAST_MERCHANT_ID"),
+    merchantKey: envValue("PAYFAST_MERCHANT_KEY", "NEXT_PUBLIC_PAYFAST_MERCHANT_KEY"),
+    passphrase: envValue(
+      "PAYFAST_PASSPHRASE",
+      "PAYFAST_PASSPHASE",
+      "NEXT_PUBLIC_PAYFAST_PASSPHRASE",
+      "NEXT_PUBLIC_PAYFAST_PASSPHASE",
+    ),
+  };
+}
+
+function sandboxCredentials(): PayfastCredentials {
+  return {
+    merchantId: envValue("PAYFAST_SANDBOX_MERCHANT_ID"),
+    merchantKey: envValue("PAYFAST_SANDBOX_MERCHANT_KEY"),
+    passphrase: envValue("PAYFAST_SANDBOX_PASSPHRASE", "PAYFAST_SANDBOX_PASSPHASE"),
+  };
+}
+
+function hasAnySandboxCredential(): boolean {
+  const sandbox = sandboxCredentials();
+  return Boolean(sandbox.merchantId || sandbox.merchantKey || sandbox.passphrase);
+}
+
+export function getPayfastCredentials(): PayfastCredentials {
+  if (!isPayfastSandbox()) return liveCredentials();
+
+  // Production sandbox must use the sandbox merchant set. Mixing live keys with
+  // sandbox.payfast.co.za causes "Generated signature does not match".
+  if (hasAnySandboxCredential() || process.env.NODE_ENV === "production") {
+    return sandboxCredentials();
+  }
+
+  return liveCredentials();
+}
+
 export function getPayfastMerchantId(): string {
-  return envValue("PAYFAST_MERCHANT_ID", "NEXT_PUBLIC_PAYFAST_MERCHANT_ID");
+  return getPayfastCredentials().merchantId;
 }
 
 export function getPayfastMerchantKey(): string {
-  return envValue("PAYFAST_MERCHANT_KEY", "NEXT_PUBLIC_PAYFAST_MERCHANT_KEY");
+  return getPayfastCredentials().merchantKey;
 }
 
 export function getPayfastPassphrase(): string {
-  return envValue(
-    "PAYFAST_PASSPHRASE",
-    "PAYFAST_PASSPHASE",
-    "NEXT_PUBLIC_PAYFAST_PASSPHRASE",
-    "NEXT_PUBLIC_PAYFAST_PASSPHASE",
-  );
+  return getPayfastCredentials().passphrase;
 }
 
 export function isPayfastConfigured(): boolean {
-  return Boolean(
-    getPayfastMerchantId() && getPayfastMerchantKey() && getPayfastPassphrase(),
-  );
+  const { merchantId, merchantKey, passphrase } = getPayfastCredentials();
+  return Boolean(merchantId && merchantKey && passphrase);
+}
+
+export function getPayfastConfigError(): string | null {
+  if (isPayfastConfigured()) return null;
+
+  if (isPayfastSandbox()) {
+    return "PayFast sandbox is on, but PAYFAST_SANDBOX_MERCHANT_ID, PAYFAST_SANDBOX_MERCHANT_KEY, and PAYFAST_SANDBOX_PASSPHRASE must all be set to the sandbox merchant. Live keys cannot be used on sandbox.payfast.co.za.";
+  }
+
+  return "PayFast is not configured.";
 }
 
 export function isPayfastSandbox(): boolean {
-  const value = process.env.PAYFAST_SANDBOX?.trim().toLowerCase();
-  if (value === "true" || value === "1" || value === "yes") return true;
-  if (value === "false" || value === "0" || value === "no") return false;
+  const explicit = envFlag(process.env.PAYFAST_SANDBOX);
+  if (explicit !== null) return explicit;
   return process.env.NODE_ENV === "development";
 }
 
@@ -130,16 +193,17 @@ function phpUrlEncode(value: string): string {
 export function generatePayfastSignature(
   data: Record<string, string>,
   passphrase?: string,
+  options?: { includeEmpty?: boolean },
 ): string {
+  const includeEmpty = options?.includeEmpty === true;
   const pairs: string[] = [];
 
   for (const [key, value] of Object.entries(data)) {
     if (key === "signature") continue;
     const trimmed = value.trim();
-    // PayFast ITN includes posted-but-empty fields as "key=".
-    // Checkout omits those keys entirely, so this does not change outgoing signatures.
     if (trimmed === "") {
-      pairs.push(`${key}=`);
+      // PayFast ITN includes posted-but-empty fields as "key=".
+      if (includeEmpty) pairs.push(`${key}=`);
       continue;
     }
     pairs.push(`${key}=${phpUrlEncode(trimmed)}`);
@@ -250,8 +314,8 @@ function orderedCheckoutPayload(
 
   for (const key of CHECKOUT_FIELD_ORDER) {
     const value = fields[key as keyof typeof fields];
-    if (typeof value === "string" && value !== "") {
-      payload[key] = value;
+    if (typeof value === "string" && value.trim() !== "") {
+      payload[key] = value.trim();
     }
   }
 
@@ -273,7 +337,7 @@ export function buildPayfastSubscriptionCheckout(input: {
   const passphrase = getPayfastPassphrase();
 
   if (!merchantId || !merchantKey || !passphrase) {
-    throw new Error("PayFast is not configured.");
+    throw new Error(getPayfastConfigError() || "PayFast is not configured.");
   }
 
   const amount = payfastAmount(input.amountZar);
@@ -292,7 +356,7 @@ export function buildPayfastSubscriptionCheckout(input: {
     notify_url: `${input.origin}/api/payfast/notify`,
     m_payment_id: input.paymentId,
     amount,
-    item_name: `${periodLabel} Lulaweb website + ${input.domain}`.slice(0, 100),
+    item_name: `${periodLabel} Lulaweb website ${input.domain}`.slice(0, 100),
     item_description: `${periodLabel} Lulaweb website and domain. Renews every ${annual ? "year" : "month"} for ${input.domain}.`.slice(0, 255),
     subscription_type: "1",
     recurring_amount: amount,
@@ -335,7 +399,7 @@ export function buildPayfastEditTopupCheckout(input: {
   const passphrase = getPayfastPassphrase();
 
   if (!merchantId || !merchantKey || !passphrase) {
-    throw new Error("PayFast is not configured.");
+    throw new Error(getPayfastConfigError() || "PayFast is not configured.");
   }
 
   const amount = payfastAmount(input.amountZar);
@@ -352,8 +416,8 @@ export function buildPayfastEditTopupCheckout(input: {
     notify_url: `${input.origin}/api/payfast/notify`,
     m_payment_id: input.paymentId,
     amount,
-    item_name: `Lulaweb · ${formatEdits(input.edits)}`,
-    item_description: `${formatEdits(input.edits)} for website building`,
+    item_name: `Lulaweb ${input.edits} Edits`.slice(0, 100),
+    item_description: `${input.edits} Edits for website building`.slice(0, 255),
     payment_method: "cc",
     custom_str1: input.uid,
     custom_str2: input.paymentId,
@@ -396,7 +460,7 @@ export function verifyPayfastSignature(data: Record<string, string>): boolean {
     payload[key] = value;
   }
 
-  const expected = generatePayfastSignature(payload, passphrase);
+  const expected = generatePayfastSignature(payload, passphrase, { includeEmpty: true });
   return expected === received;
 }
 

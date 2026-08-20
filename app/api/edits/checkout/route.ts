@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { jsonAuthError, requireUser } from "@/lib/auth-server";
 import {
   buildPayfastEditTopupCheckout,
+  getPayfastConfigError,
   isPayfastConfigured,
   isPayfastMockAllowed,
 } from "@/lib/payfast";
@@ -98,7 +99,7 @@ export async function POST(request: Request) {
     if (!isPayfastConfigured()) {
       if (!isPayfastMockAllowed()) {
         return NextResponse.json(
-          { success: false, error: "PayFast is not configured." },
+          { success: false, error: getPayfastConfigError() || "PayFast is not configured." },
           { status: 503 },
         );
       }

@@ -6,6 +6,7 @@ import {
 } from "@/lib/domains-co-za";
 import {
   buildPayfastSubscriptionCheckout,
+  getPayfastConfigError,
   isPayfastConfigured,
   isPayfastMockAllowed,
 } from "@/lib/payfast";
@@ -133,7 +134,7 @@ export async function POST(request: Request) {
       if (!isPayfastConfigured()) {
         if (!isPayfastMockAllowed()) {
           return NextResponse.json(
-            { success: false, error: "PayFast is not configured." },
+            { success: false, error: getPayfastConfigError() || "PayFast is not configured." },
             { status: 503 },
           );
         }
@@ -207,7 +208,7 @@ export async function POST(request: Request) {
     if (!isPayfastConfigured()) {
       if (!isPayfastMockAllowed()) {
         return NextResponse.json(
-          { success: false, error: "PayFast is not configured." },
+          { success: false, error: getPayfastConfigError() || "PayFast is not configured." },
           { status: 503 },
         );
       }
