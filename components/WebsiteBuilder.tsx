@@ -248,6 +248,12 @@ export default function WebsiteBuilder() {
   const outOfEdits = editsRemaining !== null && editsRemaining < 1;
   const chatDisabled = isBusy || chatLocked || outOfEdits;
   const previewUrl = websiteId ? `/api/preview/${websiteId}/index.html` : null;
+  const startedIntakeByChat = messages.some(
+    (message) =>
+      message.role === "user" &&
+      !/^I uploaded .+ with my business information\.$/.test(message.content),
+  );
+  const showFlyerUpload = chatPhase === "intake" && !startedIntakeByChat;
   const editShortage = Boolean(
     error?.toLowerCase().includes("edit") || error?.toLowerCase().includes("top up"),
   );
@@ -932,7 +938,7 @@ Use these details on the website where they fit. Do not invent extras beyond wha
   async function handleIntakeUpload(event: ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0];
     event.target.value = "";
-    if (!file || chatDisabled || chatPhase !== "intake" || flyerUploaded) return;
+    if (!file || chatDisabled || chatPhase !== "intake" || flyerUploaded || startedIntakeByChat) return;
 
     try {
       const document = await fileToIntakeUpload(file);
@@ -1164,7 +1170,7 @@ Use these details on the website where they fit. Do not invent extras beyond wha
 
             <div className="min-w-0 border-t border-stone-200/80 bg-[#f6f4ef] px-5 py-3">
               <form onSubmit={handleChatSubmit} className="flex min-w-0 flex-col gap-2">
-                {chatPhase === "intake" ? (
+                {showFlyerUpload ? (
                   <input
                     ref={fileInputRef}
                     type="file"
@@ -1176,7 +1182,7 @@ Use these details on the website where they fit. Do not invent extras beyond wha
                   />
                 ) : null}
                 <div className="relative flex min-w-0 items-center gap-2">
-                  {chatPhase === "intake" ? (
+                  {showFlyerUpload ? (
                     <button
                       type="button"
                       onClick={() => fileInputRef.current?.click()}
@@ -1209,9 +1215,9 @@ Use these details on the website where they fit. Do not invent extras beyond wha
                           ? "Edits have been used up"
                           : chatPhase === "edit"
                             ? "Describe a change..."
-                            : flyerUploaded
-                              ? "Message..."
-                              : "Message, or upload a flyer..."
+                            : showFlyerUpload
+                              ? "Message, or upload a flyer..."
+                              : "Message..."
                     }
                     disabled={chatDisabled}
                     className="min-w-0 flex-1 rounded-full border border-stone-300 bg-white px-3.5 py-2.5 text-sm text-stone-800 outline-none transition placeholder:text-stone-400 focus:border-teal-700 focus:ring-2 focus:ring-teal-700/20 disabled:bg-stone-100 sm:px-4"
