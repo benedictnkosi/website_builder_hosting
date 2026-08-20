@@ -60,7 +60,7 @@ If an IMAGE PLAN is provided, follow it exactly:
 
 If no IMAGE PLAN is provided, keep existing image paths as they are.
 
-Preserve existing SEO unless the user asks to change it: title, meta description, Open Graph tags, Twitter tags, JSON-LD, heading structure, image alt text, and favicon / apple-touch-icon link tags. If the requested edit changes the business name, about text, services, phone, address, location, or trading hours, update those SEO fields so they stay accurate. Do not invent reviews, ratings, or credentials.
+Preserve existing SEO unless the user asks to change it: title, meta description, Open Graph tags, Twitter tags, JSON-LD, heading structure, image alt text, favicon / apple-touch-icon link tags, canonical URL, sitemap link, and absolute og:image / twitter:image URLs. If the requested edit changes the business name, about text, services, phone, address, location, or trading hours, update those SEO fields so they stay accurate. Do not invent reviews, ratings, or credentials.
 
 Keep the site header usable: desktop horizontal nav links, a Call or Book action when a phone number exists, and a mobile hamburger panel that closes after a link click. Do not collapse desktop navigation into a hamburger-only menu.
 

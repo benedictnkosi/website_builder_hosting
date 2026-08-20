@@ -43,6 +43,7 @@ const TEXT_EXTENSIONS = new Set([
   ".md",
 ]);
 const STAMP_EXTENSIONS = new Set([".html", ".css", ".js"]);
+const PRESERVED_SITE_FILES = ["robots.txt", "sitemap.xml"];
 
 export function getGeneratedSitesRoot(): string {
   const configured = process.env.GENERATED_SITES_DIR?.trim();
@@ -534,7 +535,7 @@ export async function replaceWebsiteFiles(
   const filesWithFavicon = withDefaultFavicon(files);
   await updateWebsiteFiles(websiteId, filesWithFavicon, idToken);
 
-  const keep = new Set<string>();
+  const keep = new Set<string>(PRESERVED_SITE_FILES);
   for (const file of filesWithFavicon) {
     keep.add(normalizeRelativePath(file.path));
   }

@@ -1,14 +1,20 @@
 import { NextResponse } from "next/server";
 import { isNextResponse, parseDeployJson, requireDeployTarget } from "@/lib/deploy-target";
 import { readDeployableWebsiteFiles } from "@/lib/file-manager";
+import { runWithMockAiFromRequest } from "@/lib/mock-ai";
+import { prepareFirstPublishSeo } from "@/lib/publish-seo";
 import { GeneratorError } from "@/lib/validation";
 
 export const runtime = "nodejs";
-export const maxDuration = 120;
+export const maxDuration = 180;
 
 const DEFAULT_AGENT_URL = "http://localhost:8080";
 
 export async function POST(request: Request) {
+  return runWithMockAiFromRequest(request, () => handlePost(request));
+}
+
+async function handlePost(request: Request) {
   const parsed = await parseDeployJson(request);
   if (!parsed.ok) return parsed.response;
 
@@ -16,6 +22,22 @@ export async function POST(request: Request) {
   if (isNextResponse(target)) return target;
 
   const { user, websiteId, domain } = target;
+
+  try {
+    await prepareFirstPublishSeo({
+      websiteId,
+      domain,
+      user,
+    });
+  } catch (error) {
+    const message =
+      error instanceof GeneratorError
+        ? error.message
+        : "Could not add search listings before publishing.";
+    const status = error instanceof GeneratorError ? error.statusCode : 502;
+    return NextResponse.json({ success: false, error: message }, { status });
+  }
+
   const agentUrl = (process.env.DEPLOYMENT_AGENT_URL || DEFAULT_AGENT_URL).replace(
     /\/$/,
     "",

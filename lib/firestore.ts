@@ -26,6 +26,7 @@ export type WebsiteMeta = {
   contactEmail?: string;
   createdAt: string;
   updatedAt: string;
+  seoOptimizedAt?: string;
 };
 
 type FirestoreValue =
@@ -258,6 +259,10 @@ function asMeta(data: Record<string, unknown>): WebsiteMeta | null {
       typeof data.contactEmail === "string" ? data.contactEmail.trim() || undefined : undefined,
     createdAt: typeof data.createdAt === "string" ? data.createdAt : new Date().toISOString(),
     updatedAt: typeof data.updatedAt === "string" ? data.updatedAt : new Date().toISOString(),
+    seoOptimizedAt:
+      typeof data.seoOptimizedAt === "string" && data.seoOptimizedAt.trim()
+        ? data.seoOptimizedAt
+        : undefined,
   };
 }
 

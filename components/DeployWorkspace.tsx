@@ -34,6 +34,11 @@ const PUBLISH_STEPS = [
     hint: "Waiting for public DNS to update",
   },
   {
+    id: "seo",
+    label: "Adding search listings",
+    hint: "Robots, sitemap, and page SEO",
+  },
+  {
     id: "publish",
     label: "Publishing the website",
     hint: "Putting your pages live",
@@ -211,8 +216,10 @@ function PublishProgress({
           {publishStep === 1
             ? "New domains can take up to 30 minutes for public DNS to update. You can leave this open — we\u2019ll play a sound when it\u2019s done."
             : publishStep === 2
-              ? "Verifying the site is live. You\u2019ll hear a chime when it\u2019s ready."
-              : "This can take a minute."}
+              ? "Writing robots.txt, a sitemap, and search tags for your domain."
+              : publishStep === 3
+                ? "Verifying the site is live. You\u2019ll hear a chime when it\u2019s ready."
+                : "This can take a minute."}
         </p>
       ) : null}
     </div>
@@ -464,6 +471,7 @@ export default function DeployWorkspace({
       const provisionData = (await provisionResponse.json()) as {
         success?: boolean;
         error?: string;
+        seoOptimized?: boolean;
       };
       if (!provisionResponse.ok || !provisionData.success) {
         setDeployStatus("error");
@@ -476,7 +484,29 @@ export default function DeployWorkspace({
       setActiveHint("Checking public DNS");
       await waitForPublicDns(websiteId);
 
-      setPublishStep(2);
+      if (!provisionData.seoOptimized) {
+        setPublishStep(2);
+        setActiveHint("Writing robots.txt, sitemap, and page SEO");
+        const seoResponse = await authFetch("/api/deploy/seo", {
+          method: "POST",
+          body: JSON.stringify({
+            websiteId,
+            domain: result.domain,
+          }),
+        });
+        const seoData = (await seoResponse.json()) as {
+          success?: boolean;
+          error?: string;
+        };
+        if (!seoResponse.ok || !seoData.success) {
+          setDeployStatus("error");
+          setDeployError(seoData.error || "Could not add search listings.");
+          trackDeployFail();
+          return;
+        }
+      }
+
+      setPublishStep(3);
       setActiveHint("Putting your pages live");
 
       const response = await authFetch("/api/deploy", {
@@ -504,7 +534,7 @@ export default function DeployWorkspace({
       setActiveHint("Checking the live site");
       await waitForLiveSite(websiteId);
 
-      setPublishStep(3);
+      setPublishStep(4);
       setActiveHint(undefined);
       setDeployStatus("success");
       setDeployedUrl(data.url || `https://${result.domain}`);

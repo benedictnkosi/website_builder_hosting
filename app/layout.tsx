@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import { AuthProvider } from "@/components/AuthProvider";
 import AnalyticsTracker from "@/components/AnalyticsTracker";
+import GoogleTag from "@/components/GoogleTag";
 import JsonLd from "@/components/JsonLd";
 import {
   buildGraphJsonLd,
@@ -100,6 +101,7 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
       className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
     >
       <body className="flex min-h-full flex-col bg-[var(--background)] text-[var(--foreground)]">
+        <GoogleTag />
         <JsonLd data={buildGraphJsonLd(siteUrl)} />
         <AuthProvider>
           <AnalyticsTracker />

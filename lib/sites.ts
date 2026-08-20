@@ -132,6 +132,7 @@ export async function createOwnedWebsite(input: {
       stringField(input.contactEmail) || existing?.contactEmail || undefined,
     createdAt: existing?.createdAt || now,
     updatedAt: now,
+    seoOptimizedAt: existing?.seoOptimizedAt,
   };
 
   await upsertUserProfile(input.user);
