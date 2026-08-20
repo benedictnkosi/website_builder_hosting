@@ -2,7 +2,7 @@ import { escapeHtml, isValidEmail } from "./email";
 import { GeneratorError } from "./validation";
 
 const RESEND_EMAILS_URL = "https://api.resend.com/emails";
-const DEFAULT_FROM = "Website Contact <onboarding@resend.dev>";
+const DEFAULT_FROM = "Website Contact <hello@lulaweb.co.za>";
 const DEFAULT_SUPPORT_INBOX = "nkosi.benedict@gmail.com";
 
 export function getResendApiKey(): string {
