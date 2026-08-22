@@ -14,6 +14,8 @@ export type WhatsAppMessage = {
   type?: unknown;
   text?: unknown;
   interactive?: unknown;
+  image?: unknown;
+  document?: unknown;
 };
 
 type WhatsAppStatus = {

@@ -19,14 +19,12 @@ import {
 import { extractBusinessName, slugifyDomainName } from "@/lib/domain-name";
 import {
   compileBusinessDescription,
-  hasEnoughIntakeToGenerate,
-  lastUserMessageIsConfirmation,
   type ChatMessage,
   type IntakeChatResult,
   type WebsiteIntake,
 } from "@/lib/intake";
+import { buildWebsiteGeneratePrompt } from "@/lib/generate-prompt";
 import { fileToEditImageUpload, fileToIntakeUpload, EDIT_IMAGE_UPLOAD_ACCEPT, INTAKE_UPLOAD_ACCEPT, type IntakeUpload } from "@/lib/intake-upload";
-import { getPeopleEthnicityOption } from "@/lib/people-ethnicity";
 import type { SiteJobView, WebsiteFile } from "@/lib/types";
 import {
   trackAddressChoice,
@@ -55,16 +53,16 @@ import {
   SUBSCRIPTION_EDITS_GRANT,
   formatEdits,
   formatZar,
+  type BillingFrequency,
 } from "@/lib/pricing";
+import {
+  BUILDER_READY_MESSAGE as READY_MESSAGE,
+  BUILDER_WELCOME_MESSAGE as WELCOME_MESSAGE,
+  intakeReadyToBuild,
+} from "@/lib/builder-chat";
 
 type GenerationStatus = "idle" | "chatting" | "generating" | "success" | "error";
 type ChatPhase = "intake" | "edit";
-
-const WELCOME_MESSAGE =
-  "Hi! I'm here to help build your website. Tell me about your business, or upload one flyer, business card, or PDF if you have one.\n\nI'll need this information:\n• Business name\n• About us\n• List of services\n• Contact number\n• WhatsApp number, if WhatsApp is required\n• Email address, if a contact form is required\n• Trading hours, if you have them";
-
-const READY_MESSAGE =
-  "Your website is ready. Preview it, describe any changes, or attach one photo to replace an image. Subscribe when you want to deploy it live.";
 
 function sleep(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -238,6 +236,8 @@ export default function WebsiteBuilder() {
   const [showDeployCard, setShowDeployCard] = useState(false);
   const [autoDeploy, setAutoDeploy] = useState(false);
   const [showPaywall, setShowPaywall] = useState(false);
+  const [paymentDomain, setPaymentDomain] = useState("");
+  const [paymentFrequency, setPaymentFrequency] = useState<BillingFrequency>("annual");
   const [isSubscribed, setIsSubscribed] = useState(false);
   const [subscribedDomain, setSubscribedDomain] = useState<string | null>(null);
   const [checkoutNotice, setCheckoutNotice] = useState<string | null>(null);
@@ -251,6 +251,7 @@ export default function WebsiteBuilder() {
   const runEpochRef = useRef(0);
   const intakeStartedRef = useRef(false);
   const latestIntakeRef = useRef<WebsiteIntake | null>(null);
+  const whatsappHandoffTokenRef = useRef("");
 
   const isBusy =
     status === "chatting" ||
@@ -273,7 +274,7 @@ export default function WebsiteBuilder() {
   const editShortage = Boolean(
     error?.toLowerCase().includes("edit") || error?.toLowerCase().includes("top up"),
   );
-  const suggestedDomainName = slugifyDomainName(
+  const suggestedDomainName = paymentDomain || slugifyDomainName(
     businessName || extractBusinessName(businessDescription),
   );
 
@@ -591,6 +592,10 @@ export default function WebsiteBuilder() {
           messages?: ChatMessage[];
           intake?: WebsiteIntake;
           addressResolved?: boolean;
+          mode?: "create" | "update" | "payment";
+          websiteId?: string;
+          domain?: string;
+          frequency?: BillingFrequency;
           error?: string;
         };
         if (!response.ok || !data.success || !data.intake) {
@@ -603,7 +608,28 @@ export default function WebsiteBuilder() {
         setPendingIntake(data.intake);
         setBusinessName(data.intake.business_name);
         setBusinessDescription(compileBusinessDescription(data.intake));
-        if (data.addressResolved) {
+        whatsappHandoffTokenRef.current = token;
+        if (data.mode === "payment" && data.websiteId && data.domain) {
+          setWebsiteId(data.websiteId);
+          setChatPhase("edit");
+          setStatus("success");
+          setPaymentDomain(data.domain.replace(/\.co\.za$/i, ""));
+          setPaymentFrequency(data.frequency === "monthly" ? "monthly" : "annual");
+          setShowPaywall(true);
+        } else if (data.mode === "update" && data.websiteId) {
+          setWebsiteId(data.websiteId);
+          setChatPhase("edit");
+          setStatus("success");
+          setMessages([
+            ...restoredMessages,
+            { role: "assistant", content: READY_MESSAGE },
+          ]);
+          saveBuilderSession({
+            websiteId: data.websiteId,
+            businessName: data.intake.business_name,
+            businessDescription: compileBusinessDescription(data.intake),
+          });
+        } else if (data.addressResolved) {
           void runGeneration(data.intake);
         } else {
           setShowAddressModal(true);
@@ -631,84 +657,12 @@ export default function WebsiteBuilder() {
         websiteId,
         businessName,
         guestId: getOrCreateGuestId(),
+        whatsappToken: whatsappHandoffTokenRef.current,
       }),
     }).catch(() => {
       // Keep the builder usable even if claiming fails.
     });
   }, [authFetch, businessName, user, websiteId]);
-
-  function buildGeneratePrompt(intake: WebsiteIntake): string {
-    const promptParts = [compileBusinessDescription(intake)];
-
-    if (intake.about.trim()) {
-      promptParts.push(
-        `About the business:\n${intake.about.trim()}
-Include an About section with id="about" using this information. Do not invent extra history, years in business, credentials, or awards.`,
-      );
-    }
-
-    if (intake.address.trim()) {
-      promptParts.push(
-        `Business address: ${intake.address.trim()}\nInclude an embedded Google Map on the website showing this location.`,
-      );
-    }
-
-    if (intake.use_whatsapp === "yes") {
-      const number = intake.whatsapp_number.trim() || intake.phone.trim();
-      if (number) {
-        promptParts.push(
-          `Add a WhatsApp contact button or link on the website using this WhatsApp number: ${number}. The business phone number for calls may be different — show both correctly if they differ.`,
-        );
-      }
-    }
-
-    if (intake.use_contact_form === "yes" && intake.contact_email.trim()) {
-      const contactEndpoint = `${window.location.origin}/api/contact`;
-      promptParts.push(
-        `Include a Contact Us form with name, email, and message fields (phone optional).
-When the form is submitted, send a fetch POST with JSON to this contact API endpoint: ${contactEndpoint}
-JSON body fields: websiteId, name, email, phone, message, businessName.
-Set websiteId to "__WEBSITE_ID__". Do not send a recipient "to" address.
-Show success and error messages on the page without a full reload.
-Do not include API keys, Resend secrets, or any server-side code in the website files.
-Do not use mailto: as the primary submit method.`,
-      );
-    }
-
-    if (intake.use_trading_hours === "yes" && intake.trading_hours.trim()) {
-      promptParts.push(
-        `Trading hours:\n${intake.trading_hours.trim()}
-Include a trading hours section with id="hours" using exactly these hours. Link it in the nav. Do not invent extra days, times, or public-holiday notes they did not provide.`,
-      );
-    } else {
-      promptParts.push(
-        `The business did not provide trading hours. Do not add a trading hours, opening hours, or hours of business section, and do not invent hours.`,
-      );
-    }
-
-    const ethnicity = getPeopleEthnicityOption(intake.people_ethnicity);
-    if (ethnicity) {
-      promptParts.push(
-        `People in website photos: ${ethnicity.prompt}. If an image includes people, they should be ${ethnicity.prompt}. Include this in every image prompt that depicts people.`,
-      );
-    }
-
-    if (intake.design_preference.trim()) {
-      promptParts.push(
-        `Design preference: ${intake.design_preference.trim()}
-Follow this closely in layout, colours, typography, and overall mood. If an instruction conflicts with keeping the site professional and usable, keep it usable and still honour the preference as far as possible.`,
-      );
-    }
-
-    if (intake.extra_details.trim()) {
-      promptParts.push(
-        `Additional details from the customer:\n${intake.extra_details.trim()}
-Use these details on the website where they fit. Do not invent extras beyond what they provided.`,
-      );
-    }
-
-    return promptParts.join("\n\n");
-  }
 
   async function runGeneration(
     intake: WebsiteIntake,
@@ -738,7 +692,7 @@ Use these details on the website where they fit. Do not invent extras beyond wha
       const response = await authFetch("/api/generate", {
         method: "POST",
         body: JSON.stringify({
-          prompt: buildGeneratePrompt(intake),
+          prompt: buildWebsiteGeneratePrompt(intake, window.location.origin),
           peopleEthnicity: intake.people_ethnicity || undefined,
           businessName: name,
           contactEmail: intake.contact_email || undefined,
@@ -809,6 +763,18 @@ Use these details on the website where they fit. Do not invent extras beyond wha
         rememberGuestWebsite(nextWebsiteId);
       }
       addAssistantMessage(READY_MESSAGE);
+      const whatsappToken = whatsappHandoffTokenRef.current;
+      if (whatsappToken) {
+        void fetch("/api/whatsapp/handoff", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            token: whatsappToken,
+            websiteId: nextWebsiteId,
+            businessName: name,
+          }),
+        }).catch(() => undefined);
+      }
       notifyEditsChanged();
       void refreshSubscription(nextWebsiteId);
     } catch (error) {
@@ -873,10 +839,10 @@ Use these details on the website where they fit. Do not invent extras beyond wha
       addAssistantMessage(data.reply);
       notifyEditsChanged();
 
-      const readyToBuild =
-        data.complete ||
-        (hasEnoughIntakeToGenerate(data.intake) &&
-          (Boolean(data.intake.user_confirmed) || lastUserMessageIsConfirmation(history)));
+      const readyToBuild = intakeReadyToBuild(
+        { complete: Boolean(data.complete), intake: data.intake },
+        history,
+      );
 
       if (readyToBuild) {
         setShowAddressModal(true);
@@ -1201,6 +1167,8 @@ Use these details on the website where they fit. Do not invent extras beyond wha
           <PaywallCard
             websiteId={websiteId}
             suggestedName={suggestedDomainName}
+            initialFrequency={paymentFrequency}
+            whatsappToken={whatsappHandoffTokenRef.current}
             onClose={() => setShowPaywall(false)}
             onSubscribed={handleSubscribed}
           />

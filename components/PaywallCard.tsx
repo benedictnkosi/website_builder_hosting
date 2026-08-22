@@ -71,6 +71,8 @@ type PaywallCardProps = {
   suggestedName: string;
   onClose: () => void;
   onSubscribed: (domain: string, amountZar?: number) => void;
+  initialFrequency?: BillingFrequency;
+  whatsappToken?: string;
 };
 
 export default function PaywallCard({
@@ -78,6 +80,8 @@ export default function PaywallCard({
   suggestedName,
   onClose,
   onSubscribed,
+  initialFrequency = "annual",
+  whatsappToken = "",
 }: PaywallCardProps) {
   const { user, authFetch, signInWithGoogle } = useAuth();
   const [query, setQuery] = useState(suggestedName);
@@ -87,7 +91,7 @@ export default function PaywallCard({
   const [mocked, setMocked] = useState(false);
   const [checkingOut, setCheckingOut] = useState(false);
   const [checkoutError, setCheckoutError] = useState<string | null>(null);
-  const [frequency, setFrequency] = useState<BillingFrequency>("annual");
+  const [frequency, setFrequency] = useState<BillingFrequency>(initialFrequency);
   const billedAmount = subscriptionAmountZar(frequency);
 
   useEffect(() => {
@@ -157,6 +161,18 @@ export default function PaywallCard({
       }
 
       const signedInUser = getFirebaseAuth().currentUser;
+
+      if (whatsappToken) {
+        const claimResponse = await authFetch("/api/sites/claim", {
+          method: "POST",
+          body: JSON.stringify({ websiteId, whatsappToken }),
+        });
+        if (!claimResponse.ok) {
+          setCheckoutError("Could not securely connect this WhatsApp website to your account.");
+          setCheckingOut(false);
+          return;
+        }
+      }
 
       const response = await authFetch("/api/checkout", {
         method: "POST",

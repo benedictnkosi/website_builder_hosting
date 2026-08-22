@@ -176,6 +176,7 @@ export async function claimWebsiteIfUnowned(input: {
   user: AuthUser;
   businessName?: string;
   guestId?: string;
+  allowedOwnerUid?: string;
 }): Promise<WebsiteMeta> {
   if (
     !isValidWebsiteId(input.websiteId) ||
@@ -193,8 +194,9 @@ export async function claimWebsiteIfUnowned(input: {
       Boolean(guestId) &&
       isGuestUid(existing.ownerUid) &&
       existing.ownerUid === guestId;
+    const canTakeAuthorizedSite = Boolean(input.allowedOwnerUid) && existing.ownerUid === input.allowedOwnerUid;
 
-    if (existing.ownerUid !== input.user.uid && !canTakeGuestSite) {
+    if (existing.ownerUid !== input.user.uid && !canTakeGuestSite && !canTakeAuthorizedSite) {
       throw new AuthError("You do not have access to this website.", 403);
     }
 

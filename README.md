@@ -145,11 +145,25 @@ Firebase authentication or any other login middleware. Subscribe the callback to
 WhatsApp `messages` webhook field after Meta successfully verifies it. Do not commit
 `.env.local`, app secrets, verify tokens, or permanent access tokens.
 
-Incoming WhatsApp text messages use the same intake assistant as `/builder`. Conversation
+Incoming WhatsApp text messages and supported flyer/PDF uploads use the same intake
+assistant and shared flow rules as `/builder`. Conversation
 state and processed message IDs are stored in Firestore under a one-way keyed identifier;
 customer phone numbers and message contents are not written to logs. When intake is
-complete, the user receives a 24-hour bearer link that restores the conversation in the
-builder for website generation, preview, editing, and payment.
-Before creating that link, the WhatsApp assistant asks for the optional business address.
+complete, the WhatsApp worker runs the same durable generation job as `/builder` and
+sends progress messages as content, design, images, and saving complete. The user does
+not need to open the web builder to start generation.
+Before generation, the WhatsApp assistant asks for the optional business address.
 An AI readiness check requests missing street/locality details before Google Places is
 called, and sufficient queries return an interactive list of South African address matches.
+Users can send `restart`, `start over`, or `new website` to begin with a clean intake;
+conversations also reset after 24 hours of inactivity.
+Completed WhatsApp generations are registered in Firestore against the keyed
+WhatsApp user identifier and mirrored in `whatsappWebsites/{websiteId}`. On a later
+session, users with linked sites receive interactive choices to update a site or create
+a new one; multiple sites are presented in a selection list. Website update instructions
+are also processed in WhatsApp, with an optional preview URL sent after completion.
+After a new website is built, the assistant checks only `.co.za` domains in WhatsApp.
+If a requested name is unavailable it checks and presents up to five similar available
+names. Once the user selects a domain, the chat presents annual and monthly subscription
+prices and records their choice. Only then does it send a short-lived secure builder link
+that opens the selected checkout; PayFast payment remains on the web.

@@ -6,6 +6,7 @@ import { after } from "next/server";
 import { processWhatsAppConversationMessage } from "@/lib/whatsapp-conversation";
 
 export const runtime = "nodejs";
+export const maxDuration = 300;
 
 export function GET(request: Request): Response {
   return handleWhatsAppVerification(request);
