@@ -1,10 +1,14 @@
 import { NextResponse } from "next/server";
-import { jsonAuthError, type AuthUser } from "@/lib/auth-server";
+import { isGuestUser, jsonAuthError, type AuthUser } from "@/lib/auth-server";
+import {
+  convertEditUploadToWebp,
+  parseEditImageUpload,
+} from "@/lib/edit-image-upload";
 import { createEditJob, jobJsonHeaders, scheduleJobTick, toJobView } from "@/lib/jobs";
 import { clientKey, consumeRateLimit, jsonRateLimitError } from "@/lib/rate-limit";
-import { requireOwnedSite } from "@/lib/sites";
+import { requireOwnedActor } from "@/lib/sites";
 import { assertEditEdits, jsonEditError } from "@/lib/edits";
-import { isValidWebsiteId } from "@/lib/validation";
+import { GeneratorError, isValidWebsiteId } from "@/lib/validation";
 import { runWithMockAiFromRequest } from "@/lib/mock-ai";
 
 export const runtime = "nodejs";
@@ -26,16 +30,14 @@ async function handlePost(request: Request) {
     );
   }
 
+  const payload = typeof body === "object" && body !== null ? (body as Record<string, unknown>) : null;
   const websiteId =
-    typeof body === "object" && body !== null && "websiteId" in body && typeof body.websiteId === "string"
-      ? body.websiteId
-      : null;
-  const instruction =
-    typeof body === "object" && body !== null && "instruction" in body && typeof body.instruction === "string"
-      ? body.instruction
-      : null;
+    typeof payload?.websiteId === "string" ? payload.websiteId : null;
+  const rawInstruction =
+    typeof payload?.instruction === "string" ? payload.instruction.trim() : "";
+  const hasImage = payload?.image != null;
 
-  if (!websiteId || !isValidWebsiteId(websiteId) || !instruction) {
+  if (!websiteId || !isValidWebsiteId(websiteId) || (!rawInstruction && !hasImage)) {
     return NextResponse.json(
       { success: false, error: "websiteId and instruction are required." },
       { status: 400 },
@@ -44,9 +46,11 @@ async function handlePost(request: Request) {
 
   let user: AuthUser;
   try {
-    ({ user } = await requireOwnedSite(request, websiteId));
+    ({ user } = await requireOwnedActor(request, websiteId));
     consumeRateLimit(`edit:${clientKey(request, user.uid)}`, 20, 60 * 60 * 1000);
-    await assertEditEdits(user);
+    if (!isGuestUser(user)) {
+      await assertEditEdits(user);
+    }
   } catch (error) {
     const limited = jsonRateLimitError(error);
     if (limited) return limited;
@@ -60,10 +64,39 @@ async function handlePost(request: Request) {
     );
   }
 
+  let uploadedImage: { content: string; filename: string } | undefined;
+  try {
+    if (hasImage) {
+      consumeRateLimit(`edit-upload:${clientKey(request, user.uid)}`, 8, 60 * 60 * 1000);
+      const parsed = parseEditImageUpload(payload?.image);
+      uploadedImage = {
+        content: await convertEditUploadToWebp(parsed),
+        filename: parsed.filename,
+      };
+    }
+  } catch (error) {
+    const limited = jsonRateLimitError(error);
+    if (limited) return limited;
+    if (error instanceof GeneratorError) {
+      return NextResponse.json(
+        { success: false, error: error.message },
+        { status: error.statusCode },
+      );
+    }
+    return NextResponse.json(
+      { success: false, error: "Could not read that photo." },
+      { status: 400 },
+    );
+  }
+
+  const instruction =
+    rawInstruction || "Replace a website photo with my uploaded image.";
+
   try {
     const job = await createEditJob(user, {
       websiteId,
-      instruction: instruction.trim(),
+      instruction,
+      uploadedImage,
     });
     scheduleJobTick(user, job.jobId);
     return NextResponse.json(

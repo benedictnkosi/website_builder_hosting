@@ -1,7 +1,6 @@
 import type { Metadata } from "next";
 import { Suspense } from "react";
 import AppHeader from "@/components/AppHeader";
-import AuthGuard from "@/components/AuthGuard";
 import WebsiteBuilderEntry from "@/components/WebsiteBuilderEntry";
 
 export const metadata: Metadata = {
@@ -15,19 +14,17 @@ export const metadata: Metadata = {
 
 export default function BuilderPage() {
   return (
-    <AuthGuard>
-      <main className="flex h-dvh min-h-0 min-w-0 flex-col overflow-x-hidden overflow-y-hidden">
-        <AppHeader />
-        <Suspense
-          fallback={
-            <div className="flex flex-1 items-center justify-center">
-              <p className="text-sm text-stone-500">Loading your workspace...</p>
-            </div>
-          }
-        >
-          <WebsiteBuilderEntry />
-        </Suspense>
-      </main>
-    </AuthGuard>
+    <main className="flex h-dvh min-h-0 min-w-0 flex-col overflow-x-hidden overflow-y-hidden">
+      <AppHeader />
+      <Suspense
+        fallback={
+          <div className="flex flex-1 items-center justify-center">
+            <p className="text-sm text-stone-500">Loading your workspace...</p>
+          </div>
+        }
+      >
+        <WebsiteBuilderEntry />
+      </Suspense>
+    </main>
   );
 }

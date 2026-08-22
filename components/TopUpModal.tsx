@@ -4,6 +4,7 @@ import { useState } from "react";
 import { createPortal } from "react-dom";
 import { usePathname } from "next/navigation";
 import { useAuth } from "@/components/AuthProvider";
+import { getFirebaseAuth } from "@/lib/firebase";
 import { trackEditTopupStart, trackEditTopupSuccess } from "@/lib/analytics";
 import { submitPayfastForm } from "@/lib/payfast-browser";
 import {
@@ -27,7 +28,7 @@ export default function TopUpModal({
   onClose,
   onPurchased,
 }: TopUpModalProps) {
-  const { user, authFetch } = useAuth();
+  const { user, authFetch, signInWithGoogle } = useAuth();
   const pathname = usePathname();
   const [packageId, setPackageId] = useState<EditTopupPackageId>(
     DEFAULT_EDIT_TOPUP_PACKAGE_ID,
@@ -45,13 +46,19 @@ export default function TopUpModal({
     trackEditTopupStart(selected.amountZar);
 
     try {
+      if (!user) {
+        await signInWithGoogle();
+      }
+
+      const signedInUser = getFirebaseAuth().currentUser;
+
       const response = await authFetch("/api/edits/checkout", {
         method: "POST",
         body: JSON.stringify({
           returnPath: pathname || "/dashboard",
           packageId: selected.id,
-          email: user?.email ?? "",
-          name: user?.displayName ?? "",
+          email: signedInUser?.email ?? user?.email ?? "",
+          name: signedInUser?.displayName ?? user?.displayName ?? "",
         }),
       });
       const data = (await response.json()) as {
@@ -83,8 +90,17 @@ export default function TopUpModal({
       }
 
       submitPayfastForm(data.processUrl, data.fields);
-    } catch {
-      setError("Could not start PayFast checkout. Please try again.");
+    } catch (err) {
+      const code =
+        typeof err === "object" && err && "code" in err ? String(err.code) : "";
+      if (
+        code === "auth/popup-closed-by-user" ||
+        code === "auth/cancelled-popup-request"
+      ) {
+        setError(null);
+      } else {
+        setError("Could not start PayFast checkout. Please try again.");
+      }
     } finally {
       setCheckingOut(false);
     }

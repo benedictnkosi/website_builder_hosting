@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { jsonAuthError, requireUser } from "@/lib/auth-server";
+import { jsonAuthError, requireActor } from "@/lib/auth-server";
 import { getGooglePlacesApiKey } from "@/lib/google-places-api";
 import { clientKey, consumeRateLimit, jsonRateLimitError } from "@/lib/rate-limit";
 
@@ -7,7 +7,7 @@ export const runtime = "nodejs";
 
 export async function GET(request: Request) {
   try {
-    const user = await requireUser(request);
+    const user = await requireActor(request);
     consumeRateLimit(`places:${clientKey(request, user.uid)}`, 60, 10 * 60 * 1000);
   } catch (error) {
     const limited = jsonRateLimitError(error);

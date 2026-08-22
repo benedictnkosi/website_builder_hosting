@@ -2,8 +2,11 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 import BrandMark from "@/components/BrandMark";
 import { useAuth } from "@/components/AuthProvider";
+import { trackStartBuilder } from "@/lib/analytics";
+import { getGuestSyncPayload } from "@/lib/guest-session";
 
 function GoogleIcon() {
   return (
@@ -29,10 +32,14 @@ function GoogleIcon() {
 }
 
 function postAuthPath(isNewUser: boolean): string {
+  const guest = getGuestSyncPayload();
+  if (guest.websiteId) {
+    return `/builder?websiteId=${encodeURIComponent(guest.websiteId)}`;
+  }
   return isNewUser ? "/builder?new=1" : "/dashboard";
 }
 
-function useLandingAuth() {
+function useLandingAuth(stayOnPage = false) {
   const { signInWithGoogle } = useAuth();
   const router = useRouter();
   const [signingIn, setSigningIn] = useState(false);
@@ -44,7 +51,9 @@ function useLandingAuth() {
 
     try {
       const isNewUser = await signInWithGoogle();
-      router.push(postAuthPath(isNewUser));
+      if (!stayOnPage) {
+        router.push(postAuthPath(isNewUser));
+      }
     } catch (err) {
       const code =
         typeof err === "object" && err && "code" in err ? String(err.code) : "";
@@ -107,10 +116,12 @@ export function LandingSignedInRedirect() {
 
 export function LandingHeaderSignIn({
   className = "",
+  stayOnPage = false,
 }: {
   className?: string;
+  stayOnPage?: boolean;
 }) {
-  const { signingIn, handleGoogleSignIn } = useLandingAuth();
+  const { signingIn, handleGoogleSignIn } = useLandingAuth(stayOnPage);
 
   return (
     <button
@@ -125,49 +136,36 @@ export function LandingHeaderSignIn({
   );
 }
 
-function PreviewStartButton({
-  signingIn,
-  onClick,
-}: {
-  signingIn: boolean;
-  onClick: () => void;
-}) {
+function PreviewStartLink({ source }: { source: string }) {
   return (
-    <button
-      type="button"
-      onClick={onClick}
-      disabled={signingIn}
-      className="inline-flex items-center justify-center rounded-full bg-teal-800 px-6 py-3 text-sm font-semibold text-white shadow-[0_10px_24px_rgba(17,94,89,0.28)] transition hover:bg-teal-700 disabled:cursor-not-allowed disabled:opacity-60"
+    <Link
+      href="/builder?new=1"
+      onClick={() => trackStartBuilder(source)}
+      className="inline-flex items-center justify-center rounded-full bg-teal-800 px-6 py-3 text-sm font-semibold text-white shadow-[0_10px_24px_rgba(17,94,89,0.28)] transition hover:bg-teal-700"
     >
-      {signingIn ? "Signing in..." : "Try it free — No card needed"}
-    </button>
+      Try it free — No card needed
+    </Link>
   );
 }
 
 export function LandingHeroSignIn() {
-  const { signingIn, error, handleGoogleSignIn } = useLandingAuth();
-
   return (
     <div className="mt-8 flex flex-col items-center gap-3">
-      <PreviewStartButton signingIn={signingIn} onClick={handleGoogleSignIn} />
+      <PreviewStartLink source="hero" />
       <p className="text-sm text-stone-500">
         Takes 1 minute • 100% Free to build &amp; test • No credit card required
       </p>
-      {error ? <p className="text-sm text-red-700">{error}</p> : null}
     </div>
   );
 }
 
 export function LandingCtaSignIn() {
-  const { signingIn, error, handleGoogleSignIn } = useLandingAuth();
-
   return (
     <div className="flex flex-col items-start gap-2">
-      <PreviewStartButton signingIn={signingIn} onClick={handleGoogleSignIn} />
+      <PreviewStartLink source="pricing" />
       <p className="text-sm text-stone-500">
         Takes 1 minute • 100% Free to build &amp; test • No credit card required
       </p>
-      {error ? <p className="text-sm text-red-700">{error}</p> : null}
     </div>
   );
 }

@@ -1,6 +1,7 @@
 import "server-only";
 
 import { NextResponse } from "next/server";
+import { GUEST_ID_HEADER, isGuestUid } from "@/lib/guest";
 import {
   SESSION_COOKIE,
   SESSION_MAX_AGE_SECONDS,
@@ -11,6 +12,7 @@ export type AuthUser = {
   email?: string;
   displayName?: string;
   idToken: string;
+  isGuest?: boolean;
 };
 
 export class AuthError extends Error {
@@ -113,6 +115,41 @@ export async function verifyIdToken(idToken: string): Promise<AuthUser> {
 export async function requireUser(request: Request): Promise<AuthUser> {
   const idToken = bearerToken(request) || cookieToken(request);
   return verifyIdToken(idToken);
+}
+
+export function readGuestId(request: Request): string {
+  const header = request.headers.get(GUEST_ID_HEADER)?.trim() ?? "";
+  return isGuestUid(header) ? header : "";
+}
+
+export function guestUserFromId(guestId: string): AuthUser | null {
+  if (!isGuestUid(guestId)) return null;
+  return {
+    uid: guestId,
+    idToken: "",
+    isGuest: true,
+  };
+}
+
+export async function requireActor(request: Request): Promise<AuthUser> {
+  const bearer = bearerToken(request);
+  if (bearer) {
+    return verifyIdToken(bearer);
+  }
+
+  const guest = guestUserFromId(readGuestId(request));
+  if (guest) return guest;
+
+  const cookie = cookieToken(request);
+  if (cookie) {
+    return verifyIdToken(cookie);
+  }
+
+  throw new AuthError("Sign in to continue.");
+}
+
+export function isGuestUser(user: AuthUser): boolean {
+  return user.isGuest === true || isGuestUid(user.uid);
 }
 
 export function readSessionToken(request: Request): string {

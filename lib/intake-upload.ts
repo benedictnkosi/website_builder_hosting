@@ -1,15 +1,17 @@
 export const INTAKE_UPLOAD_ACCEPT =
   "image/jpeg,image/png,image/webp,image/gif,application/pdf";
+export const EDIT_IMAGE_UPLOAD_ACCEPT = "image/jpeg,image/png,image/webp,image/gif";
 export const INTAKE_UPLOAD_MAX_BYTES = 4 * 1024 * 1024;
 export const INTAKE_UPLOAD_MAX_EDGE = 1600;
 
-const ALLOWED_TYPES = new Set([
+const ALLOWED_IMAGE_TYPES = new Set([
   "image/jpeg",
   "image/png",
   "image/webp",
   "image/gif",
-  "application/pdf",
 ]);
+
+const ALLOWED_TYPES = new Set([...ALLOWED_IMAGE_TYPES, "application/pdf"]);
 
 export type IntakeUpload = {
   filename: string;
@@ -19,6 +21,10 @@ export type IntakeUpload = {
 
 export function isAllowedIntakeUploadType(mediaType: string): boolean {
   return ALLOWED_TYPES.has(mediaType);
+}
+
+export function isAllowedEditImageUploadType(mediaType: string): boolean {
+  return ALLOWED_IMAGE_TYPES.has(mediaType);
 }
 
 export function sanitizeIntakeFilename(name: string): string {
@@ -84,6 +90,13 @@ async function resizeImage(file: File): Promise<Blob> {
     throw new Error("Could not prepare that image.");
   }
   return blob;
+}
+
+export async function fileToEditImageUpload(file: File): Promise<IntakeUpload> {
+  if (!isAllowedEditImageUploadType(file.type)) {
+    throw new Error("Upload a JPG, PNG, WebP, or GIF photo.");
+  }
+  return fileToIntakeUpload(file);
 }
 
 export async function fileToIntakeUpload(file: File): Promise<IntakeUpload> {

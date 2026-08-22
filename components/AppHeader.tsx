@@ -5,6 +5,7 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import BrandMark from "@/components/BrandMark";
 import EditsControls from "@/components/EditsControls";
+import { LandingHeaderSignIn } from "@/components/LandingAuth";
 import { useAuth } from "@/components/AuthProvider";
 import { trackStartBuilder } from "@/lib/analytics";
 
@@ -63,7 +64,8 @@ export default function AppHeader() {
 
   const displayName = user?.displayName || user?.email || "Account";
   const initial = displayName.trim().charAt(0).toUpperCase() || "A";
-  const supportHref = onDashboard ? "#support" : "/dashboard#support";
+  const supportHref = onDashboard ? "#support" : user ? "/dashboard#support" : "/#support";
+  const homeHref = user ? "/dashboard" : "/";
 
   useEffect(() => {
     setMobileOpen(false);
@@ -100,21 +102,23 @@ export default function AppHeader() {
   return (
     <header className="sticky top-0 z-40 border-b border-stone-200/80 bg-[color:var(--background)]/85 backdrop-blur-md">
       <div className="mx-auto flex w-full min-w-0 max-w-[90rem] items-center justify-between gap-2 px-4 py-2.5 sm:gap-3 sm:px-5">
-        <Link href="/dashboard" aria-label="Go to dashboard" onClick={() => setMobileOpen(false)}>
+        <Link href={homeHref} aria-label={user ? "Go to dashboard" : "Lulaweb home"} onClick={() => setMobileOpen(false)}>
           <BrandMark />
         </Link>
 
-        <nav
-          aria-label="Primary"
-          className="hidden items-center rounded-full bg-white/80 p-1 shadow-sm ring-1 ring-stone-200/80 md:flex"
-        >
-          <Link href="/dashboard" className={navLinkClass(onDashboard)}>
-            Sites
-          </Link>
-          <Link href={supportHref} className={navLinkClass(false)}>
-            Support
-          </Link>
-        </nav>
+        {user ? (
+          <nav
+            aria-label="Primary"
+            className="hidden items-center rounded-full bg-white/80 p-1 shadow-sm ring-1 ring-stone-200/80 md:flex"
+          >
+            <Link href="/dashboard" className={navLinkClass(onDashboard)}>
+              Sites
+            </Link>
+            <Link href={supportHref} className={navLinkClass(false)}>
+              Support
+            </Link>
+          </nav>
+        ) : null}
 
         <div className="flex items-center gap-2">
           <Link
@@ -126,6 +130,7 @@ export default function AppHeader() {
           </Link>
           <EditsControls />
 
+          {user ? (
           <div className="relative z-50 hidden md:block" ref={accountRef}>
             <button
               type="button"
@@ -165,6 +170,11 @@ export default function AppHeader() {
               </div>
             ) : null}
           </div>
+          ) : (
+            <div className="hidden md:block">
+              <LandingHeaderSignIn stayOnPage />
+            </div>
+          )}
 
           <button
             type="button"
@@ -185,22 +195,34 @@ export default function AppHeader() {
           className="border-t border-stone-200/80 bg-[color:var(--background)]/95 px-4 py-4 backdrop-blur-md md:hidden"
         >
           <nav aria-label="Primary" className="flex flex-col gap-1">
-            <Link
-              href="/dashboard"
-              onClick={() => setMobileOpen(false)}
-              className={`rounded-2xl px-4 py-3 text-sm font-medium ${
-                onDashboard ? "bg-teal-800 text-white" : "text-stone-700 hover:bg-white"
-              }`}
-            >
-              Sites
-            </Link>
-            <Link
-              href={supportHref}
-              onClick={() => setMobileOpen(false)}
-              className="rounded-2xl px-4 py-3 text-sm font-medium text-stone-700 transition hover:bg-white"
-            >
-              Support
-            </Link>
+            {user ? (
+              <>
+                <Link
+                  href="/dashboard"
+                  onClick={() => setMobileOpen(false)}
+                  className={`rounded-2xl px-4 py-3 text-sm font-medium ${
+                    onDashboard ? "bg-teal-800 text-white" : "text-stone-700 hover:bg-white"
+                  }`}
+                >
+                  Sites
+                </Link>
+                <Link
+                  href={supportHref}
+                  onClick={() => setMobileOpen(false)}
+                  className="rounded-2xl px-4 py-3 text-sm font-medium text-stone-700 transition hover:bg-white"
+                >
+                  Support
+                </Link>
+              </>
+            ) : (
+              <Link
+                href={supportHref}
+                onClick={() => setMobileOpen(false)}
+                className="rounded-2xl px-4 py-3 text-sm font-medium text-stone-700 transition hover:bg-white"
+              >
+                Support
+              </Link>
+            )}
             <Link
               href="/builder?new=1"
               onClick={() => {
@@ -211,21 +233,27 @@ export default function AppHeader() {
             >
               New site
             </Link>
-            <div className="mt-3 rounded-2xl border border-stone-200 bg-white px-4 py-3">
-              <p className="truncate text-sm font-semibold text-stone-900">
-                {user?.displayName || "Signed in"}
-              </p>
-              {user?.email ? (
-                <p className="mt-0.5 truncate text-xs text-stone-500">{user.email}</p>
-              ) : null}
-              <button
-                type="button"
-                onClick={() => void handleSignOut()}
-                className="mt-3 w-full rounded-full border border-stone-300 px-4 py-2 text-sm font-medium text-stone-700 transition hover:bg-stone-50"
-              >
-                Sign out
-              </button>
-            </div>
+            {user ? (
+              <div className="mt-3 rounded-2xl border border-stone-200 bg-white px-4 py-3">
+                <p className="truncate text-sm font-semibold text-stone-900">
+                  {user.displayName || "Signed in"}
+                </p>
+                {user.email ? (
+                  <p className="mt-0.5 truncate text-xs text-stone-500">{user.email}</p>
+                ) : null}
+                <button
+                  type="button"
+                  onClick={() => void handleSignOut()}
+                  className="mt-3 w-full rounded-full border border-stone-300 px-4 py-2 text-sm font-medium text-stone-700 transition hover:bg-stone-50"
+                >
+                  Sign out
+                </button>
+              </div>
+            ) : (
+              <div className="mt-3 md:hidden">
+                <LandingHeaderSignIn className="w-full" stayOnPage />
+              </div>
+            )}
           </nav>
         </div>
       ) : null}

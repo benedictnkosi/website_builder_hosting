@@ -25,7 +25,7 @@ import {
   type IntakeChatResult,
   type WebsiteIntake,
 } from "@/lib/intake";
-import { fileToIntakeUpload, INTAKE_UPLOAD_ACCEPT, type IntakeUpload } from "@/lib/intake-upload";
+import { fileToEditImageUpload, fileToIntakeUpload, EDIT_IMAGE_UPLOAD_ACCEPT, INTAKE_UPLOAD_ACCEPT, type IntakeUpload } from "@/lib/intake-upload";
 import { getPeopleEthnicityOption } from "@/lib/people-ethnicity";
 import type { SiteJobView, WebsiteFile } from "@/lib/types";
 import {
@@ -42,7 +42,20 @@ import {
   trackPurchase,
 } from "@/lib/analytics";
 import { notifyEditsChanged, openEditTopup, EDITS_CHANGED_EVENT } from "@/lib/edit-events";
-import { EDIT_TOPUP_ZAR, SUBSCRIPTION_EDITS_GRANT, formatEdits, formatZar } from "@/lib/pricing";
+import {
+  consumeLocalEdits,
+  ensureLocalCredits,
+  getOrCreateGuestId,
+  rememberGuestWebsite,
+} from "@/lib/guest-session";
+import {
+  EDIT_EDITS_COST,
+  EDIT_TOPUP_ZAR,
+  GENERATE_EDITS_COST,
+  SUBSCRIPTION_EDITS_GRANT,
+  formatEdits,
+  formatZar,
+} from "@/lib/pricing";
 
 type GenerationStatus = "idle" | "chatting" | "generating" | "success" | "error";
 type ChatPhase = "intake" | "edit";
@@ -51,7 +64,7 @@ const WELCOME_MESSAGE =
   "Hi! I'm here to help build your website. Tell me about your business, or upload one flyer, business card, or PDF if you have one.\n\nI'll need this information:\n• Business name\n• About us\n• List of services\n• Contact number\n• WhatsApp number, if WhatsApp is required\n• Email address, if a contact form is required\n• Trading hours, if you have them";
 
 const READY_MESSAGE =
-  "Your website is ready. Preview it, describe any changes, and subscribe when you want to deploy it live.";
+  "Your website is ready. Preview it, describe any changes, or attach one photo to replace an image. Subscribe when you want to deploy it live.";
 
 function sleep(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -199,7 +212,7 @@ function EmptyPreview({ generating }: { generating: boolean }) {
 export default function WebsiteBuilder() {
   const searchParams = useSearchParams();
   const router = useRouter();
-  const { authFetch } = useAuth();
+  const { user, loading, authFetch } = useAuth();
   const [messages, setMessages] = useState<ChatMessage[]>([
     { role: "assistant", content: WELCOME_MESSAGE },
   ]);
@@ -221,6 +234,7 @@ export default function WebsiteBuilder() {
   const chatInputRef = useRef<HTMLInputElement>(null);
   const [readingDocument, setReadingDocument] = useState(false);
   const [flyerUploaded, setFlyerUploaded] = useState(false);
+  const [pendingEditImage, setPendingEditImage] = useState<IntakeUpload | null>(null);
   const [showDeployCard, setShowDeployCard] = useState(false);
   const [autoDeploy, setAutoDeploy] = useState(false);
   const [showPaywall, setShowPaywall] = useState(false);
@@ -254,6 +268,8 @@ export default function WebsiteBuilder() {
       !/^I uploaded .+ with my business information\.$/.test(message.content),
   );
   const showFlyerUpload = chatPhase === "intake" && !startedIntakeByChat;
+  const showEditImageUpload = chatPhase === "edit";
+  const showUploadButton = showFlyerUpload || showEditImageUpload;
   const editShortage = Boolean(
     error?.toLowerCase().includes("edit") || error?.toLowerCase().includes("top up"),
   );
@@ -272,6 +288,11 @@ export default function WebsiteBuilder() {
 
   useEffect(() => {
     async function loadEdits() {
+      if (loading) return;
+      if (!user) {
+        setEditsRemaining(ensureLocalCredits());
+        return;
+      }
       try {
         const response = await authFetch("/api/edits");
         const data = (await response.json()) as {
@@ -296,7 +317,7 @@ export default function WebsiteBuilder() {
     window.addEventListener(EDITS_CHANGED_EVENT, onEditsChanged);
     void loadEdits();
     return () => window.removeEventListener(EDITS_CHANGED_EVENT, onEditsChanged);
-  }, [authFetch, status]);
+  }, [authFetch, loading, status, user]);
 
   function addAssistantMessage(content: string) {
     setMessages((prev) => [...prev, { role: "assistant", content }]);
@@ -484,6 +505,8 @@ export default function WebsiteBuilder() {
               businessName: session?.businessName ?? "",
               businessDescription: session?.businessDescription ?? "",
             });
+            consumeLocalEdits(GENERATE_EDITS_COST, `generate:${job.jobId}`);
+            rememberGuestWebsite(job.websiteId);
             addAssistantMessage(READY_MESSAGE);
             notifyEditsChanged();
           } else if (job.kind === "edit") {
@@ -494,6 +517,10 @@ export default function WebsiteBuilder() {
               businessName: session?.businessName ?? "",
               businessDescription: session?.businessDescription ?? "",
             });
+            consumeLocalEdits(EDIT_EDITS_COST, `edit:${job.jobId}`);
+            if (job.websiteId || nextWebsiteId) {
+              rememberGuestWebsite(job.websiteId || nextWebsiteId);
+            }
             addAssistantMessage("Changes applied.");
             notifyEditsChanged();
           }
@@ -546,18 +573,23 @@ export default function WebsiteBuilder() {
     }
 
     void refreshSubscription(nextWebsiteId, checkout === "return");
+    // Restore once from the return URL / saved session.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
+    if (!user || !websiteId) return;
     void authFetch("/api/sites/claim", {
       method: "POST",
       body: JSON.stringify({
-        websiteId: nextWebsiteId,
-        businessName: session?.businessName ?? "",
+        websiteId,
+        businessName,
+        guestId: getOrCreateGuestId(),
       }),
     }).catch(() => {
       // Keep the builder usable even if claiming fails.
     });
-    // Restore once from the return URL / saved session.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [authFetch, businessName, user, websiteId]);
 
   function buildGeneratePrompt(intake: WebsiteIntake): string {
     const promptParts = [compileBusinessDescription(intake)];
@@ -646,6 +678,16 @@ Use these details on the website where they fit. Do not invent extras beyond wha
     setFiles([]);
     trackGenerateStart();
 
+    if (!user && ensureLocalCredits() < GENERATE_EDITS_COST) {
+      const message = `Generating a new site requires 2 Edits. You currently have ${ensureLocalCredits()}. Please top up.`;
+      setStatus("error");
+      setError(message);
+      setChatLocked(false);
+      openEditTopup();
+      addAssistantMessage(message);
+      return;
+    }
+
     try {
       const response = await authFetch("/api/generate", {
         method: "POST",
@@ -716,6 +758,10 @@ Use these details on the website where they fit. Do not invent extras beyond wha
         businessName: name,
         businessDescription: description,
       });
+      if (!user) {
+        consumeLocalEdits(GENERATE_EDITS_COST, `generate:${job.jobId}`);
+        rememberGuestWebsite(nextWebsiteId);
+      }
       addAssistantMessage(READY_MESSAGE);
       notifyEditsChanged();
       void refreshSubscription(nextWebsiteId);
@@ -810,13 +856,21 @@ Use these details on the website where they fit. Do not invent extras beyond wha
     }
   }
 
-  async function applyEdit(instruction: string) {
-    if (!instruction.trim() || !websiteId || isEditing) return;
+  async function applyEdit(instruction: string, image?: IntakeUpload | null) {
+    if ((!instruction.trim() && !image) || !websiteId || isEditing) return;
 
     const epoch = runEpochRef.current;
     setIsEditing(true);
     setError(null);
     trackEditStart();
+
+    if (!user && ensureLocalCredits() < EDIT_EDITS_COST) {
+      const message = `Updating your site requires 1 Edit. Please top up for ${formatZar(EDIT_TOPUP_ZAR)}.`;
+      setError(message);
+      openEditTopup();
+      addAssistantMessage(message);
+      return;
+    }
 
     try {
       const response = await authFetch("/api/edit", {
@@ -824,6 +878,7 @@ Use these details on the website where they fit. Do not invent extras beyond wha
         body: JSON.stringify({
           websiteId,
           instruction: instruction.trim(),
+          image: image ?? undefined,
         }),
       });
 
@@ -857,6 +912,7 @@ Use these details on the website where they fit. Do not invent extras beyond wha
       await waitForJob(data.jobId, epoch);
       if (isStaleRun(epoch)) return;
 
+      setPendingEditImage(null);
       setIframeKey((key) => key + 1);
       trackEditSuccess();
       clearJobView();
@@ -865,6 +921,10 @@ Use these details on the website where they fit. Do not invent extras beyond wha
         businessName,
         businessDescription,
       });
+      if (!user) {
+        consumeLocalEdits(EDIT_EDITS_COST, `edit:${data.jobId}`);
+        rememberGuestWebsite(websiteId);
+      }
       addAssistantMessage("Changes applied.");
       notifyEditsChanged();
     } catch (error) {
@@ -884,12 +944,21 @@ Use these details on the website where they fit. Do not invent extras beyond wha
     }
   }
 
+  function editMessageContent(text: string, image?: IntakeUpload | null): string {
+    if (!image) return text;
+    if (text) return `${text}\n\n[Photo attached: ${image.filename}]`;
+    return `Replace a website photo with my uploaded image (${image.filename}).`;
+  }
+
   function submitEdit(text: string) {
-    const nextMessages: ChatMessage[] = [...messages, { role: "user", content: text }];
+    const image = pendingEditImage;
+    const content = editMessageContent(text, image);
+    if (!content) return;
+    const nextMessages: ChatMessage[] = [...messages, { role: "user", content }];
     setMessages(nextMessages);
     setChatInput("");
     setError(null);
-    void applyEdit(text);
+    void applyEdit(text, image);
   }
 
   function handleBulkEditAddMore() {
@@ -901,7 +970,7 @@ Use these details on the website where they fit. Do not invent extras beyond wha
     markBulkEditTipSeen();
     setShowBulkEditTip(false);
     const text = chatInput.trim();
-    if (!text) return;
+    if (!text && !pendingEditImage) return;
     submitEdit(text);
   }
 
@@ -911,9 +980,8 @@ Use these details on the website where they fit. Do not invent extras beyond wha
     const text = chatInput.trim();
     if (chatDisabled) return;
 
-    if (!text) return;
-
     if (chatPhase === "edit") {
+      if (!text && !pendingEditImage) return;
       if (!hasSeenBulkEditTip()) {
         setShowBulkEditTip(true);
         return;
@@ -921,6 +989,8 @@ Use these details on the website where they fit. Do not invent extras beyond wha
       submitEdit(text);
       return;
     }
+
+    if (!text) return;
 
     const nextMessages: ChatMessage[] = [...messages, { role: "user", content: text }];
     setMessages(nextMessages);
@@ -963,6 +1033,24 @@ Use these details on the website where they fit. Do not invent extras beyond wha
         error instanceof Error && error.message
           ? error.message
           : "Could not read that file.",
+      );
+    }
+  }
+
+  async function handleEditImageUpload(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (!file || chatDisabled || chatPhase !== "edit") return;
+
+    try {
+      const image = await fileToEditImageUpload(file);
+      setPendingEditImage(image);
+      setError(null);
+    } catch (error) {
+      setError(
+        error instanceof Error && error.message
+          ? error.message
+          : "Could not read that photo.",
       );
     }
   }
@@ -1019,6 +1107,7 @@ Use these details on the website where they fit. Do not invent extras beyond wha
     setStatus("idle");
     setReadingDocument(false);
     setFlyerUploaded(false);
+    setPendingEditImage(null);
     setError(null);
     setFiles([]);
     setIsEditing(false);
@@ -1170,34 +1259,74 @@ Use these details on the website where they fit. Do not invent extras beyond wha
 
             <div className="min-w-0 border-t border-stone-200/80 bg-[#f6f4ef] px-5 py-3">
               <form onSubmit={handleChatSubmit} className="flex min-w-0 flex-col gap-2">
-                {showFlyerUpload ? (
+                {showUploadButton ? (
                   <input
                     ref={fileInputRef}
                     type="file"
-                    accept={INTAKE_UPLOAD_ACCEPT}
+                    accept={showEditImageUpload ? EDIT_IMAGE_UPLOAD_ACCEPT : INTAKE_UPLOAD_ACCEPT}
+                    multiple={false}
                     className="sr-only"
                     tabIndex={-1}
-                    disabled={chatDisabled || flyerUploaded}
-                    onChange={handleIntakeUpload}
+                    disabled={
+                      chatDisabled || (showFlyerUpload && flyerUploaded)
+                    }
+                    onChange={
+                      showEditImageUpload ? handleEditImageUpload : handleIntakeUpload
+                    }
                   />
                 ) : null}
+                {pendingEditImage ? (
+                  <div className="flex min-w-0 items-center gap-2 rounded-2xl border border-stone-200 bg-white px-2.5 py-2">
+                    <img
+                      src={`data:${pendingEditImage.mediaType};base64,${pendingEditImage.data}`}
+                      alt=""
+                      className="h-10 w-10 shrink-0 rounded-lg object-cover"
+                    />
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate text-xs font-medium text-stone-800">
+                        {pendingEditImage.filename}
+                      </p>
+                      <p className="text-[11px] text-stone-500">
+                        One photo at a time. Say which image to replace.
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setPendingEditImage(null)}
+                      disabled={chatDisabled}
+                      className="shrink-0 rounded-full px-2 py-1 text-xs font-medium text-stone-500 transition hover:bg-stone-100 hover:text-stone-800 disabled:text-stone-300"
+                    >
+                      Remove
+                    </button>
+                  </div>
+                ) : null}
                 <div className="relative flex min-w-0 items-center gap-2">
-                  {showFlyerUpload ? (
+                  {showUploadButton ? (
                     <button
                       type="button"
                       onClick={() => fileInputRef.current?.click()}
-                      disabled={chatDisabled || flyerUploaded}
+                      disabled={chatDisabled || (showFlyerUpload && flyerUploaded)}
                       aria-label={
-                        flyerUploaded
-                          ? "A flyer or PDF has already been uploaded for this website"
-                          : "Upload a flyer, business card, or PDF"
+                        showEditImageUpload
+                          ? pendingEditImage
+                            ? "Replace the attached photo"
+                            : "Attach a photo to replace on the website"
+                          : flyerUploaded
+                            ? "A flyer or PDF has already been uploaded for this website"
+                            : "Upload a flyer, business card, or PDF"
                       }
                       title={
-                        flyerUploaded
-                          ? "You can upload one flyer or PDF per website"
-                          : "Upload a flyer, business card, or PDF"
+                        showEditImageUpload
+                          ? "Replace one website photo with your own (one image at a time)"
+                          : flyerUploaded
+                            ? "You can upload one flyer or PDF per website"
+                            : "Upload a flyer, business card, or PDF"
                       }
-                      className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-stone-300 bg-white text-stone-600 transition hover:bg-stone-50 hover:text-teal-800 disabled:cursor-not-allowed disabled:bg-stone-100 disabled:text-stone-400"
+                      className={`inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full border bg-white transition hover:bg-stone-50 disabled:cursor-not-allowed disabled:bg-stone-100 disabled:text-stone-400 ${
+                        showEditImageUpload && pendingEditImage
+                          ? "border-teal-700 text-teal-800 ring-2 ring-teal-700/20"
+                          : "border-stone-300 text-stone-600 hover:text-teal-800"
+                      }`}
                     >
                       <PaperclipIcon />
                     </button>
@@ -1214,7 +1343,9 @@ Use these details on the website where they fit. Do not invent extras beyond wha
                         : chatLocked
                           ? "Edits have been used up"
                           : chatPhase === "edit"
-                            ? "Describe a change..."
+                            ? pendingEditImage
+                              ? "Which photo should this replace?"
+                              : "Describe a change, or attach a photo..."
                             : showFlyerUpload
                               ? "Message, or upload a flyer..."
                               : "Message..."
@@ -1224,7 +1355,10 @@ Use these details on the website where they fit. Do not invent extras beyond wha
                   />
                   <button
                     type="submit"
-                    disabled={chatDisabled || !chatInput.trim()}
+                    disabled={
+                      chatDisabled ||
+                      (!chatInput.trim() && !(showEditImageUpload && pendingEditImage))
+                    }
                     className="shrink-0 rounded-full bg-teal-800 px-3.5 py-2.5 text-sm font-semibold text-white transition hover:bg-teal-700 disabled:cursor-not-allowed disabled:bg-stone-400 sm:px-4"
                   >
                     Send

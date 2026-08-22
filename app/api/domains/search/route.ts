@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { jsonAuthError, requireUser } from "@/lib/auth-server";
+import { jsonAuthError, requireActor } from "@/lib/auth-server";
 import { searchDomainAvailability } from "@/lib/domains-co-za";
 import { clientKey, consumeRateLimit, jsonRateLimitError } from "@/lib/rate-limit";
 
@@ -8,7 +8,7 @@ export const maxDuration = 60;
 
 export async function GET(request: Request) {
   try {
-    const user = await requireUser(request);
+    const user = await requireActor(request);
     consumeRateLimit(`domains:${clientKey(request, user.uid)}`, 30, 10 * 60 * 1000);
   } catch (error) {
     const limited = jsonRateLimitError(error);

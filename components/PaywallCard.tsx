@@ -12,6 +12,7 @@ import {
   type BillingFrequency,
 } from "@/lib/pricing";
 import { useAuth } from "@/components/AuthProvider";
+import { getFirebaseAuth } from "@/lib/firebase";
 import { trackBeginCheckout } from "@/lib/analytics";
 import { submitPayfastForm } from "@/lib/payfast-browser";
 
@@ -78,7 +79,7 @@ export default function PaywallCard({
   onClose,
   onSubscribed,
 }: PaywallCardProps) {
-  const { user, authFetch } = useAuth();
+  const { user, authFetch, signInWithGoogle } = useAuth();
   const [query, setQuery] = useState(suggestedName);
   const [searching, setSearching] = useState(false);
   const [searchError, setSearchError] = useState<string | null>(null);
@@ -151,13 +152,19 @@ export default function PaywallCard({
     trackBeginCheckout(result.domain, billedAmount);
 
     try {
+      if (!user) {
+        await signInWithGoogle();
+      }
+
+      const signedInUser = getFirebaseAuth().currentUser;
+
       const response = await authFetch("/api/checkout", {
         method: "POST",
         body: JSON.stringify({
           websiteId,
           domain: result.domain,
-          email: user?.email ?? "",
-          name: user?.displayName ?? "",
+          email: signedInUser?.email ?? user?.email ?? "",
+          name: signedInUser?.displayName ?? user?.displayName ?? "",
           frequency,
         }),
       });
@@ -190,8 +197,17 @@ export default function PaywallCard({
       }
 
       submitPayfastForm(data.processUrl, data.fields);
-    } catch {
-      setCheckoutError("Could not start PayFast checkout. Please try again.");
+    } catch (err) {
+      const code =
+        typeof err === "object" && err && "code" in err ? String(err.code) : "";
+      if (
+        code === "auth/popup-closed-by-user" ||
+        code === "auth/cancelled-popup-request"
+      ) {
+        setCheckoutError(null);
+      } else {
+        setCheckoutError("Could not start PayFast checkout. Please try again.");
+      }
       setCheckingOut(false);
     }
   }
@@ -392,8 +408,10 @@ export default function PaywallCard({
                       <SpinnerIcon className="h-4 w-4" />
                       Redirecting to PayFast...
                     </>
-                  ) : (
+                  ) : user ? (
                     `Subscribe · ${formatBilledAmount(billedAmount, frequency)}`
+                  ) : (
+                    `Sign in & subscribe · ${formatBilledAmount(billedAmount, frequency)}`
                   )}
                 </button>
                 <p className="mt-2 text-xs text-stone-500">

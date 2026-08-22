@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { jsonAuthError, requireUser } from "@/lib/auth-server";
+import { isGuestUser, jsonAuthError, requireActor } from "@/lib/auth-server";
 import { createGenerateJob, jobJsonHeaders, scheduleJobTick, toJobView } from "@/lib/jobs";
 import { getPeopleEthnicityOption } from "@/lib/people-ethnicity";
 import { clientKey, consumeRateLimit, jsonRateLimitError } from "@/lib/rate-limit";
@@ -18,7 +18,7 @@ export async function POST(request: Request) {
 async function handlePost(request: Request) {
   let user;
   try {
-    user = await requireUser(request);
+    user = await requireActor(request);
     consumeRateLimit(`generate:${clientKey(request, user.uid)}`, 8, 60 * 60 * 1000);
   } catch (error) {
     const limited = jsonRateLimitError(error);
@@ -26,7 +26,7 @@ async function handlePost(request: Request) {
     const authResponse = jsonAuthError(error);
     if (authResponse) return authResponse;
     return NextResponse.json(
-      { success: false, error: "Sign in to generate a website." },
+      { success: false, error: "Could not start website generation." },
       { status: 401 },
     );
   }
@@ -97,7 +97,9 @@ async function handlePost(request: Request) {
   }
 
   try {
-    await assertGenerateEdits(user);
+    if (!isGuestUser(user)) {
+      await assertGenerateEdits(user);
+    }
   } catch (error) {
     const editResponse = jsonEditError(error);
     if (editResponse) return editResponse;

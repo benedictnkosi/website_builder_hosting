@@ -2,7 +2,7 @@ import "server-only";
 
 import { randomBytes } from "node:crypto";
 import { after } from "next/server";
-import type { AuthUser } from "@/lib/auth-server";
+import { isGuestUser, type AuthUser } from "@/lib/auth-server";
 import {
   createWebsiteId,
   deleteWebsiteDirectory,
@@ -74,6 +74,9 @@ export type SiteJob = {
   replacePaths: string[];
   allowedPaths: string[];
   replaceExisting: boolean;
+  uploadedImageContent: string;
+  uploadedImageName: string;
+  uploadedImagePath: string;
   error: string;
   createdAt: string;
   updatedAt: string;
@@ -175,6 +178,9 @@ function asJob(data: Record<string, unknown>): SiteJob | null {
     replacePaths: asStringArray(data.replacePaths),
     allowedPaths: asStringArray(data.allowedPaths),
     replaceExisting: data.replaceExisting === true,
+    uploadedImageContent: stringField(data.uploadedImageContent),
+    uploadedImageName: stringField(data.uploadedImageName),
+    uploadedImagePath: stringField(data.uploadedImagePath),
     error: stringField(data.error),
     createdAt: stringField(data.createdAt) || nowIso(),
     updatedAt: stringField(data.updatedAt) || nowIso(),
@@ -270,6 +276,9 @@ async function failJob(user: AuthUser, job: SiteJob, error: unknown): Promise<Si
     files: [],
     imageRequests: [],
     replacePaths: [],
+    uploadedImageContent: "",
+    uploadedImageName: "",
+    uploadedImagePath: "",
   });
 
   if (
@@ -291,10 +300,12 @@ async function completeJob(
   message: string,
 ): Promise<SiteJob> {
   try {
-    if (job.kind === "edit") {
-      await consumeEditEdits(user.uid, job.jobId);
-    } else {
-      await consumeGenerateEdits(user.uid, job.jobId);
+    if (!isGuestUser(user)) {
+      if (job.kind === "edit") {
+        await consumeEditEdits(user.uid, job.jobId);
+      } else {
+        await consumeGenerateEdits(user.uid, job.jobId);
+      }
     }
   } catch (error) {
     console.error("Could not consume Edits for completed job:", error);
@@ -316,6 +327,9 @@ async function completeJob(
     imageRequests: [],
     replacePaths: [],
     allowedPaths: [],
+    uploadedImageContent: "",
+    uploadedImageName: "",
+    uploadedImagePath: "",
   });
 }
 
@@ -409,6 +423,9 @@ export async function createGenerateJob(
     replacePaths: [],
     allowedPaths: [],
     replaceExisting,
+    uploadedImageContent: "",
+    uploadedImageName: "",
+    uploadedImagePath: "",
     error: "",
     createdAt: now,
     updatedAt: now,
@@ -421,7 +438,11 @@ export async function createGenerateJob(
 
 export async function createEditJob(
   user: AuthUser,
-  input: { websiteId: string; instruction: string },
+  input: {
+    websiteId: string;
+    instruction: string;
+    uploadedImage?: { content: string; filename: string };
+  },
 ): Promise<SiteJob> {
   const existing = await findActiveJob(user, "edit", input.websiteId);
   if (existing) return existing;
@@ -433,7 +454,7 @@ export async function createEditJob(
     status: "queued",
     step: "queued",
     progress: 6,
-    message: "Starting your changes...",
+    message: input.uploadedImage ? "Adding your photo..." : "Starting your changes...",
     ownerUid: user.uid,
     websiteId: input.websiteId,
     businessName: "",
@@ -450,6 +471,9 @@ export async function createEditJob(
     replacePaths: [],
     allowedPaths: [],
     replaceExisting: false,
+    uploadedImageContent: input.uploadedImage?.content ?? "",
+    uploadedImageName: input.uploadedImage?.filename ?? "",
+    uploadedImagePath: "",
     error: "",
     createdAt: now,
     updatedAt: now,
@@ -562,19 +586,60 @@ async function startGenerateOpenAI(
   }
 }
 
+function withUploadInstruction(job: SiteJob): string {
+  if (!job.uploadedImageContent) return job.instruction;
+  const filename = job.uploadedImageName || "photo.webp";
+  return `${job.instruction.trim()}\n\nThe user uploaded one photograph (${filename}) to use as the replacement. Use that photo. Do not generate a new photo. Replace only one existing website image.`;
+}
+
+async function writeUploadedImageFiles(
+  job: SiteJob,
+  imagePlan: { images: { path: string }[] },
+  idToken: string,
+): Promise<string[]> {
+  if (!job.uploadedImageContent) return [];
+  const path = imagePlan.images[0]?.path;
+  if (!path) return [];
+  await updateWebsiteFiles(
+    job.websiteId,
+    [
+      {
+        path,
+        content: job.uploadedImageContent,
+        encoding: "base64",
+      },
+    ],
+    idToken,
+  );
+  return [path];
+}
+
 async function startEditOpenAI(user: AuthUser, job: SiteJob): Promise<SiteJob> {
+  const hasUploadedImage = Boolean(job.uploadedImageContent);
+  const instruction = withUploadInstruction(job);
   const { filesToEdit, imagePlan } = await prepareWebsiteEdit(
     job.websiteId,
-    job.instruction,
+    instruction,
     user.idToken,
+    { hasUploadedImage },
   );
-  const imageRequests = imageRequestsFromPlan(imagePlan);
+  const uploadedPaths = await writeUploadedImageFiles(job, imagePlan, user.idToken);
+  const imageRequests = hasUploadedImage ? [] : imageRequestsFromPlan(imagePlan);
   const replacePaths = replacePathsFromPlan(imagePlan);
+  const newImagePaths = [
+    ...imageRequests.map((image) => image.path),
+    ...uploadedPaths,
+  ];
+  const clearedUpload = {
+    uploadedImageContent: "",
+    uploadedImageName: "",
+    uploadedImagePath: uploadedPaths[0] ?? "",
+  };
 
   if (isMockAiEnabled()) {
     const updatedFiles = await applyMockWebsiteEdit(
       job.websiteId,
-      job.instruction,
+      instruction,
       filesToEdit,
       user.idToken,
       imagePlan,
@@ -587,19 +652,19 @@ async function startEditOpenAI(user: AuthUser, job: SiteJob): Promise<SiteJob> {
       job.websiteId,
       replacePaths,
       updatedFiles,
-      imageRequests.map((image) => image.path),
+      newImagePaths,
       user.idToken,
     );
     return completeJob(user, job, job.websiteId, "Changes applied!");
   }
 
   const started = await startWebsiteEditBackground(
-    job.instruction,
+    instruction,
     filesToEdit,
     imagePlan,
   );
   if (started.files) {
-    return storeEditDraft(user, job, started.files, imageRequests, replacePaths);
+    return storeEditDraft(user, { ...job, ...clearedUpload }, started.files, imageRequests, replacePaths);
   }
   if (!started.id) {
     throw new GeneratorError("Could not start the edit request. Please try again.", 502);
@@ -609,13 +674,17 @@ async function startEditOpenAI(user: AuthUser, job: SiteJob): Promise<SiteJob> {
     status: "running",
     step: "openai",
     progress: 22,
-    message: imageRequests.length > 0 ? "Updating pages for the new photo..." : "Applying your changes...",
+    message:
+      hasUploadedImage || imageRequests.length > 0
+        ? "Updating pages for the new photo..."
+        : "Applying your changes...",
     openaiResponseId: started.id,
     imageRequests,
     replacePaths,
     allowedPaths: filesToEdit.map((file) => file.path),
     leaseUntil: "",
     claimId: "",
+    ...clearedUpload,
   });
 }
 
@@ -724,7 +793,10 @@ async function saveJobResult(user: AuthUser, job: SiteJob): Promise<SiteJob> {
     job.websiteId,
     job.replacePaths,
     job.files,
-    job.imageRequests.map((image) => image.path),
+    [
+      ...job.imageRequests.map((image) => image.path),
+      ...(job.uploadedImagePath ? [job.uploadedImagePath] : []),
+    ],
     user.idToken,
   );
   return completeJob(user, job, job.websiteId, "Changes applied!");
@@ -830,6 +902,9 @@ export async function cancelJob(user: AuthUser, jobId: string): Promise<SiteJob 
     files: [],
     imageRequests: [],
     replacePaths: [],
+    uploadedImageContent: "",
+    uploadedImageName: "",
+    uploadedImagePath: "",
   });
 
   if (job.kind === "generate" && job.websiteId && !job.replaceExisting) {

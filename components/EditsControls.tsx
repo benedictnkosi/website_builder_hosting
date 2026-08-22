@@ -10,9 +10,10 @@ import {
   EDITS_TOPUP_EVENT,
   notifyEditsChanged,
 } from "@/lib/edit-events";
+import { ensureLocalCredits } from "@/lib/guest-session";
 
 function EditsControlsInner() {
-  const { user, authFetch } = useAuth();
+  const { user, loading, authFetch } = useAuth();
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
@@ -21,8 +22,9 @@ function EditsControlsInner() {
   const [notice, setNotice] = useState<string | null>(null);
 
   const loadBalance = useCallback(async () => {
+    if (loading) return;
     if (!user) {
-      setRemaining(null);
+      setRemaining(ensureLocalCredits());
       return;
     }
 
@@ -38,7 +40,7 @@ function EditsControlsInner() {
     } catch {
       // Keep the last known balance if the refresh fails.
     }
-  }, [authFetch, user]);
+  }, [authFetch, loading, user]);
 
   useEffect(() => {
     void loadBalance();
@@ -87,7 +89,7 @@ function EditsControlsInner() {
     router.replace(query ? `${pathname}?${query}` : pathname, { scroll: false });
   }, [loadBalance, pathname, router, searchParams]);
 
-  if (!user) return null;
+  if (remaining == null) return null;
 
   return (
     <>

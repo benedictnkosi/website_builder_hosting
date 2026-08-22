@@ -135,6 +135,44 @@ export async function ensureSignupEdits(user: AuthUser): Promise<number> {
   return applyEditDelta(user.uid, SIGNUP_EDITS_GRANT, "signup");
 }
 
+export async function adoptGuestEdits(
+  user: AuthUser,
+  remaining: number,
+): Promise<number> {
+  if (!isFirebaseAdminConfigured()) {
+    return readEditsRemaining(user);
+  }
+
+  const next = Math.max(0, Math.round(remaining));
+  const db = getAdminFirestore();
+  const ref = db.collection("users").doc(user.uid);
+  const now = new Date().toISOString();
+
+  return db.runTransaction(async (tx) => {
+    const snap = await tx.get(ref);
+    const data = (snap.data() ?? {}) as Record<string, unknown>;
+    const grants = asGrantIds(data.processedEditGrants);
+
+    if (grants.includes("signup") || grants.includes("guest-sync") || data.editsGrantedSignup === true) {
+      return asEditCount(data.editsRemaining);
+    }
+
+    tx.set(
+      ref,
+      {
+        uid: user.uid,
+        editsRemaining: next,
+        updatedAt: now,
+        createdAt: typeof data.createdAt === "string" ? data.createdAt : now,
+        editsGrantedSignup: true,
+        processedEditGrants: [...grants, "signup", "guest-sync"].slice(-500),
+      },
+      { merge: true },
+    );
+    return next;
+  });
+}
+
 export async function grantSubscriptionEdits(uid: string, websiteId: string): Promise<number> {
   return applyEditDelta(uid, SUBSCRIPTION_EDITS_GRANT, `subscription:${websiteId}`);
 }

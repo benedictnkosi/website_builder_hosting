@@ -2,7 +2,8 @@ import "server-only";
 
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
-import { AuthError, isValidUid, requireUser, type AuthUser } from "@/lib/auth-server";
+import { AuthError, isGuestUser, isValidUid, requireActor, requireUser, type AuthUser } from "@/lib/auth-server";
+import { isGuestUid } from "@/lib/guest";
 import {
   deleteWebsiteDirectory,
   getWebsiteDirectory,
@@ -102,7 +103,7 @@ export async function writeWebsiteMeta(
     if (!user) throw error;
     console.warn("Local website meta cache write failed:", error);
   }
-  if (user) {
+  if (user && !isGuestUser(user)) {
     await writeSiteRecord(user, meta, subscription);
   }
 }
@@ -135,7 +136,9 @@ export async function createOwnedWebsite(input: {
     seoOptimizedAt: existing?.seoOptimizedAt,
   };
 
-  await upsertUserProfile(input.user);
+  if (!isGuestUser(input.user)) {
+    await upsertUserProfile(input.user);
+  }
   await writeWebsiteMeta(meta, input.user);
   return meta;
 }
@@ -162,10 +165,17 @@ export async function requireOwnedSite(request: Request, websiteId: string) {
   return { user, meta };
 }
 
+export async function requireOwnedActor(request: Request, websiteId: string) {
+  const user = await requireActor(request);
+  const meta = await requireOwnedWebsite(websiteId, user);
+  return { user, meta };
+}
+
 export async function claimWebsiteIfUnowned(input: {
   websiteId: string;
   user: AuthUser;
   businessName?: string;
+  guestId?: string;
 }): Promise<WebsiteMeta> {
   if (
     !isValidWebsiteId(input.websiteId) ||
@@ -174,19 +184,32 @@ export async function claimWebsiteIfUnowned(input: {
     throw new AuthError("Website not found.", 404);
   }
 
-  const existing = await readWebsiteMeta(input.websiteId, input.user);
+  const existing =
+    (await readWebsiteMeta(input.websiteId, input.user)) ??
+    (await readWebsiteMeta(input.websiteId));
   if (existing) {
-    if (existing.ownerUid !== input.user.uid) {
+    const guestId = input.guestId?.trim() ?? "";
+    const canTakeGuestSite =
+      Boolean(guestId) &&
+      isGuestUid(existing.ownerUid) &&
+      existing.ownerUid === guestId;
+
+    if (existing.ownerUid !== input.user.uid && !canTakeGuestSite) {
       throw new AuthError("You do not have access to this website.", 403);
     }
 
     const nextName = stringField(input.businessName);
-    const updated = {
+    const now = new Date().toISOString();
+    const updated: WebsiteMeta = {
       ...existing,
+      ownerUid: input.user.uid,
+      ownerEmail: input.user.email,
       businessName: nextName || existing.businessName,
-      updatedAt: nextName && nextName !== existing.businessName
-        ? new Date().toISOString()
-        : existing.updatedAt,
+      updatedAt:
+        existing.ownerUid !== input.user.uid ||
+        (nextName && nextName !== existing.businessName)
+          ? now
+          : existing.updatedAt,
     };
     const subscription = await readSubscription(input.websiteId);
     await writeWebsiteMeta(updated, input.user, subscription);

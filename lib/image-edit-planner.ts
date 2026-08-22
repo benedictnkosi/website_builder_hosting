@@ -10,6 +10,9 @@ import { GeneratorError, isSafeRelativePath, normalizeRelativePath } from "./val
 const OPENAI_RESPONSES_URL = "https://api.openai.com/v1/responses";
 const OPENAI_PLANNER_MODEL = "gpt-4o-mini";
 const MAX_IMAGE_CHANGES = 3;
+const USER_UPLOAD_PROMPT = "User-uploaded photograph";
+const REPLACE_TARGET_RE =
+  /\b(about|hero|logo|banner|header|footer|services?|team|contact|portrait|headshot)\b/i;
 
 const IMAGE_PLAN_SCHEMA = {
   type: "object",
@@ -87,15 +90,25 @@ export function looksLikeImageEdit(instruction: string): boolean {
 
 export function instructionHasImagePlanDetails(instruction: string): boolean {
   if (!looksLikeImageEdit(instruction)) return false;
-  const hasTarget =
-    /\b(about|hero|logo|banner|header|footer|services?|team|contact)\b/i.test(
-      instruction,
-    );
+  const hasTarget = REPLACE_TARGET_RE.test(instruction);
   const words = instruction
     .trim()
     .split(/\s+/)
     .filter((word) => word.length > 2);
   return hasTarget && words.length >= 6;
+}
+
+export function instructionHasReplaceTarget(
+  instruction: string,
+  existingImagePaths: string[],
+): boolean {
+  if (existingImagePaths.length <= 1) return true;
+  if (REPLACE_TARGET_RE.test(instruction)) return true;
+  const lower = instruction.toLowerCase();
+  return existingImagePaths.some((filePath) => {
+    const stem = imageStem(filePath);
+    return stem.length >= 3 && lower.includes(stem);
+  });
 }
 
 export function imageRequestsFromPlan(
@@ -378,6 +391,244 @@ async function planImageEditsWithOpenAI(
   }
 
   return parseImagePlan(collectOutputText(payload), existingImagePaths);
+}
+
+function imageStem(filePath: string): string {
+  const slash = filePath.lastIndexOf("/");
+  const file = slash >= 0 ? filePath.slice(slash + 1) : filePath;
+  return file.replace(/\.[a-z0-9]+$/i, "").toLowerCase();
+}
+
+function uniqueUploadPath(replacePath: string, existingImagePaths: string[]): string {
+  const slash = replacePath.lastIndexOf("/");
+  const dir = slash >= 0 ? replacePath.slice(0, slash + 1) : "images/";
+  const stem = imageStem(replacePath) || "photo";
+  const used = new Set(existingImagePaths.map((filePath) => filePath.toLowerCase()));
+  let candidate = `${dir}${stem}-upload.webp`;
+  let n = 2;
+  while (used.has(candidate.toLowerCase())) {
+    candidate = `${dir}${stem}-upload-${n}.webp`;
+    n += 1;
+  }
+  return candidate;
+}
+
+const TARGET_FILE_PATTERNS: Array<{ re: RegExp; file: RegExp }> = [
+  { re: /\b(hero|banner|header|main photo|homepage)\b/i, file: /hero|banner|header|main/i },
+  { re: /\babout\b/i, file: /about/i },
+  { re: /\blogo\b/i, file: /logo/i },
+  { re: /\b(services?|work|gallery)\b/i, file: /service|work|gallery/i },
+  { re: /\b(team|staff|people)\b/i, file: /team|staff|people|portrait|headshot/i },
+  { re: /\bcontact\b/i, file: /contact/i },
+  { re: /\bfooter\b/i, file: /footer/i },
+];
+
+function inferReplacePath(
+  instruction: string,
+  existingImagePaths: string[],
+): string | null {
+  if (existingImagePaths.length === 1) {
+    return existingImagePaths[0] ?? null;
+  }
+  if (existingImagePaths.length === 0) return null;
+
+  for (const target of TARGET_FILE_PATTERNS) {
+    if (!target.re.test(instruction)) continue;
+    const match = existingImagePaths.find((filePath) => target.file.test(filePath));
+    if (match) return match;
+  }
+
+  const lower = instruction.toLowerCase();
+  const named = existingImagePaths.find((filePath) => {
+    const stem = imageStem(filePath);
+    return stem.length >= 3 && lower.includes(stem);
+  });
+  return named ?? null;
+}
+
+function userReplacePlan(
+  replacePath: string,
+  existingImagePaths: string[],
+  placement: string,
+): WebsiteImagePlan {
+  return {
+    imageIntent: true,
+    images: [
+      {
+        action: "replace",
+        path: uniqueUploadPath(replacePath, existingImagePaths),
+        prompt: USER_UPLOAD_PROMPT,
+        replacePath,
+        placement,
+      },
+    ],
+  };
+}
+
+const USER_REPLACE_SCHEMA = {
+  type: "object",
+  additionalProperties: false,
+  required: ["replacePath", "placement"],
+  properties: {
+    replacePath: {
+      type: "string",
+      description: "Existing images/ file to replace with the uploaded photo.",
+    },
+    placement: {
+      type: "string",
+      description: "Where that photo appears, e.g. About section img in index.html.",
+    },
+  },
+} as const;
+
+const USER_REPLACE_INSTRUCTION = `The user uploaded one photograph to put on the website. Choose exactly one existing photo to replace.
+
+Find current photos from the HTML only: <img src>, CSS urls, og:image, and twitter:image.
+Return replacePath as that existing images/ file. Never invent a path that is not already referenced.
+If several photos could match, pick the most likely one from the HTML and the user request.
+Do not add a new image. Do not plan generated photos.
+Return ONLY the structured output.`;
+
+function parseUserReplacePlan(
+  rawText: string,
+  existingImagePaths: string[],
+): WebsiteImagePlan {
+  const parsed = parseJsonObject(rawText);
+  if (!parsed) {
+    throw new GeneratorError("Could not tell which photo to replace with your upload.", 400);
+  }
+
+  const existing = new Set(existingImagePaths);
+  const candidate =
+    typeof parsed.replacePath === "string"
+      ? normalizeRelativePath(parsed.replacePath.trim())
+      : "";
+  const placement =
+    typeof parsed.placement === "string" ? parsed.placement.trim() : "";
+
+  if (!candidate || !existing.has(candidate) || !placement) {
+    throw new GeneratorError(
+      "To replace a photo with your upload, say which image (hero, about, etc.). You can replace one image at a time.",
+      400,
+    );
+  }
+
+  return userReplacePlan(candidate, existingImagePaths, placement);
+}
+
+async function planUserImageReplaceWithOpenAI(
+  instruction: string,
+  files: WebsiteFile[],
+  existingImagePaths: string[],
+): Promise<WebsiteImagePlan> {
+  const apiKey = process.env.OPENAI_API_KEY;
+  if (!apiKey) {
+    throw new GeneratorError(
+      "OPENAI_API_KEY is not configured. Add it to your .env.local file.",
+      500,
+    );
+  }
+
+  const userMessage = `User request:\n${instruction.trim()}\n\nWebsite HTML:\n${htmlContext(files)}`;
+  let response: Response;
+
+  try {
+    response = await fetch(OPENAI_RESPONSES_URL, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${apiKey}`,
+      },
+      body: JSON.stringify({
+        model: OPENAI_PLANNER_MODEL,
+        max_output_tokens: 256,
+        input: [
+          { role: "developer", content: USER_REPLACE_INSTRUCTION },
+          { role: "user", content: userMessage },
+        ],
+        text: {
+          format: {
+            type: "json_schema",
+            name: "user_image_replace",
+            strict: true,
+            schema: USER_REPLACE_SCHEMA,
+          },
+        },
+      }),
+      signal: AbortSignal.timeout(20_000),
+    });
+  } catch (error) {
+    const aborted =
+      error instanceof Error &&
+      (error.name === "TimeoutError" || error.name === "AbortError");
+
+    throw new GeneratorError(
+      aborted
+        ? "The image planning request timed out. Please try again."
+        : "Unable to reach the OpenAI API.",
+      502,
+    );
+  }
+
+  if (!response.ok) {
+    const errorBody = await response.json().catch(() => null);
+    console.error("OpenAI user image replace planner error:", response.status, errorBody);
+    throw new GeneratorError("Could not tell which photo to replace with your upload.", 502);
+  }
+
+  const payload = await response.json();
+  if (payload.error?.message) {
+    throw new GeneratorError(payload.error.message, 502);
+  }
+
+  return parseUserReplacePlan(collectOutputText(payload), existingImagePaths);
+}
+
+export async function planUserImageReplace(
+  instruction: string,
+  files: WebsiteFile[],
+  existingImagePaths: string[],
+): Promise<WebsiteImagePlan> {
+  if (existingImagePaths.length === 0) {
+    throw new GeneratorError("This website has no photos to replace.", 400);
+  }
+
+  const inferred = inferReplacePath(instruction, existingImagePaths);
+  if (inferred) {
+    const plan = userReplacePlan(
+      inferred,
+      existingImagePaths,
+      `Replace ${inferred} with the uploaded photograph`,
+    );
+    console.log("[image-edit-planner] user upload replace:", plan);
+    return plan;
+  }
+
+  if (isMockAiEnabled()) {
+    const planned = mockPlanImageEdits(instruction, existingImagePaths);
+    const replacePath = planned.images.find((image) => image.replacePath)?.replacePath;
+    if (!replacePath) {
+      throw new GeneratorError(
+        "To replace a photo with your upload, say which image (hero, about, etc.). You can replace one image at a time.",
+        400,
+      );
+    }
+    const plan = userReplacePlan(
+      replacePath,
+      existingImagePaths,
+      planned.images[0]?.placement || `Replace ${replacePath} with the uploaded photograph`,
+    );
+    console.log("[image-edit-planner] mock user upload replace:", plan);
+    return plan;
+  }
+
+  const planned = await planUserImageReplaceWithOpenAI(
+    instruction,
+    files,
+    existingImagePaths,
+  );
+  console.log("[image-edit-planner] user upload replace:", planned);
+  return planned;
 }
 
 export async function planImageEdits(

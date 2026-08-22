@@ -31,6 +31,13 @@ export async function POST(request: Request) {
     typeof body.businessName === "string"
       ? body.businessName.trim()
       : "";
+  const guestId =
+    typeof body === "object" &&
+    body !== null &&
+    "guestId" in body &&
+    typeof body.guestId === "string"
+      ? body.guestId.trim()
+      : "";
 
   if (!websiteId || !isValidWebsiteId(websiteId)) {
     return NextResponse.json(
@@ -45,6 +52,7 @@ export async function POST(request: Request) {
       websiteId,
       user,
       businessName: businessName || undefined,
+      guestId: guestId || undefined,
     });
     return NextResponse.json({ success: true, site: meta });
   } catch (error) {

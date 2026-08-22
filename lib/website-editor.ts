@@ -8,7 +8,9 @@ import {
 } from "@/lib/file-manager";
 import {
   formatImagePlanForEditor,
+  instructionHasReplaceTarget,
   planImageEdits,
+  planUserImageReplace,
 } from "@/lib/image-edit-planner";
 import { mockDelay, mockEditWebsite } from "@/lib/mock-ai";
 import {
@@ -54,7 +56,7 @@ Do not modify or return image files. Never invent image paths.
 
 If an IMAGE PLAN is provided, follow it exactly:
 - Use the given new paths in <img src>, CSS urls, and Open Graph / Twitter image tags.
-- Update alt text to match the new photo.
+- Update alt text to match the new photo. If the plan says the photo is a user-uploaded photograph, keep alt text descriptive but do not invent a scene the user did not mention.
 - For additions, insert the image at the described placement.
 - Do not change other images.
 
@@ -133,10 +135,33 @@ export async function prepareWebsiteEdit(
   websiteId: string,
   instruction: string,
   idToken: string,
+  options?: { hasUploadedImage?: boolean },
 ): Promise<{ filesToEdit: WebsiteFile[]; imagePlan: WebsiteImagePlan }> {
   const editableFiles = await readEditableWebsiteFiles(websiteId, idToken);
   const planned = await planRelevantEditFiles(instruction, editableFiles);
   let filesToEdit = planned.files;
+  const hasUploadedImage = options?.hasUploadedImage === true;
+
+  if (hasUploadedImage) {
+    const existingImagePaths = await listWebsiteImagePaths(websiteId, idToken);
+    if (existingImagePaths.length === 0) {
+      throw new GeneratorError("This website has no photos to replace.", 400);
+    }
+    if (!instructionHasReplaceTarget(instruction, existingImagePaths)) {
+      throw new GeneratorError(
+        "To replace a photo with your upload, say which image (hero, about, etc.). You can replace one image at a time.",
+        400,
+      );
+    }
+
+    const imagePlan = await planUserImageReplace(
+      instruction,
+      editableFiles,
+      existingImagePaths,
+    );
+    filesToEdit = withFilesByExtension(filesToEdit, editableFiles, ".html");
+    return { filesToEdit, imagePlan };
+  }
 
   if (!planned.imageIntent) {
     return { filesToEdit, imagePlan: { imageIntent: false, images: [] } };

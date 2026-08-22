@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { jsonAuthError } from "@/lib/auth-server";
-import { requireOwnedSite } from "@/lib/sites";
+import { requireOwnedActor } from "@/lib/sites";
 import { readSubscription } from "@/lib/subscription";
 import { isValidWebsiteId } from "@/lib/validation";
 
@@ -18,7 +18,7 @@ export async function GET(request: Request) {
   }
 
   try {
-    await requireOwnedSite(request, websiteId);
+    await requireOwnedActor(request, websiteId);
   } catch (error) {
     const authResponse = jsonAuthError(error);
     if (authResponse) return authResponse;

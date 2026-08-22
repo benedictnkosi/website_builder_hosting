@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { jsonAuthError, requireUser } from "@/lib/auth-server";
+import { jsonAuthError, requireActor } from "@/lib/auth-server";
 import { coerceWebsiteIntake, type WebsiteIntake } from "@/lib/intake";
 import {
   normalizeChatMessages,
@@ -22,7 +22,7 @@ export async function POST(request: Request) {
 async function handlePost(request: Request) {
   let user;
   try {
-    user = await requireUser(request);
+    user = await requireActor(request);
     consumeRateLimit(`chat:${clientKey(request, user.uid)}`, 40, 10 * 60 * 1000);
   } catch (error) {
     const limited = jsonRateLimitError(error);
@@ -30,7 +30,7 @@ async function handlePost(request: Request) {
     const authResponse = jsonAuthError(error);
     if (authResponse) return authResponse;
     return NextResponse.json(
-      { success: false, error: "Sign in to continue." },
+      { success: false, error: "Could not continue the conversation." },
       { status: 401 },
     );
   }

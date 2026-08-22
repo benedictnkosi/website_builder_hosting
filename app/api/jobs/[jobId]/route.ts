@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { jsonAuthError, requireUser } from "@/lib/auth-server";
+import { jsonAuthError, requireActor, guestUserFromId, readGuestId } from "@/lib/auth-server";
 import { jobJsonHeaders, readJob, scheduleJobTick, tickJob, toJobView } from "@/lib/jobs";
 import { isValidWebsiteId } from "@/lib/validation";
 import { runWithMockAiFromRequest } from "@/lib/mock-ai";
@@ -28,8 +28,15 @@ async function handleGet(
   }
 
   try {
-    const user = await requireUser(request);
-    const existing = await readJob(user, jobId);
+    let user = await requireActor(request);
+    let existing = await readJob(user, jobId);
+    if (!existing) {
+      const guest = guestUserFromId(readGuestId(request));
+      if (guest && guest.uid !== user.uid) {
+        existing = await readJob(guest, jobId);
+        if (existing) user = guest;
+      }
+    }
     if (!existing) {
       return NextResponse.json(
         { success: false, error: "Job not found." },

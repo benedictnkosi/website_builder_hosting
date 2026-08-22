@@ -21,7 +21,16 @@ import {
   isFirebaseClientConfigured,
 } from "@/lib/firebase";
 import { clearBuilderSession } from "@/lib/builder-session";
+import { GUEST_ID_HEADER } from "@/lib/guest";
+import {
+  ensureLocalCredits,
+  getGuestSyncPayload,
+  getOrCreateGuestId,
+  markGuestSynced,
+  startFreshGuestSession,
+} from "@/lib/guest-session";
 import { applyMockAiHeaders, syncMockAiPreferenceFromUrl } from "@/lib/mock-ai-preference";
+import { notifyEditsChanged } from "@/lib/edit-events";
 import { trackLogin, trackLoginFailed, trackLogout } from "@/lib/analytics";
 
 type AuthContextValue = {
@@ -42,10 +51,19 @@ async function syncSessionCookie(user: User | null) {
   }
 
   const token = await user.getIdToken();
-  await fetch("/api/session", {
+  const guest = getGuestSyncPayload();
+  const response = await fetch("/api/session", {
     method: "POST",
-    headers: { Authorization: `Bearer ${token}` },
+    headers: {
+      Authorization: `Bearer ${token}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(guest),
   });
+  if (response.ok && !guest.synced) {
+    markGuestSynced();
+    notifyEditsChanged();
+  }
 }
 
 export function AuthProvider({ children }: { children: ReactNode }) {
@@ -58,6 +76,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     if (!isFirebaseClientConfigured()) {
+      ensureLocalCredits();
       setLoading(false);
       return;
     }
@@ -82,6 +101,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       return;
     }
   }, []);
+
+  useEffect(() => {
+    if (loading) return;
+    if (!user) {
+      ensureLocalCredits();
+    }
+  }, [loading, user]);
 
   const value = useMemo<AuthContextValue>(
     () => ({
@@ -116,18 +142,32 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         clearBuilderSession();
         await syncSessionCookie(null);
         await firebaseSignOut(getFirebaseAuth());
+        startFreshGuestSession();
       },
       async getIdToken() {
-        return user ? user.getIdToken() : null;
+        if (user) return user.getIdToken();
+        if (!isFirebaseClientConfigured()) return null;
+        const current = getFirebaseAuth().currentUser;
+        return current ? current.getIdToken() : null;
       },
       async authFetch(input, init = {}) {
-        const token = user ? await user.getIdToken() : null;
-        if (!token) {
-          throw new Error("Sign in to continue.");
+        let token: string | null = null;
+        try {
+          if (user) {
+            token = await user.getIdToken();
+          } else if (isFirebaseClientConfigured()) {
+            const current = getFirebaseAuth().currentUser;
+            token = current ? await current.getIdToken() : null;
+          }
+        } catch {
+          token = null;
         }
 
         const headers = new Headers(init.headers);
-        headers.set("Authorization", `Bearer ${token}`);
+        if (token) {
+          headers.set("Authorization", `Bearer ${token}`);
+        }
+        headers.set(GUEST_ID_HEADER, getOrCreateGuestId());
         applyMockAiHeaders(headers);
         if (init.body && !headers.has("Content-Type")) {
           headers.set("Content-Type", "application/json");
