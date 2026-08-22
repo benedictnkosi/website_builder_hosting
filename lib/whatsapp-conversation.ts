@@ -2,7 +2,7 @@ import "server-only";
 
 import { createHash, createHmac, randomBytes } from "node:crypto";
 import type { AuthUser } from "@/lib/auth-server";
-import { BUILDER_WELCOME_MESSAGE, intakeReadyToBuild } from "@/lib/builder-chat";
+import { BUILDER_GENERATING_MESSAGE, BUILDER_WELCOME_MESSAGE, intakeReadyToBuild } from "@/lib/builder-chat";
 import { assertEditEdits, assertGenerateEdits } from "@/lib/edits";
 import { getAdminFirestore, isFirebaseAdminConfigured } from "@/lib/firebase-admin";
 import { buildWebsiteGeneratePrompt } from "@/lib/generate-prompt";
@@ -27,6 +27,7 @@ type StoredConversation = {
   intake?: unknown;
   processedMessageIds?: unknown;
   processingMessageId?: unknown;
+  processingStartedAt?: unknown;
   phase?: unknown;
   createdAt?: unknown;
   updatedAt?: unknown;
@@ -206,6 +207,7 @@ export async function processWhatsAppConversationMessage(
         intake: emptyWebsiteIntake(),
         processedMessageIds: [],
         processingMessageId: "",
+        processingStartedAt: "",
         phase: "intake",
         handoffTokenHash: "",
         handoffExpiresAt: "",
@@ -217,8 +219,13 @@ export async function processWhatsAppConversationMessage(
     }
     const processed = stringArray(stored.processedMessageIds);
     if (processed.includes(messageId) || stored.processingMessageId === messageId) return;
+    const processingStartedAt = Date.parse(stringValue(stored.processingStartedAt) || stringValue(stored.updatedAt));
+    const anotherMessageIsProcessing = Boolean(stringValue(stored.processingMessageId)) &&
+      Number.isFinite(processingStartedAt) && Date.now() - processingStartedAt < 5 * 60 * 1000;
+    if (anotherMessageIsProcessing) return;
     transaction.set(ref, {
       processingMessageId: messageId,
+      processingStartedAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
     }, { merge: true });
     claimed = true;
@@ -323,11 +330,12 @@ export async function processWhatsAppConversationMessage(
     const result = document
       ? await runIntakeFromDocument(history, document, currentIntake)
       : await runIntakeChat(history, currentIntake);
+    const readyToBuild = intakeReadyToBuild(result, history);
+    const assistantReply = readyToBuild ? BUILDER_GENERATING_MESSAGE : result.reply;
     const nextMessages = [
       ...history,
-      { role: "assistant" as const, content: result.reply },
+      { role: "assistant" as const, content: assistantReply },
     ].slice(-MAX_MESSAGES);
-    const readyToBuild = intakeReadyToBuild(result, history);
 
     await ref.set({
       messages: nextMessages,
@@ -338,7 +346,7 @@ export async function processWhatsAppConversationMessage(
       updatedAt: new Date().toISOString(),
       createdAt: stringValue(stored.createdAt) || new Date().toISOString(),
     }, { merge: true });
-    await sendWhatsAppText(sender, result.reply);
+    await sendWhatsAppText(sender, assistantReply);
     if (readyToBuild) {
       await startWebsiteGeneration(ref, stored, sender, messageId, result.intake);
     }
@@ -417,6 +425,7 @@ async function selectWebsiteForUpdates(
     activeWebsiteId: site.websiteId,
     activeBusinessName: site.businessName,
     processingMessageId: "",
+    processingStartedAt: "",
     processedMessageIds: [...stringArray(stored.processedMessageIds), messageId].slice(-MAX_PROCESSED_IDS),
     updatedAt: new Date().toISOString(),
   }, { merge: true });
@@ -438,13 +447,9 @@ async function startWebsiteGeneration(
     phase: "generating",
     processedMessageIds: [...stringArray(stored.processedMessageIds), messageId].slice(-MAX_PROCESSED_IDS),
     processingMessageId: "",
+    processingStartedAt: "",
     updatedAt: new Date().toISOString(),
   }, { merge: true });
-  await sendWhatsAppText(
-    sender,
-    "Everything is ready. I’ll build your website here and send each completed stage in this chat.",
-  );
-
   try {
     const user = whatsappUser(sender);
     await assertGenerateEdits(user);
@@ -575,6 +580,7 @@ async function continueBillingPhase(
     handoffMode: "payment",
     handoffWebsiteId: websiteId,
     processingMessageId: "",
+    processingStartedAt: "",
     processedMessageIds: [...stringArray(stored.processedMessageIds), messageId].slice(-MAX_PROCESSED_IDS),
     updatedAt: new Date().toISOString(),
   }, { merge: true });
@@ -624,6 +630,7 @@ async function finishMessage(
   await ref.set({
     processedMessageIds: [...stringArray(stored.processedMessageIds), messageId].slice(-MAX_PROCESSED_IDS),
     processingMessageId: "",
+    processingStartedAt: "",
     updatedAt: new Date().toISOString(),
   }, { merge: true });
 }

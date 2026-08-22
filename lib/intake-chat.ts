@@ -13,6 +13,7 @@ import {
 import { PEOPLE_ETHNICITY_OPTIONS } from "./people-ethnicity";
 import { GeneratorError } from "./validation";
 import { isMockAiEnabled, mockDelay } from "./mock-ai";
+import { BUILDER_GENERATING_MESSAGE } from "./builder-chat";
 import {
   INTAKE_UPLOAD_MAX_BYTES,
   isAllowedIntakeUploadType,
@@ -159,6 +160,7 @@ When business name, about, services, phone, WhatsApp preference, contact-form pr
 - If they want to change something, update the intake and ask again if they are happy to proceed. Still do not summarise the full intake.
 - Set user_confirmed to true and complete to true only when they clearly agree to proceed.
 - If they already agreed (yes, start, go ahead, proceed, I'm ready) and the required fields are known, set user_confirmed and complete to true immediately. Reply with one short sentence. Do not recap. Do not ask another question. Carry forward every field you already have.
+- When complete is true, do not invite more details or changes and do not tell the user to send another message. Tell them to wait while the website is created and that progress updates will arrive automatically.
 - Throughout the chat, keep extra_details updated with any relevant extras that do not fit the other fields.
 - If WhatsApp is wanted and no separate number was given, use the phone number. If a contact form is wanted, contact_email must be a valid email.`;
 
@@ -285,9 +287,7 @@ function parseIntakeResult(
 
   let reply = typeof data.reply === "string" ? data.reply.trim() : "";
   const complete = intake.user_confirmed && hasCoreIntakeForWebsite(intake);
-  if (complete && (reply.length > 180 || /\*\*|Business Name/i.test(reply))) {
-    reply = "Great — I'll start on your website now.";
-  }
+  if (complete) reply = BUILDER_GENERATING_MESSAGE;
   if (!reply) {
     throw new GeneratorError("OpenAI returned an empty chat reply.", 502);
   }

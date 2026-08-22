@@ -7,6 +7,9 @@ export const BUILDER_WELCOME_MESSAGE =
 export const BUILDER_READY_MESSAGE =
   "Your website is ready. Preview it, describe any changes, or attach one photo to replace an image. Subscribe when you want to deploy it live.";
 
+export const BUILDER_GENERATING_MESSAGE =
+  "Great — I have everything I need. Please wait while I create your website. I’ll send progress updates here automatically.";
+
 export function intakeReadyToBuild(
   result: Pick<IntakeChatResult, "complete" | "intake">,
   history: ChatMessage[],
