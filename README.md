@@ -124,6 +124,11 @@ Meta app secret, and access token server-side. The value entered in Meta's **Ver
 token** field must exactly equal `WHATSAPP_WEBHOOK_VERIFY_TOKEN`; it is a token you
 choose, not the WhatsApp access token.
 
+During WhatsApp flow testing, set `WHATSAPP_GENERATION_MOCK_AI=true`. WhatsApp will
+create and return the existing mock website template without calling OpenAI. This switch
+does not affect generation started from `/builder`. Set it to `false` when WhatsApp should
+use live AI website generation.
+
 Run checks locally with:
 
 ```bash

@@ -11,7 +11,8 @@ import { slugifyDomainName } from "@/lib/domain-name";
 import { coerceWebsiteIntake, emptyWebsiteIntake, type ChatMessage, type WebsiteIntake } from "@/lib/intake";
 import { runIntakeChat, runIntakeFromDocument } from "@/lib/intake-chat";
 import { isAllowedIntakeUploadType, sanitizeIntakeFilename } from "@/lib/intake-upload";
-import { createEditJob, createGenerateJob, tickJob, type SiteJob } from "@/lib/jobs";
+import { cancelJob, createEditJob, createGenerateJob, findActiveJob, tickJob, type SiteJob } from "@/lib/jobs";
+import { runWithMockAiOverride } from "@/lib/mock-ai";
 import { ANNUAL_PLAN_MONTHLY_ZAR, ANNUAL_PLAN_ZAR, formatZar, MONTHLY_PLAN_ZAR, type BillingFrequency } from "@/lib/pricing";
 import { downloadWhatsAppMedia, sendWhatsAppActionMenu, sendWhatsAppSiteOptions, sendWhatsAppText } from "@/lib/whatsapp-cloud";
 import type { WhatsAppMessage } from "@/lib/whatsapp-webhook";
@@ -146,6 +147,10 @@ function whatsappUser(sender: string): AuthUser {
 
 function previewUrl(websiteId: string): string {
   return `${appOrigin()}/api/preview/${encodeURIComponent(websiteId)}/index.html`;
+}
+
+function shouldMockWhatsAppGeneration(): boolean {
+  return process.env.WHATSAPP_GENERATION_MOCK_AI !== "false";
 }
 
 function jobStageMessage(job: SiteJob): string {
@@ -461,13 +466,20 @@ async function startWebsiteGeneration(
   try {
     const user = whatsappUser(sender);
     await assertGenerateEdits(user);
-    const job = await createGenerateJob(user, {
-      prompt: buildWebsiteGeneratePrompt(intake, appOrigin()),
-      peopleEthnicity: intake.people_ethnicity,
-      businessName: intake.business_name,
-      contactEmail: intake.contact_email,
-    });
-    const completed = await runJobWithWhatsAppProgress(sender, user, job);
+    const completed = await runWithMockAiOverride(
+      shouldMockWhatsAppGeneration(),
+      async () => {
+        const existingJob = await findActiveJob(user, "generate");
+        if (existingJob) await cancelJob(user, existingJob.jobId);
+        const job = await createGenerateJob(user, {
+          prompt: buildWebsiteGeneratePrompt(intake, appOrigin()),
+          peopleEthnicity: intake.people_ethnicity,
+          businessName: intake.business_name,
+          contactEmail: intake.contact_email,
+        });
+        return runJobWithWhatsAppProgress(sender, user, job);
+      },
+    );
     if (completed.status !== "complete" || !isValidWebsiteId(completed.websiteId)) {
       throw new Error(completed.error || "Website generation failed.");
     }
