@@ -51,7 +51,9 @@ test("GET rejects an incorrect verification token", () => {
 
 test("POST accepts a valid signature", async () => {
   const body = JSON.stringify({ object: "whatsapp_business_account", entry: [] });
-  const response = await handleWhatsAppWebhook(postRequest(body), env);
+  const response = await handleWhatsAppWebhook(postRequest(body), {
+    WHATSAPP_APP_SECRET: env.WHATSAPP_APP_SECRET,
+  });
   assert.equal(response.status, 200);
   assert.equal(await response.text(), "EVENT_RECEIVED");
 });

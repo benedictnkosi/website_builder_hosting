@@ -48,6 +48,15 @@ function nonEmpty(value: string | undefined): string | undefined {
   return trimmed ? trimmed : undefined;
 }
 
+function requiredEnvValue(
+  source: Record<string, string | undefined>,
+  name: string,
+): string {
+  const value = nonEmpty(source[name]);
+  if (!value) throw new Error(name);
+  return value;
+}
+
 export function getWhatsAppWebhookEnv(
   source: Record<string, string | undefined> = process.env,
 ): WhatsAppWebhookEnv {
@@ -285,7 +294,11 @@ export async function processWhatsAppPayload(
   return result;
 }
 
-function configurationError(): Response {
+function configurationError(variableName: string): Response {
+  console.error(JSON.stringify({
+    event: "whatsapp.configuration.invalid",
+    missingEnvironmentVariable: variableName,
+  }));
   return Response.json({ error: "Webhook is not configured." }, { status: 503 });
 }
 
@@ -293,11 +306,11 @@ export function handleWhatsAppVerification(
   request: Request,
   envSource: Record<string, string | undefined> = process.env,
 ): Response {
-  let env: WhatsAppWebhookEnv;
+  let verifyToken: string;
   try {
-    env = getWhatsAppWebhookEnv(envSource);
-  } catch {
-    return configurationError();
+    verifyToken = requiredEnvValue(envSource, ENV_NAMES.verifyToken);
+  } catch (error) {
+    return configurationError(error instanceof Error ? error.message : ENV_NAMES.verifyToken);
   }
 
   const params = new URL(request.url).searchParams;
@@ -309,7 +322,7 @@ export function handleWhatsAppVerification(
     mode === "subscribe" &&
     token !== null &&
     challenge !== null &&
-    constantTimeEqual(token, env.verifyToken)
+    constantTimeEqual(token, verifyToken)
   ) {
     return new Response(challenge, {
       status: 200,
@@ -325,11 +338,11 @@ export async function handleWhatsAppWebhook(
   envSource: Record<string, string | undefined> = process.env,
   handlers: WhatsAppWebhookHandlers = {},
 ): Promise<Response> {
-  let env: WhatsAppWebhookEnv;
+  let appSecret: string;
   try {
-    env = getWhatsAppWebhookEnv(envSource);
-  } catch {
-    return configurationError();
+    appSecret = requiredEnvValue(envSource, ENV_NAMES.appSecret);
+  } catch (error) {
+    return configurationError(error instanceof Error ? error.message : ENV_NAMES.appSecret);
   }
 
   let rawBody: string;
@@ -345,7 +358,7 @@ export async function handleWhatsAppWebhook(
     rawBodyBytes: Buffer.byteLength(rawBody, "utf8"),
   };
 
-  if (!isValidMetaSignature(rawBody, signatureHeader, env.appSecret)) {
+  if (!isValidMetaSignature(rawBody, signatureHeader, appSecret)) {
     structuredLog("whatsapp.signature.invalid", requestContext);
     return new Response("Unauthorized", { status: 401 });
   }
