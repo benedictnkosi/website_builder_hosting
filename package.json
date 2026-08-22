@@ -8,6 +8,8 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
+    "test": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --experimental-strip-types --test tests/*.test.ts",
+    "typecheck": "tsc --noEmit",
     "reset-site-billing": "node scripts/reset-site-billing.js"
   },
   "dependencies": {

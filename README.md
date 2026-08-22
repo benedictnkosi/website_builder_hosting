@@ -101,3 +101,44 @@ generated-sites/
 - OpenAI is called only from `POST /api/generate`.
 - Generated file paths are validated so they cannot write outside `generated-sites/<id>/`.
 - Later features such as static preview, editing, regeneration, and deployment can reuse the `websiteId` and files already written to disk.
+
+## WhatsApp Cloud API webhook
+
+The App Router endpoint at `/api/webhooks/whatsapp` supports Meta's GET verification
+request and signed POST events. It acknowledges incoming messages, delivery statuses,
+and unsupported event types. Message and status processors are intentionally isolated
+in `lib/whatsapp-webhook.ts` so durable queue or database writes can be added later.
+
+Generate the webhook verify token locally with a cryptographically secure generator:
+
+```bash
+openssl rand -hex 32
+```
+
+Copy `.env.example` to `.env.local` and set all five `WHATSAPP_*` / `META_APP_SECRET`
+values. Use `1314737525052159` for `WHATSAPP_PHONE_NUMBER_ID` and
+`4059294674203789` for `WHATSAPP_BUSINESS_ACCOUNT_ID`. Keep the generated verify token,
+Meta app secret, and access token server-side. The value entered in Meta's **Verify
+token** field must exactly equal `WHATSAPP_WEBHOOK_VERIFY_TOKEN`; it is a token you
+choose, not the WhatsApp access token.
+
+Run checks locally with:
+
+```bash
+npm test
+npm run lint
+npm run typecheck
+npm run build
+```
+
+Deploy the application with the five environment variables configured in the production
+environment, then configure this public callback URL in Meta:
+
+```text
+https://lulaweb.co.za/api/webhooks/whatsapp
+```
+
+The production callback must use HTTPS and must remain publicly accessible without
+Firebase authentication or any other login middleware. Subscribe the callback to the
+WhatsApp `messages` webhook field after Meta successfully verifies it. Do not commit
+`.env.local`, app secrets, verify tokens, or permanent access tokens.
