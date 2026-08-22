@@ -590,6 +590,7 @@ export default function WebsiteBuilder() {
           success?: boolean;
           messages?: ChatMessage[];
           intake?: WebsiteIntake;
+          addressResolved?: boolean;
           error?: string;
         };
         if (!response.ok || !data.success || !data.intake) {
@@ -602,8 +603,12 @@ export default function WebsiteBuilder() {
         setPendingIntake(data.intake);
         setBusinessName(data.intake.business_name);
         setBusinessDescription(compileBusinessDescription(data.intake));
-        setShowAddressModal(true);
-        setStatus("idle");
+        if (data.addressResolved) {
+          void runGeneration(data.intake);
+        } else {
+          setShowAddressModal(true);
+          setStatus("idle");
+        }
         router.replace("/builder");
       })
       .catch((handoffError: unknown) => {

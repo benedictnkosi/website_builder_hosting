@@ -149,4 +149,7 @@ Incoming WhatsApp text messages use the same intake assistant as `/builder`. Con
 state and processed message IDs are stored in Firestore under a one-way keyed identifier;
 customer phone numbers and message contents are not written to logs. When intake is
 complete, the user receives a 24-hour bearer link that restores the conversation in the
-builder for address selection, website generation, preview, editing, and payment.
+builder for website generation, preview, editing, and payment.
+Before creating that link, the WhatsApp assistant asks for the optional business address.
+An AI readiness check requests missing street/locality details before Google Places is
+called, and sufficient queries return an interactive list of South African address matches.

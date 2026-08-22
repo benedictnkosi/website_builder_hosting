@@ -13,6 +13,7 @@ export type WhatsAppMessage = {
   timestamp?: unknown;
   type?: unknown;
   text?: unknown;
+  interactive?: unknown;
 };
 
 type WhatsAppStatus = {
