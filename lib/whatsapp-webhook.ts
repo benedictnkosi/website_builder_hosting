@@ -5,7 +5,6 @@ export type WhatsAppWebhookEnv = {
   appSecret: string;
   accessToken: string;
   phoneNumberId: string;
-  businessAccountId: string;
 };
 
 type WhatsAppMessage = {
@@ -29,12 +28,19 @@ export type WhatsAppWebhookHandlers = {
   onStatus?: (status: WhatsAppStatus, context: EventSummary) => void | Promise<void>;
 };
 
+type WebhookRequestContext = {
+  signatureHeaderExists: boolean;
+  rawBodyBytes: number;
+};
+
+const MAX_SEEN_EVENT_IDS = 10_000;
+const seenEventIds = new Set<string>();
+
 const ENV_NAMES = {
   verifyToken: "WHATSAPP_WEBHOOK_VERIFY_TOKEN",
-  appSecret: "META_APP_SECRET",
+  appSecret: "WHATSAPP_APP_SECRET",
   accessToken: "WHATSAPP_ACCESS_TOKEN",
   phoneNumberId: "WHATSAPP_PHONE_NUMBER_ID",
-  businessAccountId: "WHATSAPP_BUSINESS_ACCOUNT_ID",
 } as const;
 
 function nonEmpty(value: string | undefined): string | undefined {
@@ -50,7 +56,6 @@ export function getWhatsAppWebhookEnv(
     appSecret: nonEmpty(source[ENV_NAMES.appSecret]),
     accessToken: nonEmpty(source[ENV_NAMES.accessToken]),
     phoneNumberId: nonEmpty(source[ENV_NAMES.phoneNumberId]),
-    businessAccountId: nonEmpty(source[ENV_NAMES.businessAccountId]),
   };
   const missing = (Object.keys(values) as Array<keyof typeof values>)
     .filter((key) => !values[key])
@@ -70,7 +75,7 @@ function constantTimeEqual(left: string, right: string): boolean {
 }
 
 export function isValidMetaSignature(
-  rawBody: Buffer,
+  rawBody: string,
   signatureHeader: string | null,
   appSecret: string,
 ): boolean {
@@ -79,7 +84,7 @@ export function isValidMetaSignature(
   const suppliedHex = signatureHeader.slice("sha256=".length);
   if (!/^[a-fA-F0-9]{64}$/.test(suppliedHex)) return false;
 
-  const expected = createHmac("sha256", appSecret).update(rawBody).digest();
+  const expected = createHmac("sha256", appSecret).update(rawBody, "utf8").digest();
   const supplied = Buffer.from(suppliedHex, "hex");
   return supplied.length === expected.length && timingSafeEqual(supplied, expected);
 }
@@ -101,9 +106,68 @@ function phoneSuffix(value: unknown): string | undefined {
   return suffix ? `***${suffix}` : undefined;
 }
 
-function developmentLog(event: string, summary: EventSummary): void {
-  if (process.env.NODE_ENV !== "development") return;
+function structuredLog(event: string, summary: EventSummary): void {
   console.info(JSON.stringify({ event, ...summary }));
+}
+
+function firstSeen(eventId: string | undefined): boolean {
+  if (!eventId) return true;
+  if (seenEventIds.has(eventId)) return false;
+  if (seenEventIds.size >= MAX_SEEN_EVENT_IDS) seenEventIds.clear();
+  seenEventIds.add(eventId);
+  return true;
+}
+
+function sanitizedWebhookPayload(payload: unknown): Record<string, unknown> {
+  const root = asRecord(payload);
+  const entries = Array.isArray(root?.entry) ? root.entry : [];
+
+  return {
+    object: stringValue(root?.object),
+    entries: entries.map((entryValue) => {
+      const entry = asRecord(entryValue);
+      const changes = Array.isArray(entry?.changes) ? entry.changes : [];
+
+      return {
+        id: stringValue(entry?.id),
+        changes: changes.map((changeValue) => {
+          const change = asRecord(changeValue);
+          const value = asRecord(change?.value);
+          const metadata = asRecord(value?.metadata);
+          const messages = Array.isArray(value?.messages) ? value.messages : [];
+          const statuses = Array.isArray(value?.statuses) ? value.statuses : [];
+
+          return {
+            field: stringValue(change?.field),
+            phoneNumberId: stringValue(metadata?.phone_number_id),
+            messages: messages.flatMap((messageValue) => {
+              const message = asRecord(messageValue);
+              return message
+                ? [{
+                    id: stringValue(message.id),
+                    from: phoneSuffix(message.from),
+                    timestamp: stringValue(message.timestamp),
+                    type: stringValue(message.type) ?? "unknown",
+                    content: "[REDACTED]",
+                  }]
+                : [];
+            }),
+            statuses: statuses.flatMap((statusValue) => {
+              const status = asRecord(statusValue);
+              return status
+                ? [{
+                    id: stringValue(status.id),
+                    recipient: phoneSuffix(status.recipient_id),
+                    status: stringValue(status.status) ?? "unknown",
+                    timestamp: stringValue(status.timestamp),
+                  }]
+                : [];
+            }),
+          };
+        }),
+      };
+    }),
+  };
 }
 
 export async function processWhatsAppMessage(
@@ -111,7 +175,7 @@ export async function processWhatsAppMessage(
   context: EventSummary,
   handler?: WhatsAppWebhookHandlers["onMessage"],
 ): Promise<void> {
-  developmentLog("whatsapp.message", {
+  structuredLog("whatsapp.message", {
     ...context,
     messageId: stringValue(message.id),
     messageType: stringValue(message.type) ?? "unknown",
@@ -126,7 +190,7 @@ export async function processWhatsAppStatus(
   context: EventSummary,
   handler?: WhatsAppWebhookHandlers["onStatus"],
 ): Promise<void> {
-  developmentLog("whatsapp.status", {
+  structuredLog("whatsapp.status", {
     ...context,
     messageId: stringValue(status.id),
     status: stringValue(status.status) ?? "unknown",
@@ -139,6 +203,10 @@ export async function processWhatsAppStatus(
 export async function processWhatsAppPayload(
   payload: unknown,
   handlers: WhatsAppWebhookHandlers = {},
+  requestContext: WebhookRequestContext = {
+    signatureHeaderExists: true,
+    rawBodyBytes: 0,
+  },
 ): Promise<{ messages: number; statuses: number; unsupported: number }> {
   const result = { messages: 0, statuses: 0, unsupported: 0 };
   const root = asRecord(payload);
@@ -159,6 +227,8 @@ export async function processWhatsAppPayload(
         entryId: stringValue(entry?.id),
         field: stringValue(change?.field) ?? "unknown",
         phoneNumberId: stringValue(metadata?.phone_number_id),
+        signatureHeaderExists: requestContext.signatureHeaderExists,
+        rawBodyBytes: requestContext.rawBodyBytes,
       };
       let handled = false;
 
@@ -166,6 +236,15 @@ export async function processWhatsAppPayload(
         for (const messageValue of value.messages) {
           const message = asRecord(messageValue);
           if (!message) continue;
+          const messageId = stringValue(message.id);
+          if (!firstSeen(messageId ? `message:${messageId}` : undefined)) {
+            structuredLog("whatsapp.message.duplicate", {
+              ...context,
+              messageId,
+            });
+            handled = true;
+            continue;
+          }
           await processWhatsAppMessage(message, context, handlers.onMessage);
           result.messages += 1;
           handled = true;
@@ -176,6 +255,20 @@ export async function processWhatsAppPayload(
         for (const statusValue of value.statuses) {
           const status = asRecord(statusValue);
           if (!status) continue;
+          const messageId = stringValue(status.id);
+          const statusName = stringValue(status.status);
+          const statusEventId = messageId && statusName
+            ? `status:${messageId}:${statusName}`
+            : undefined;
+          if (!firstSeen(statusEventId)) {
+            structuredLog("whatsapp.status.duplicate", {
+              ...context,
+              messageId,
+              status: statusName,
+            });
+            handled = true;
+            continue;
+          }
           await processWhatsAppStatus(status, context, handlers.onStatus);
           result.statuses += 1;
           handled = true;
@@ -184,7 +277,7 @@ export async function processWhatsAppPayload(
 
       if (!handled) {
         result.unsupported += 1;
-        developmentLog("whatsapp.unsupported", context);
+        structuredLog("whatsapp.unsupported", context);
       }
     }
   }
@@ -239,26 +332,43 @@ export async function handleWhatsAppWebhook(
     return configurationError();
   }
 
-  let rawBody: Buffer;
+  let rawBody: string;
   try {
-    rawBody = Buffer.from(await request.arrayBuffer());
+    rawBody = await request.text();
   } catch {
     return new Response("Bad Request", { status: 400 });
   }
 
-  if (!isValidMetaSignature(rawBody, request.headers.get("x-hub-signature-256"), env.appSecret)) {
+  const signatureHeader = request.headers.get("x-hub-signature-256");
+  const requestContext: WebhookRequestContext = {
+    signatureHeaderExists: signatureHeader !== null,
+    rawBodyBytes: Buffer.byteLength(rawBody, "utf8"),
+  };
+
+  if (!isValidMetaSignature(rawBody, signatureHeader, env.appSecret)) {
+    structuredLog("whatsapp.signature.invalid", requestContext);
     return new Response("Unauthorized", { status: 401 });
   }
 
+  structuredLog("whatsapp.signature.valid", requestContext);
+
   let payload: unknown;
   try {
-    payload = JSON.parse(rawBody.toString("utf8")) as unknown;
+    payload = JSON.parse(rawBody) as unknown;
   } catch {
+    structuredLog("whatsapp.json.invalid", requestContext);
     return new Response("Bad Request", { status: 400 });
   }
 
+  if (process.env.NODE_ENV === "development") {
+    console.info(JSON.stringify({
+      event: "whatsapp.webhook",
+      payload: sanitizedWebhookPayload(payload),
+    }));
+  }
+
   try {
-    await processWhatsAppPayload(payload, handlers);
+    await processWhatsAppPayload(payload, handlers, requestContext);
   } catch (error) {
     console.error("WhatsApp webhook processing failed", {
       error: error instanceof Error ? error.name : "UnknownError",

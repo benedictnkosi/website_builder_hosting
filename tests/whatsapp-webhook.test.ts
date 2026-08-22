@@ -8,14 +8,13 @@ import {
 
 const env = {
   WHATSAPP_WEBHOOK_VERIFY_TOKEN: "a-long-random-verification-token",
-  META_APP_SECRET: "test-app-secret",
+  WHATSAPP_APP_SECRET: "test-app-secret",
   WHATSAPP_ACCESS_TOKEN: "test-access-token",
   WHATSAPP_PHONE_NUMBER_ID: "1314737525052159",
-  WHATSAPP_BUSINESS_ACCOUNT_ID: "4059294674203789",
 };
 
 function signature(body: string): string {
-  return `sha256=${createHmac("sha256", env.META_APP_SECRET).update(body).digest("hex")}`;
+  return `sha256=${createHmac("sha256", env.WHATSAPP_APP_SECRET).update(body).digest("hex")}`;
 }
 
 function postRequest(body: string, suppliedSignature: string | null = signature(body)): Request {
@@ -107,4 +106,21 @@ test("POST acknowledges unsupported events", async () => {
   const body = JSON.stringify({ object: "whatsapp_business_account", entry: [{ changes: [{ field: "unknown", value: {} }] }] });
   const response = await handleWhatsAppWebhook(postRequest(body), env);
   assert.equal(response.status, 200);
+});
+
+test("POST does not process the same message ID twice", async () => {
+  const body = JSON.stringify({
+    entry: [{ changes: [{ field: "messages", value: {
+      messages: [{ id: "idempotency-test-message", type: "text" }],
+    } }] }],
+  });
+  let processed = 0;
+  const handlers = { onMessage() { processed += 1; } };
+
+  const first = await handleWhatsAppWebhook(postRequest(body), env, handlers);
+  const retry = await handleWhatsAppWebhook(postRequest(body), env, handlers);
+
+  assert.equal(first.status, 200);
+  assert.equal(retry.status, 200);
+  assert.equal(processed, 1);
 });

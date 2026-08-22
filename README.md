@@ -108,6 +108,8 @@ The App Router endpoint at `/api/webhooks/whatsapp` supports Meta's GET verifica
 request and signed POST events. It acknowledges incoming messages, delivery statuses,
 and unsupported event types. Message and status processors are intentionally isolated
 in `lib/whatsapp-webhook.ts` so durable queue or database writes can be added later.
+In development, each accepted webhook writes a structured, redacted payload to the
+server console; message contents and complete phone numbers are never included.
 
 Generate the webhook verify token locally with a cryptographically secure generator:
 
@@ -115,9 +117,9 @@ Generate the webhook verify token locally with a cryptographically secure genera
 openssl rand -hex 32
 ```
 
-Copy `.env.example` to `.env.local` and set all five `WHATSAPP_*` / `META_APP_SECRET`
-values. Use `1314737525052159` for `WHATSAPP_PHONE_NUMBER_ID` and
-`4059294674203789` for `WHATSAPP_BUSINESS_ACCOUNT_ID`. Keep the generated verify token,
+Copy `.env.example` to `.env.local` and set `WHATSAPP_WEBHOOK_VERIFY_TOKEN`,
+`WHATSAPP_APP_SECRET`, `WHATSAPP_ACCESS_TOKEN`, and `WHATSAPP_PHONE_NUMBER_ID`.
+Use `1314737525052159` for `WHATSAPP_PHONE_NUMBER_ID`. Keep the generated verify token,
 Meta app secret, and access token server-side. The value entered in Meta's **Verify
 token** field must exactly equal `WHATSAPP_WEBHOOK_VERIFY_TOKEN`; it is a token you
 choose, not the WhatsApp access token.
