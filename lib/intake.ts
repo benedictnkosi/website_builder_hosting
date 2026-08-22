@@ -29,6 +29,7 @@ export type WebsiteIntake = {
   extra_details: string;
   user_confirmed: boolean;
   address: string;
+  address_resolved: boolean;
   flyer_uploaded: boolean;
 };
 
@@ -59,6 +60,7 @@ export function missingIntakeFields(intake: WebsiteIntake): string[] {
   }
   if (!getPeopleEthnicityOption(intake.people_ethnicity)) missing.push("people_ethnicity");
   if (!intake.design_preference_resolved) missing.push("design_preference");
+  if (!intake.address_resolved) missing.push("address");
   if (!intake.user_confirmed) missing.push("user_confirmed");
 
   return missing;
@@ -85,6 +87,7 @@ export function hasCoreIntakeForWebsite(intake: WebsiteIntake | null | undefined
   if (intake.use_trading_hours === "yes" && !intake.trading_hours.trim()) {
     return false;
   }
+  if (!intake.address_resolved) return false;
   return true;
 }
 
@@ -133,7 +136,8 @@ export function mergeWebsiteIntake(
       next.design_preference_resolved || prior.design_preference_resolved,
     extra_details: next.extra_details.trim() || prior.extra_details,
     user_confirmed: next.user_confirmed || prior.user_confirmed,
-    address: "",
+    address: next.address.trim() || prior.address,
+    address_resolved: next.address_resolved || prior.address_resolved,
     flyer_uploaded: next.flyer_uploaded || prior.flyer_uploaded,
   };
 }
@@ -156,6 +160,7 @@ export function emptyWebsiteIntake(): WebsiteIntake {
     extra_details: "",
     user_confirmed: false,
     address: "",
+    address_resolved: false,
     flyer_uploaded: false,
   };
 }
@@ -191,6 +196,7 @@ export function coerceWebsiteIntake(raw: unknown): WebsiteIntake {
     extra_details: typeof data.extra_details === "string" ? data.extra_details.trim() : "",
     user_confirmed: Boolean(data.user_confirmed),
     address: typeof data.address === "string" ? data.address : "",
+    address_resolved: Boolean(data.address_resolved),
     flyer_uploaded: Boolean(data.flyer_uploaded),
   };
 
@@ -203,6 +209,7 @@ export function coerceWebsiteIntake(raw: unknown): WebsiteIntake {
   if (intake.design_preference && !intake.design_preference_resolved) {
     intake.design_preference_resolved = true;
   }
+  if (intake.address.trim() && !intake.address_resolved) intake.address_resolved = true;
 
   return intake;
 }
@@ -250,6 +257,7 @@ export function intakeFromPartialChat(
   if (!next.design_preference_resolved) {
     next.design_preference_resolved = true;
   }
+  if (!next.address_resolved) next.address_resolved = true;
   next.user_confirmed = true;
 
   return next;

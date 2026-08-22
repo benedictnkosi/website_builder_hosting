@@ -59,6 +59,8 @@ const INTAKE_JSON_SCHEMA = {
         "people_ethnicity",
         "design_preference",
         "design_preference_resolved",
+        "address",
+        "address_resolved",
         "extra_details",
         "user_confirmed",
       ],
@@ -100,6 +102,14 @@ const INTAKE_JSON_SCHEMA = {
           description:
             "True after you asked about design preference and they answered, including if they have none.",
         },
+        address: {
+          type: "string",
+          description: "The complete public business address, or empty when the user says there is no public address.",
+        },
+        address_resolved: {
+          type: "boolean",
+          description: "True after the user provides a complete address or clearly says the business has no public address.",
+        },
         extra_details: {
           type: "string",
           description:
@@ -129,8 +139,7 @@ Collect this information. Do not mention this list to the user:
 - Whether they have trading hours. Ask if they have opening hours. If no, set use_trading_hours to no and leave trading_hours empty. If yes, ask for the days and times in a later turn (unless they already gave them) and store that in trading_hours.
 - If website photos include people, who those people should look like. Map their answer to one of: black-african, coloured, indian, white, asian, diverse.
 - Design preference. Ask if they have a look, mood, or colours in mind. This is optional — if they have none, leave design_preference empty and set design_preference_resolved to true. If they do, capture it in design_preference and set design_preference_resolved to true.
-
-Never ask for a business address. Address is collected later, outside the chat.
+- Public business address. Ask for the full address naturally. Accept a complete address given in one message and preserve it exactly; do not split it into repeated street-number, street-name, and suburb questions. If it appears complete (for example "27 Everest Road, Durban North"), store the whole value and set address_resolved to true. If the user says there is no public address or asks to skip it, leave address empty and set address_resolved to true.
 
 Conversation rules:
 - Talk like a helpful person. Never mention buttons, skip, forms, menus, or how the user should reply.
@@ -142,7 +151,7 @@ Conversation rules:
 - Carry forward every field you already extracted. Empty strings and "unknown" mean not yet known.
 - If they mention extra useful details along the way (suburbs they cover, a slogan, languages, and so on), store them in extra_details. Do not ask a dedicated question just to fill extra_details. Do not put the About us story or trading hours in extra_details.
 
-When business name, about, services, phone, WhatsApp preference, contact-form preference, trading-hours preference (and hours text if they have hours), people_ethnicity, and design_preference_resolved are all known:
+When business name, about, services, phone, WhatsApp preference, contact-form preference, trading-hours preference (and hours text if they have hours), people_ethnicity, design_preference_resolved, and the address choice are all known:
 - Do not set complete or user_confirmed yet.
 - Do not recap or list the information you collected.
 - Tell them you have everything you need to go ahead, and ask if they are happy to proceed.
@@ -167,7 +176,7 @@ Other fields:
 - If a phone number is visible but WhatsApp is not mentioned, leave use_whatsapp as unknown.
 - If an email is visible, you may set use_contact_form to yes and contact_email to that address only when it is clearly for enquiries. Otherwise leave use_contact_form unknown.
 - If opening hours are clearly listed, set use_trading_hours to yes and copy them. If none are listed, leave use_trading_hours unknown.
-- If an address is visible, put it in extra_details. Do not put the address in about.
+- If a complete address is visible, store it in address and set address_resolved to true. Do not put it in about or extra_details.
 - complete must be false. user_confirmed must be false.
 - Reply with one short thank-you for the upload, then ask the next missing question that is not About us if about is already filled.
 - Do not recap every field. If you mention a few facts, use a short plain bullet list like "Business name: ..." with no markdown asterisks, no "Unknown" values, and no assumptions in parentheses.`;
@@ -263,8 +272,6 @@ function parseIntakeResult(
     intake?: unknown;
   };
   const intake = mergeWebsiteIntake(currentIntake, coerceWebsiteIntake(data.intake));
-  intake.address = "";
-
   const confirmed =
     Boolean(data.complete) ||
     intake.user_confirmed ||
@@ -428,6 +435,7 @@ function mockIntakeFromDocument(
       .join(" "),
     user_confirmed: false,
     address: "",
+    address_resolved: false,
   };
   return {
     reply:

@@ -2,7 +2,6 @@
 
 import { ChangeEvent, FormEvent, useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import AddressModal from "@/components/AddressModal";
 import BulkEditTipModal, {
   hasSeenBulkEditTip,
   markBulkEditTipSeen,
@@ -27,7 +26,6 @@ import { buildWebsiteGeneratePrompt } from "@/lib/generate-prompt";
 import { fileToEditImageUpload, fileToIntakeUpload, EDIT_IMAGE_UPLOAD_ACCEPT, INTAKE_UPLOAD_ACCEPT, type IntakeUpload } from "@/lib/intake-upload";
 import type { SiteJobView, WebsiteFile } from "@/lib/types";
 import {
-  trackAddressChoice,
   trackCheckoutCancel,
   trackEditStart,
   trackEditSuccess,
@@ -216,8 +214,6 @@ export default function WebsiteBuilder() {
   ]);
   const [chatInput, setChatInput] = useState("");
   const [chatPhase, setChatPhase] = useState<ChatPhase>("intake");
-  const [pendingIntake, setPendingIntake] = useState<WebsiteIntake | null>(null);
-  const [showAddressModal, setShowAddressModal] = useState(false);
   const [showBulkEditTip, setShowBulkEditTip] = useState(false);
   const [businessDescription, setBusinessDescription] = useState("");
   const [businessName, setBusinessName] = useState("");
@@ -257,7 +253,6 @@ export default function WebsiteBuilder() {
     status === "chatting" ||
     status === "generating" ||
     isEditing ||
-    showAddressModal ||
     showBulkEditTip ||
     checkoutConfirming;
   const outOfEdits = editsRemaining !== null && editsRemaining < 1;
@@ -591,7 +586,6 @@ export default function WebsiteBuilder() {
           success?: boolean;
           messages?: ChatMessage[];
           intake?: WebsiteIntake;
-          addressResolved?: boolean;
           mode?: "create" | "update" | "payment";
           websiteId?: string;
           domain?: string;
@@ -605,7 +599,6 @@ export default function WebsiteBuilder() {
         const restoredMessages = Array.isArray(data.messages) ? data.messages : [];
         setMessages(restoredMessages.length > 0 ? restoredMessages : messages);
         latestIntakeRef.current = data.intake;
-        setPendingIntake(data.intake);
         setBusinessName(data.intake.business_name);
         setBusinessDescription(compileBusinessDescription(data.intake));
         whatsappHandoffTokenRef.current = token;
@@ -629,11 +622,8 @@ export default function WebsiteBuilder() {
             businessName: data.intake.business_name,
             businessDescription: compileBusinessDescription(data.intake),
           });
-        } else if (data.addressResolved) {
-          void runGeneration(data.intake);
         } else {
-          setShowAddressModal(true);
-          setStatus("idle");
+          void runGeneration(data.intake);
         }
         router.replace("/builder");
       })
@@ -748,8 +738,6 @@ export default function WebsiteBuilder() {
       setStatus("success");
       setChatPhase("edit");
       setChatLocked(false);
-      setPendingIntake(null);
-      setShowAddressModal(false);
       setIframeKey((key) => key + 1);
       clearJobView();
       trackGenerateSuccess(nextWebsiteId);
@@ -832,7 +820,6 @@ export default function WebsiteBuilder() {
       }
 
       latestIntakeRef.current = data.intake;
-      setPendingIntake(data.intake);
       if (document || data.intake.flyer_uploaded) {
         setFlyerUploaded(true);
       }
@@ -845,9 +832,8 @@ export default function WebsiteBuilder() {
       );
 
       if (readyToBuild) {
-        setShowAddressModal(true);
-        setStatus("idle");
         trackIntakeComplete();
+        void runGeneration(data.intake);
         return;
       }
 
@@ -1089,14 +1075,6 @@ export default function WebsiteBuilder() {
     );
   }
 
-  function handleAddressChoice(address: string) {
-    if (!pendingIntake || status === "generating") return;
-
-    setShowAddressModal(false);
-    trackAddressChoice(Boolean(address.trim()));
-    void runGeneration({ ...pendingIntake, address });
-  }
-
   function handleStartOver() {
     const jobId = activeJobId;
     const existingWebsiteId = websiteId;
@@ -1110,10 +1088,8 @@ export default function WebsiteBuilder() {
     setMessages([{ role: "assistant", content: WELCOME_MESSAGE }]);
     setChatInput("");
     setChatPhase("intake");
-    setPendingIntake(null);
     latestIntakeRef.current = null;
     setChatLocked(false);
-    setShowAddressModal(false);
     setBusinessDescription("");
     setBusinessName("");
     setStatus("idle");
@@ -1143,20 +1119,6 @@ export default function WebsiteBuilder() {
   return (
     <div className="mx-auto flex min-h-0 w-full min-w-0 max-w-[90rem] flex-1 flex-col overflow-x-hidden px-4 pb-4 pt-3 sm:px-5 sm:pb-4">
       <div className="relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden rounded-[1.25rem] border border-stone-200/80 bg-white shadow-[0_24px_80px_rgba(28,25,23,0.12)] sm:rounded-[1.6rem]">
-        {showAddressModal && pendingIntake ? (
-          <AddressModal
-            businessName={pendingIntake.business_name}
-            onSkip={() => handleAddressChoice("")}
-            onSubmit={handleAddressChoice}
-            onBack={() => {
-              setShowAddressModal(false);
-              setStatus("idle");
-              addAssistantMessage(
-                "No problem. Tell me what to change, or say you're ready to generate.",
-              );
-            }}
-          />
-        ) : null}
         {showBulkEditTip ? (
           <BulkEditTipModal
             onAddMore={handleBulkEditAddMore}

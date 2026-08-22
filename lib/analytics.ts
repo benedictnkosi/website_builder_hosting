@@ -86,10 +86,6 @@ export function trackIntakeComplete() {
   trackEvent("intake_complete");
 }
 
-export function trackAddressChoice(hasAddress: boolean) {
-  trackEvent(hasAddress ? "address_submit" : "address_skip");
-}
-
 export function trackGenerateStart() {
   trackEvent("generate_website");
 }

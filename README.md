@@ -152,9 +152,9 @@ customer phone numbers and message contents are not written to logs. When intake
 complete, the WhatsApp worker runs the same durable generation job as `/builder` and
 sends progress messages as content, design, images, and saving complete. The user does
 not need to open the web builder to start generation.
-Before generation, the WhatsApp assistant asks for the optional business address.
-An AI readiness check requests missing street/locality details before Google Places is
-called, and sufficient queries return an interactive list of South African address matches.
+The shared intake assistant collects the optional public business address naturally with
+the other details. It accepts a complete address in one message or records that the
+business has no public address; there is no separate Google Places address step.
 Users can send `restart`, `start over`, or `new website` to begin with a clean intake;
 conversations also reset after 24 hours of inactivity.
 Completed WhatsApp generations are registered in Firestore against the keyed

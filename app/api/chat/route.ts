@@ -62,7 +62,6 @@ async function handlePost(request: Request) {
   try {
     if (payload?.intake != null && typeof payload.intake === "object") {
       currentIntake = coerceWebsiteIntake(payload.intake);
-      currentIntake.address = "";
     }
     if (payload?.document != null) {
       if (currentIntake?.flyer_uploaded) {
