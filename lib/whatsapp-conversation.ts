@@ -124,6 +124,14 @@ function linkedWebsites(value: unknown): LinkedWebsite[] {
   });
 }
 
+function activeWebsiteId(stored: StoredConversation): string {
+  const direct = stringValue(stored.activeWebsiteId) || stringValue(stored.handoffWebsiteId);
+  if (isValidWebsiteId(direct)) return direct;
+  const sites = linkedWebsites(stored.websites);
+  const latest = sites.at(-1)?.websiteId ?? "";
+  return isValidWebsiteId(latest) ? latest : "";
+}
+
 function appOrigin(): string {
   return (process.env.NEXT_PUBLIC_APP_URL?.trim() || "https://lulaweb.co.za").replace(/\/$/, "");
 }
@@ -503,10 +511,24 @@ async function continueDomainPhase(
 
   try {
     const result = (await searchDomainAvailability(sld)).results[0];
-    if (result?.available) {
+    const websiteId = activeWebsiteId(stored);
+    if (!websiteId) {
+      await ref.set({
+        phase: "choose_action",
+        processingMessageId: "",
+        processingStartedAt: "",
+        updatedAt: new Date().toISOString(),
+      }, { merge: true });
+      await sendWhatsAppText(sender, "I couldn’t reconnect the completed website. Please choose whether to update an existing website or create a new one.");
+      await sendWhatsAppActionMenu(sender);
+      return;
+    }
+    const isCoZaResult = result?.tld === "co.za" && result.domain.toLowerCase().endsWith(".co.za");
+    if (result?.available && isCoZaResult) {
       await ref.set({
         phase: "billing",
         selectedDomain: result.domain,
+        activeWebsiteId: websiteId,
         domainSuggestions: [],
         processingMessageId: "",
         processedMessageIds: [...stringArray(stored.processedMessageIds), messageId].slice(-MAX_PROCESSED_IDS),
@@ -518,7 +540,10 @@ async function continueDomainPhase(
 
     const candidates = domainSuggestionCandidates(sld, stringValue(stored.activeBusinessName));
     const checks = await Promise.all(candidates.map((candidate) => searchDomainAvailability(candidate)));
-    const available = checks.map((check) => check.results[0]).filter((item) => item?.available).slice(0, 5);
+    const available = checks
+      .map((check) => check.results[0])
+      .filter((item) => item?.available && item.tld === "co.za" && item.domain.toLowerCase().endsWith(".co.za"))
+      .slice(0, 5);
     await ref.set({
       domainSuggestions: available.map((item) => item.domain),
       processingMessageId: "",
@@ -564,11 +589,24 @@ async function continueBillingPhase(
     return;
   }
 
-  const websiteId = stringValue(stored.activeWebsiteId);
+  const websiteId = activeWebsiteId(stored);
   const domain = stringValue(stored.selectedDomain);
-  if (!isValidWebsiteId(websiteId) || !domain.endsWith(".co.za")) {
-    await sendWhatsAppText(sender, "I lost the selected website or domain. Please start the domain selection again.");
-    await finishMessage(ref, stored, messageId);
+  if (!domain.toLowerCase().endsWith(".co.za")) {
+    await ref.set({
+      phase: "domain",
+      selectedDomain: "",
+      processingMessageId: "",
+      processingStartedAt: "",
+      processedMessageIds: [...stringArray(stored.processedMessageIds), messageId].slice(-MAX_PROCESSED_IDS),
+      updatedAt: new Date().toISOString(),
+    }, { merge: true });
+    await sendWhatsAppText(sender, "That selection was not a valid .co.za domain. Please send the .co.za domain you want and I’ll check it again.");
+    return;
+  }
+  if (!websiteId) {
+    await ref.set({ phase: "choose_action", processingMessageId: "", processingStartedAt: "", updatedAt: new Date().toISOString() }, { merge: true });
+    await sendWhatsAppText(sender, "I couldn’t reconnect the completed website. Please choose what you want to do next.");
+    await sendWhatsAppActionMenu(sender);
     return;
   }
   const token = randomBytes(32).toString("base64url");
