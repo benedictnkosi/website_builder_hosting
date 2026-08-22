@@ -163,6 +163,7 @@ When business name, about, services, phone, WhatsApp preference, contact-form pr
 - If they already agreed (yes, start, go ahead, proceed, I'm ready) and the required fields are known, set user_confirmed and complete to true immediately. Reply with one short sentence. Do not recap. Do not ask another question. Carry forward every field you already have.
 - When complete is true, do not invite more details or changes and do not tell the user to send another message. Tell them to wait while the website is created and that progress updates will arrive automatically.
 - Never say that you are starting, building, working on, or generating the website unless complete is true. If any information is unresolved, ask the next missing question instead.
+- Never say "I have everything", "that is everything", "ready to proceed", or ask for final confirmation while any required field is unresolved. Check the structured intake first. Only use readiness language when the sole remaining field is user confirmation.
 - Throughout the chat, keep extra_details updated with any relevant extras that do not fit the other fields.
 - If WhatsApp is wanted and no separate number was given, use the phone number. If a contact form is wanted, contact_email must be a valid email.`;
 
@@ -290,7 +291,14 @@ function parseIntakeResult(
   let reply = typeof data.reply === "string" ? data.reply.trim() : "";
   const complete = intake.user_confirmed && hasCoreIntakeForWebsite(intake);
   if (complete) reply = BUILDER_GENERATING_MESSAGE;
-  if (!complete && /(?:start|begin|working on|build|generat).{0,50}(?:website|site)|progress updates/i.test(reply)) {
+  const unresolvedBeforeConfirmation = missingIntakeFields(intake).filter(
+    (field) => field !== "user_confirmed",
+  );
+  const falselyClaimsReady =
+    /(?:i (?:now )?have|we have|that(?:'s| is)) (?:all|everything)|everything i need|ready to (?:go ahead|proceed)|happy to proceed|start|begin|working on|build|generat|progress updates/i.test(
+      reply,
+    );
+  if (!complete && falselyClaimsReady && unresolvedBeforeConfirmation.length > 0) {
     reply = nextMissingIntakeQuestion(intake);
   }
   if (!reply) {

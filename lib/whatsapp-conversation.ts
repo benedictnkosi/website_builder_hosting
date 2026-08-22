@@ -7,7 +7,7 @@ import { assertEditEdits, assertGenerateEdits } from "@/lib/edits";
 import { getAdminFirestore, isFirebaseAdminConfigured } from "@/lib/firebase-admin";
 import { buildWebsiteGeneratePrompt } from "@/lib/generate-prompt";
 import { searchDomainAvailability } from "@/lib/domains-co-za";
-import { slugifyDomainName } from "@/lib/domain-name";
+import { parseDomainQuery, slugifyDomainName } from "@/lib/domain-name";
 import { coerceWebsiteIntake, emptyWebsiteIntake, type ChatMessage, type WebsiteIntake } from "@/lib/intake";
 import { runIntakeChat, runIntakeFromDocument } from "@/lib/intake-chat";
 import { isAllowedIntakeUploadType, sanitizeIntakeFilename } from "@/lib/intake-upload";
@@ -514,7 +514,7 @@ async function continueDomainPhase(
   const priorSuggestions = stringArray(stored.domainSuggestions);
   const numberedChoice = /^(?:option\s*)?([1-5])$/i.exec(requested.trim());
   const selectedSuggestion = numberedChoice ? priorSuggestions[Number(numberedChoice[1]) - 1] : "";
-  const sld = slugifyDomainName(selectedSuggestion || requested);
+  const sld = parseDomainQuery(selectedSuggestion || requested, ["co.za"]).sld;
   if (sld.length < 2) {
     await sendWhatsAppText(sender, "Please send a .co.za domain name with at least two letters.");
     await finishMessage(ref, stored, messageId);

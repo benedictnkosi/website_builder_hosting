@@ -4,8 +4,7 @@ export const MONTHLY_PLAN_ZAR = 15;
 export const ANNUAL_PLAN_MONTHLY_ZAR = 10;
 export const ANNUAL_PLAN_ZAR = ANNUAL_PLAN_MONTHLY_ZAR * 12;
 
-export const SUBSCRIPTION_TLD =
-  (typeof process !== "undefined" && process.env?.NEXT_PUBLIC_DOMAIN_TLD?.trim()) || "co.za";
+export const SUBSCRIPTION_TLD = "co.za";
 
 export const SIGNUP_EDITS_GRANT = 4;
 export const SUBSCRIPTION_EDITS_GRANT = 4;
