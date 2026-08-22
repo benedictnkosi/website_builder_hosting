@@ -6,6 +6,7 @@ import {
   hasCoreIntakeForWebsite,
   lastUserMessageIsConfirmation,
   mergeWebsiteIntake,
+  missingIntakeFields,
   type ChatMessage,
   type IntakeChatResult,
   type WebsiteIntake,
@@ -161,6 +162,7 @@ When business name, about, services, phone, WhatsApp preference, contact-form pr
 - Set user_confirmed to true and complete to true only when they clearly agree to proceed.
 - If they already agreed (yes, start, go ahead, proceed, I'm ready) and the required fields are known, set user_confirmed and complete to true immediately. Reply with one short sentence. Do not recap. Do not ask another question. Carry forward every field you already have.
 - When complete is true, do not invite more details or changes and do not tell the user to send another message. Tell them to wait while the website is created and that progress updates will arrive automatically.
+- Never say that you are starting, building, working on, or generating the website unless complete is true. If any information is unresolved, ask the next missing question instead.
 - Throughout the chat, keep extra_details updated with any relevant extras that do not fit the other fields.
 - If WhatsApp is wanted and no separate number was given, use the phone number. If a contact form is wanted, contact_email must be a valid email.`;
 
@@ -288,6 +290,9 @@ function parseIntakeResult(
   let reply = typeof data.reply === "string" ? data.reply.trim() : "";
   const complete = intake.user_confirmed && hasCoreIntakeForWebsite(intake);
   if (complete) reply = BUILDER_GENERATING_MESSAGE;
+  if (!complete && /(?:start|begin|working on|build|generat).{0,50}(?:website|site)|progress updates/i.test(reply)) {
+    reply = nextMissingIntakeQuestion(intake);
+  }
   if (!reply) {
     throw new GeneratorError("OpenAI returned an empty chat reply.", 502);
   }
@@ -297,6 +302,27 @@ function parseIntakeResult(
     complete,
     intake,
   };
+}
+
+function nextMissingIntakeQuestion(intake: WebsiteIntake): string {
+  const missing = missingIntakeFields(intake);
+  const questions: Record<string, string> = {
+    business_name: "What is the business name?",
+    about: "Please tell me a little about the business for the About Us section.",
+    services: "What services or products does the business offer?",
+    phone: "What contact number should appear on the website?",
+    use_whatsapp: "Would you like a WhatsApp contact button on the website?",
+    whatsapp_number: "What WhatsApp number should the website use?",
+    use_contact_form: "Would you like a Contact Us form on the website?",
+    contact_email: "What email address should receive contact-form enquiries?",
+    use_trading_hours: "Does the business have trading hours you want displayed?",
+    trading_hours: "What are the business trading hours?",
+    people_ethnicity: "If website photos include people, who should those people look like?",
+    design_preference: "Do you have preferred colours, style, or mood for the website?",
+    address: "What is the full public business address? You can say there is no public address.",
+    user_confirmed: "I have everything I need. Are you happy for me to start building the website?",
+  };
+  return questions[missing[0] ?? ""] ?? "What other information should I include before building the website?";
 }
 
 export async function runIntakeChat(
