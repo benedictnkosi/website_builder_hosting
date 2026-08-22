@@ -578,6 +578,47 @@ export default function WebsiteBuilder() {
   }, []);
 
   useEffect(() => {
+    const token = searchParams.get("whatsapp")?.trim() ?? "";
+    if (!token) return;
+
+    let cancelled = false;
+    void fetch(`/api/whatsapp/handoff?token=${encodeURIComponent(token)}`, {
+      cache: "no-store",
+    })
+      .then(async (response) => {
+        const data = (await response.json()) as {
+          success?: boolean;
+          messages?: ChatMessage[];
+          intake?: WebsiteIntake;
+          error?: string;
+        };
+        if (!response.ok || !data.success || !data.intake) {
+          throw new Error(data.error || "Could not continue the WhatsApp conversation.");
+        }
+        if (cancelled) return;
+        const restoredMessages = Array.isArray(data.messages) ? data.messages : [];
+        setMessages(restoredMessages.length > 0 ? restoredMessages : messages);
+        latestIntakeRef.current = data.intake;
+        setPendingIntake(data.intake);
+        setBusinessName(data.intake.business_name);
+        setBusinessDescription(compileBusinessDescription(data.intake));
+        setShowAddressModal(true);
+        setStatus("idle");
+        router.replace("/builder");
+      })
+      .catch((handoffError: unknown) => {
+        if (cancelled) return;
+        setError(handoffError instanceof Error ? handoffError.message : "Could not continue the WhatsApp conversation.");
+      });
+
+    return () => {
+      cancelled = true;
+    };
+    // The token is intentionally consumed only once on initial navigation.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
     if (!user || !websiteId) return;
     void authFetch("/api/sites/claim", {
       method: "POST",

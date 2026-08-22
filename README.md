@@ -144,3 +144,9 @@ The production callback must use HTTPS and must remain publicly accessible witho
 Firebase authentication or any other login middleware. Subscribe the callback to the
 WhatsApp `messages` webhook field after Meta successfully verifies it. Do not commit
 `.env.local`, app secrets, verify tokens, or permanent access tokens.
+
+Incoming WhatsApp text messages use the same intake assistant as `/builder`. Conversation
+state and processed message IDs are stored in Firestore under a one-way keyed identifier;
+customer phone numbers and message contents are not written to logs. When intake is
+complete, the user receives a 24-hour bearer link that restores the conversation in the
+builder for address selection, website generation, preview, editing, and payment.

@@ -7,11 +7,12 @@ export type WhatsAppWebhookEnv = {
   phoneNumberId: string;
 };
 
-type WhatsAppMessage = {
+export type WhatsAppMessage = {
   id?: unknown;
   from?: unknown;
   timestamp?: unknown;
   type?: unknown;
+  text?: unknown;
 };
 
 type WhatsAppStatus = {
