@@ -39,7 +39,10 @@ export function getWhatsAppAppSecret(): string {
 
 /** Secure R100 deposit checkout URL used in sales replies. */
 export function getDepositPaymentLink(): string {
-  return process.env.WHATSAPP_DEPOSIT_PAYMENT_LINK?.trim() || "";
+  return (
+    process.env.WHATSAPP_DEPOSIT_PAYMENT_LINK?.trim() ||
+    "https://lulaweb.co.za/payfast/deposit"
+  );
 }
 
 export function isWhatsAppConfigured(): boolean {
