@@ -1,6 +1,11 @@
 import "server-only";
 
+import {
+  getHumanHandoverWhatsApp,
+  MANAGED_WEBSITE_OFFER,
+} from "./config";
 import { markWhatsAppMessageRead, sendWhatsAppText } from "./client";
+import { recordWhatsAppChatTurn } from "./chats";
 import {
   getOrCreateWhatsAppLead,
   hasProcessedMessage,
@@ -9,10 +14,13 @@ import {
 import { sendWhatsAppLeadEmail } from "./notify";
 import { extractInboundMessages } from "./parse";
 import { runWhatsAppSalesBot } from "./sales-bot";
-import type { WhatsAppWebhookPayload } from "./types";
+import type { WhatsAppLead, WhatsAppWebhookPayload } from "./types";
 
 const NON_TEXT_REPLY =
   "Thanks for your message. Please reply with a text message and I'll help you with the managed website offer.";
+
+const HANDOVER_CUSTOMER_REPLY =
+  "Thank you. I've got you. I'm handing you over to a Lulaweb team member now who will help get your website started.";
 
 /**
  * Process a verified Cloud API webhook. Always safe to call — errors are logged
@@ -31,6 +39,31 @@ export async function handleWhatsAppWebhook(
       console.error("WhatsApp inbound processing failed:", message.messageId, error);
     }
   }
+}
+
+async function notifyHumanHandover(lead: WhatsAppLead): Promise<void> {
+  const humanTo = getHumanHandoverWhatsApp();
+  const f = lead.fields;
+  const summary = [
+    "Lulaweb WhatsApp handover — customer says they paid the R100 deposit.",
+    "(Payment not independently verified by the bot.)",
+    "",
+    `Customer WhatsApp: +${lead.waId}`,
+    `Contact name: ${lead.contactName || f.name || "—"}`,
+    `Business: ${f.businessName || "—"}`,
+    `Industry: ${f.industry || "—"}`,
+    `Email: ${f.email || "—"}`,
+    `Notes: ${f.notes || "—"}`,
+    "",
+    "Recent chat:",
+    ...lead.messages.slice(-8).map((m) => {
+      const who = m.role === "user" ? "Customer" : "Bot";
+      return `${who}: ${m.content}`;
+    }),
+  ].join("\n");
+
+  await sendWhatsAppText({ to: humanTo, body: summary });
+  await sendWhatsAppLeadEmail(lead);
 }
 
 async function processInboundMessage(message: {
@@ -52,16 +85,37 @@ async function processInboundMessage(message: {
   lead.processedMessageIds = [...lead.processedMessageIds, message.messageId];
   await markWhatsAppMessageRead(message.messageId);
 
-  if (!message.text.trim()) {
-    await sendWhatsAppText({ to: message.from, body: NON_TEXT_REPLY });
+  // Stop automated sales after a successful human handover.
+  if (lead.status === "handed_off" && lead.notifiedAt) {
+    const at = new Date().toISOString();
+    const userText = message.text || "(non-text)";
     lead.messages = [
       ...lead.messages,
-      {
-        role: "assistant",
-        content: NON_TEXT_REPLY,
-        at: new Date().toISOString(),
-      },
+      { role: "user", content: userText, at },
     ];
+    await recordWhatsAppChatTurn({
+      phone: message.from,
+      userText,
+      contactName: lead.contactName,
+      at,
+    });
+    await saveWhatsAppLead(lead);
+    return;
+  }
+
+  if (!message.text.trim()) {
+    await sendWhatsAppText({ to: message.from, body: NON_TEXT_REPLY });
+    const at = new Date().toISOString();
+    lead.messages = [
+      ...lead.messages,
+      { role: "assistant", content: NON_TEXT_REPLY, at },
+    ];
+    await recordWhatsAppChatTurn({
+      phone: message.from,
+      assistantText: NON_TEXT_REPLY,
+      contactName: lead.contactName,
+      at,
+    });
     await saveWhatsAppLead(lead);
     return;
   }
@@ -80,22 +134,42 @@ async function processInboundMessage(message: {
   lead.fields = result.fields;
   if (!lead.fields.phone) lead.fields.phone = message.from;
   lead.status = result.status;
+
+  let reply = result.reply;
+  if (result.readyForHandoff) {
+    reply = HANDOVER_CUSTOMER_REPLY;
+    lead.status = "handed_off";
+  }
+
   lead.messages = [
     ...lead.messages,
     { role: "user", content: message.text, at },
-    { role: "assistant", content: result.reply, at },
+    { role: "assistant", content: reply, at },
   ];
 
-  await sendWhatsAppText({ to: message.from, body: result.reply });
+  await sendWhatsAppText({ to: message.from, body: reply });
+  await recordWhatsAppChatTurn({
+    phone: message.from,
+    userText: message.text,
+    assistantText: reply,
+    contactName: lead.contactName || lead.fields.name,
+    at,
+  });
 
   if (result.readyForHandoff && !lead.notifiedAt) {
     try {
-      await sendWhatsAppLeadEmail(lead);
+      await notifyHumanHandover(lead);
       lead.notifiedAt = new Date().toISOString();
       lead.status = "handed_off";
+      lead.fields.notes = [
+        lead.fields.notes,
+        `Handed over to +${getHumanHandoverWhatsApp()} (R${MANAGED_WEBSITE_OFFER.depositZar} deposit claimed by customer).`,
+      ]
+        .filter(Boolean)
+        .join(" ");
     } catch (error) {
-      console.error("WhatsApp lead notify failed:", error);
-      // Keep status hot so a later message can retry notify.
+      console.error("WhatsApp human handover notify failed:", error);
+      // Keep conversation open so a later message can retry handover.
       lead.status = "hot";
     }
   }

@@ -37,12 +37,48 @@ export function getWhatsAppAppSecret(): string {
   return process.env.WHATSAPP_APP_SECRET?.trim() || "";
 }
 
-/** Secure R100 deposit checkout URL used in sales replies. */
-export function getDepositPaymentLink(): string {
-  return (
+/** Secure R100 deposit checkout URL. Pass waId to track who pays via PayFast. */
+export function getDepositPaymentLink(waId?: string): string {
+  const base =
     process.env.WHATSAPP_DEPOSIT_PAYMENT_LINK?.trim() ||
-    "https://lulaweb.co.za/payfast/deposit"
-  );
+    "https://lulaweb.co.za/payfast/deposit";
+  const phone = waId?.replace(/\D/g, "") || "";
+  if (!phone) return base;
+  try {
+    const url = new URL(base);
+    url.searchParams.set("wa", phone);
+    return url.toString();
+  } catch {
+    const sep = base.includes("?") ? "&" : "?";
+    return `${base}${sep}wa=${encodeURIComponent(phone)}`;
+  }
+}
+
+/** Team member WhatsApp for post-deposit human handover (digits only). */
+export function getHumanHandoverWhatsApp(): string {
+  const raw =
+    process.env.WHATSAPP_HUMAN_HANDOVER_NUMBER?.trim() || "27837917430";
+  return raw.replace(/\D/g, "");
+}
+
+/** Exact FNB banking details for EFT deposits — never invent alternatives. */
+export const EFT_BANKING_DETAILS = {
+  bank: "FNB",
+  accountName: "Sixty Five Group",
+  accountNumber: "62788863241",
+  accountType: "Gold Business Account",
+} as const;
+
+export function formatEftBankingDetails(depositZar: number): string {
+  const d = EFT_BANKING_DETAILS;
+  return [
+    `Bank: ${d.bank}`,
+    `Account Name: ${d.accountName}`,
+    `Account Number: ${d.accountNumber}`,
+    `Account Type: ${d.accountType}`,
+    "",
+    `Please pay the R${depositZar} deposit and let me know once payment has been made.`,
+  ].join("\n");
 }
 
 export function isWhatsAppConfigured(): boolean {

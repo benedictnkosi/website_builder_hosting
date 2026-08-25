@@ -10,9 +10,136 @@ import { fulfillPaidEditTopup, fulfillPaidSubscription } from "@/lib/payfast-ful
 import { EDIT_TOPUP_ZAR } from "@/lib/pricing";
 import { readSubscription, writeSubscription } from "@/lib/subscription";
 import { readEditTopup, writeEditTopup } from "@/lib/edit-topup";
+import {
+  MANAGED_WEBSITE_OFFER,
+  getHumanHandoverWhatsApp,
+} from "@/lib/whatsapp/config";
+import { sendWhatsAppText } from "@/lib/whatsapp/client";
+import { getOrCreateWhatsAppLead, saveWhatsAppLead } from "@/lib/whatsapp/leads";
+import { sendWhatsAppLeadEmail } from "@/lib/whatsapp/notify";
+import {
+  buildClientNeedSummary,
+  normalizeWhatsAppPhone,
+  readWhatsAppPayment,
+  writeWhatsAppPayment,
+} from "@/lib/whatsapp/payments";
 
 export const runtime = "nodejs";
 
+async function handleWhatsAppDeposit(data: Record<string, string>) {
+  const paymentId = data.m_payment_id?.trim() || data.custom_str3?.trim() || "";
+  const phone = normalizeWhatsAppPhone(data.custom_str1?.trim() || data.cell_number || "");
+  if (!paymentId || !phone) {
+    return rejectNotify("Missing WhatsApp deposit payment details.", 400, data);
+  }
+
+  const payment = await readWhatsAppPayment(paymentId);
+  if (!payment || payment.phone !== phone) {
+    return new NextResponse("Unknown WhatsApp deposit payment.", { status: 404 });
+  }
+
+  const notifyId =
+    data.pf_payment_id?.trim() ||
+    `${paymentId}:${data.payment_status ?? ""}:${data.amount_gross ?? ""}`;
+  if (payment.processedNotifyIds?.includes(notifyId)) {
+    return new NextResponse("OK", { status: 200 });
+  }
+
+  if (!amountsMatch(payment.amountZar || MANAGED_WEBSITE_OFFER.depositZar, data.amount_gross)) {
+    return rejectNotify("Amount mismatch.", 400, data);
+  }
+
+  const now = new Date().toISOString();
+  const status = data.payment_status?.toUpperCase();
+  const processedNotifyIds = [...(payment.processedNotifyIds ?? []), notifyId].slice(-20);
+
+  if (status === "COMPLETE") {
+    let summary = payment.summary;
+    let contactName = payment.contactName;
+    let email = payment.email;
+    let businessName = payment.businessName;
+    let industry = payment.industry;
+
+    try {
+      const lead = await getOrCreateWhatsAppLead({ waId: phone });
+      summary = buildClientNeedSummary(lead) || summary;
+      contactName = lead.fields.name || lead.contactName || contactName;
+      email = lead.fields.email || email;
+      businessName = lead.fields.businessName || businessName;
+      industry = lead.fields.industry || industry;
+
+      lead.fields.notes = [
+        lead.fields.notes,
+        `PayFast deposit confirmed (${data.pf_payment_id || paymentId}).`,
+      ]
+        .filter(Boolean)
+        .join(" ");
+      lead.fields.interested = true;
+      lead.status = "handed_off";
+      if (!lead.notifiedAt) {
+        try {
+          const humanTo = getHumanHandoverWhatsApp();
+          await sendWhatsAppText({
+            to: humanTo,
+            body: [
+              "Lulaweb PayFast deposit COMPLETE.",
+              `Amount: R${payment.amountZar}`,
+              `Customer WhatsApp: +${phone}`,
+              `Payment id: ${data.pf_payment_id || paymentId}`,
+              `Summary: ${summary}`,
+            ].join("\n"),
+          });
+          await sendWhatsAppLeadEmail({
+            ...lead,
+            fields: { ...lead.fields, notes: summary },
+          });
+          lead.notifiedAt = now;
+        } catch (error) {
+          console.error("WhatsApp deposit handover notify failed:", error);
+        }
+      }
+      await saveWhatsAppLead(lead);
+    } catch (error) {
+      console.error("WhatsApp deposit lead refresh failed:", error);
+    }
+
+    await writeWhatsAppPayment({
+      ...payment,
+      status: "complete",
+      amountZar: payment.amountZar,
+      date: now,
+      paidAt: now,
+      summary,
+      contactName,
+      email,
+      businessName,
+      industry,
+      payfastPaymentId: data.pf_payment_id || payment.payfastPaymentId,
+      updatedAt: now,
+      lastPaymentStatus: status,
+      processedNotifyIds,
+    });
+  } else if (status === "FAILED") {
+    await writeWhatsAppPayment({
+      ...payment,
+      status: "failed",
+      payfastPaymentId: data.pf_payment_id || payment.payfastPaymentId,
+      updatedAt: now,
+      lastPaymentStatus: status,
+      processedNotifyIds,
+    });
+  } else {
+    await writeWhatsAppPayment({
+      ...payment,
+      payfastPaymentId: data.pf_payment_id || payment.payfastPaymentId,
+      updatedAt: now,
+      lastPaymentStatus: status,
+      processedNotifyIds,
+    });
+  }
+
+  return new NextResponse("OK", { status: 200 });
+}
 async function handleEditTopup(data: Record<string, string>) {
   const paymentId = data.m_payment_id?.trim() || data.custom_str2?.trim() || "";
   const uid = data.custom_str1?.trim() || "";
@@ -170,6 +297,10 @@ export async function POST(request: Request) {
 
   if (data.custom_str4?.trim() === "edits" || data.custom_str4?.trim() === "tokens") {
     return handleEditTopup(data);
+  }
+
+  if (data.custom_str4?.trim() === "whatsapp_deposit") {
+    return handleWhatsAppDeposit(data);
   }
 
   return handleSubscription(data);

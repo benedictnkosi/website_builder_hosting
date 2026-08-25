@@ -62,6 +62,7 @@ export type PayfastCheckoutFields = {
   name_first?: string;
   name_last?: string;
   email_address?: string;
+  cell_number?: string;
   custom_str1?: string;
   custom_str2?: string;
   custom_str3?: string;
@@ -422,6 +423,63 @@ export function buildPayfastEditTopupCheckout(input: {
     custom_str1: input.uid,
     custom_str2: input.paymentId,
     custom_str4: "edits",
+    ...(firstName ? { name_first: firstName.slice(0, 100) } : {}),
+    ...(lastName ? { name_last: lastName.slice(0, 100) } : {}),
+    ...(input.email ? { email_address: input.email.slice(0, 100) } : {}),
+  };
+
+  const payload = orderedCheckoutPayload(unordered);
+  const signature = generatePayfastSignature(payload, passphrase);
+
+  return {
+    processUrl: getPayfastProcessUrl(),
+    fields: {
+      ...(payload as Omit<PayfastCheckoutFields, "signature">),
+      signature,
+    },
+  };
+}
+
+/** One-off R100 managed-website deposit from WhatsApp, tracked by phone (custom_str1). */
+export function buildPayfastWhatsAppDepositCheckout(input: {
+  origin: string;
+  paymentId: string;
+  phone: string;
+  amountZar: number;
+  email?: string;
+  name?: string;
+}): { processUrl: string; fields: PayfastCheckoutFields } {
+  const merchantId = getPayfastMerchantId();
+  const merchantKey = getPayfastMerchantKey();
+  const passphrase = getPayfastPassphrase();
+
+  if (!merchantId || !merchantKey || !passphrase) {
+    throw new Error(getPayfastConfigError() || "PayFast is not configured.");
+  }
+
+  const amount = payfastAmount(input.amountZar);
+  const phone = input.phone.replace(/\D/g, "");
+  const [firstName, ...lastParts] = (input.name ?? "").trim().split(/\s+/);
+  const lastName = lastParts.join(" ");
+  const cellNumber =
+    phone.startsWith("27") && phone.length >= 11 ? `0${phone.slice(2)}` : phone;
+
+  const unordered: Omit<PayfastCheckoutFields, "signature"> = {
+    merchant_id: merchantId,
+    merchant_key: merchantKey,
+    return_url: `${input.origin}/payfast/deposit?status=return&wa=${encodeURIComponent(phone)}`,
+    cancel_url: `${input.origin}/payfast/deposit?status=cancel&wa=${encodeURIComponent(phone)}`,
+    notify_url: `${input.origin}/api/payfast/notify`,
+    m_payment_id: input.paymentId,
+    amount,
+    item_name: "Lulaweb website deposit".slice(0, 100),
+    item_description:
+      "R100 refundable deposit to start a fully managed Lulaweb website.".slice(0, 255),
+    payment_method: "cc",
+    custom_str1: phone,
+    custom_str3: input.paymentId,
+    custom_str4: "whatsapp_deposit",
+    ...(cellNumber ? { cell_number: cellNumber.slice(0, 100) } : {}),
     ...(firstName ? { name_first: firstName.slice(0, 100) } : {}),
     ...(lastName ? { name_last: lastName.slice(0, 100) } : {}),
     ...(input.email ? { email_address: input.email.slice(0, 100) } : {}),
