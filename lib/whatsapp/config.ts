@@ -61,6 +61,12 @@ export function getHumanHandoverWhatsApp(): string {
   return raw.replace(/\D/g, "");
 }
 
+/** Click-to-chat link for customers who want a real person. */
+export function getHumanHandoverChatLink(): string {
+  const phone = getHumanHandoverWhatsApp();
+  return `https://wa.me/${phone}`;
+}
+
 /** Exact FNB banking details for EFT deposits — never invent alternatives. */
 export const EFT_BANKING_DETAILS = {
   bank: "FNB",

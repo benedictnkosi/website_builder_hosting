@@ -6,6 +6,8 @@ import {
   EFT_BANKING_DETAILS,
   formatEftBankingDetails,
   getDepositPaymentLink,
+  getHumanHandoverChatLink,
+  getHumanHandoverWhatsApp,
   MANAGED_WEBSITE_OFFER,
 } from "./config";
 import type {
@@ -77,6 +79,8 @@ function salesSystemPrompt(waId?: string): string {
   const balance = price - deposit;
   const paymentLink = getDepositPaymentLink(waId) || DEFAULT_PAYMENT_LINK;
   const eft = EFT_BANKING_DETAILS;
+  const humanPhone = getHumanHandoverWhatsApp();
+  const humanLink = getHumanHandoverChatLink();
 
   return `You are **Lula**, the automated WhatsApp sales assistant for **Lulaweb**, South Africa.
 
@@ -239,6 +243,20 @@ Example customer-facing response:
 Do not claim that payment has been independently verified unless the system has actually verified the transaction.
 
 A customer's statement that they paid means you may initiate the handover, but it does not mean you have independently confirmed receipt of the funds.
+
+## TALK TO A REAL PERSON
+
+If the customer asks to speak to a human, real person, agent, consultant, or says they don't want the bot:
+
+1. Be helpful and brief — do not argue or keep selling.
+2. Send this WhatsApp chat link so they can message the team directly: ${humanLink}
+3. You may also mention the number as +${humanPhone}.
+
+Example:
+
+"No problem. You can chat to a Lulaweb team member here: ${humanLink}"
+
+Do not invent other phone numbers or contact channels for human support.
 
 ## GOOGLE
 
@@ -510,6 +528,18 @@ function mockSalesReply(
       fields,
       status: "handed_off",
       readyForHandoff: true,
+    };
+  }
+
+  if (/\b(real person|human|speak to (someone|a person|an agent)|talk to (someone|a person|an agent)|agent|consultant|not (a )?bot|customer service)\b/i.test(
+    lower,
+  )) {
+    const humanLink = getHumanHandoverChatLink();
+    return {
+      reply: `No problem. You can chat to a Lulaweb team member here: ${humanLink}`,
+      fields,
+      status: lead.status === "closed" ? "closed" : "qualifying",
+      readyForHandoff: false,
     };
   }
 
