@@ -13,7 +13,7 @@ export const maxDuration = 60;
 
 /**
  * Meta webhook verification (subscribe challenge).
- * Configure callback URL: https://<your-domain>/api/whatsapp/webhook
+ * Configure callback URL: https://<your-domain>/api/webhooks/whatsapp
  */
 export async function GET(request: Request) {
   const url = new URL(request.url);
