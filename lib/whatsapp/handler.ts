@@ -87,24 +87,6 @@ async function processInboundMessage(message: {
   lead.processedMessageIds = [...lead.processedMessageIds, message.messageId];
   await markWhatsAppMessageRead(message.messageId);
 
-  // Stop automated sales after a successful human handover.
-  if (lead.status === "handed_off" && lead.notifiedAt) {
-    const at = new Date().toISOString();
-    const userText = message.text || "(non-text)";
-    lead.messages = [
-      ...lead.messages,
-      { role: "user", content: userText, at },
-    ];
-    await recordWhatsAppChatTurn({
-      phone: message.from,
-      userText,
-      contactName: lead.contactName,
-      at,
-    });
-    await saveWhatsAppLead(lead);
-    return;
-  }
-
   if (!message.text.trim()) {
     await sendWhatsAppText({ to: message.from, body: NON_TEXT_REPLY });
     const at = new Date().toISOString();
@@ -127,6 +109,8 @@ async function processInboundMessage(message: {
     lead.fields.phone = message.from;
   }
 
+  const alreadyHandedOff = lead.status === "handed_off" && Boolean(lead.notifiedAt);
+
   const result = await runWhatsAppSalesBot({
     lead,
     userText: message.text,
@@ -138,8 +122,13 @@ async function processInboundMessage(message: {
   lead.status = result.status;
 
   let reply = result.reply;
-  if (result.readyForHandoff) {
+  // Only force the handover template on the first payment-claimed handoff.
+  // Keep chatting normally if the customer messages again afterwards.
+  if (result.readyForHandoff && !alreadyHandedOff && !lead.notifiedAt) {
     reply = handoverCustomerReply();
+    lead.status = "handed_off";
+  } else if (alreadyHandedOff && result.status === "handed_off") {
+    // Preserve handoff status without silencing the bot.
     lead.status = "handed_off";
   }
 
