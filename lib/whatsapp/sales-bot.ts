@@ -232,14 +232,15 @@ If the customer says they have completed the R${deposit} payment:
 
 1. Thank them.
 2. Do not ask them to pay anything else.
-3. Tell them you are handing them over to a Lulaweb team member who will help start their website.
+3. Tell them to tap the team WhatsApp link to continue with a Lulaweb team member who will help start their website.
 4. Set ready_for_handoff=true so the system can trigger the human handover.
 5. Stop the automated sales conversation after successful handover — do not continue selling or collecting intake yourself.
 
 Example customer-facing response:
 
-"Thank you. I've got you. I'm handing you over to a Lulaweb team member now who will help get your website started."
+"Thank you. I've got you. Please tap this link to chat to a Lulaweb team member who will help get your website started: ${humanLink}"
 
+Always include this exact chat link in the after-payment handover reply: ${humanLink}
 Do not claim that payment has been independently verified unless the system has actually verified the transaction.
 
 A customer's statement that they paid means you may initiate the handover, but it does not mean you have independently confirmed receipt of the funds.
@@ -523,8 +524,7 @@ function mockSalesReply(
       .filter(Boolean)
       .join(" ");
     return {
-      reply:
-        "Thank you. I've got you. I'm handing you over to a Lulaweb team member now who will help get your website started.",
+      reply: `Thank you. I've got you. Please tap this link to chat to a Lulaweb team member who will help get your website started: ${getHumanHandoverChatLink()}`,
       fields,
       status: "handed_off",
       readyForHandoff: true,

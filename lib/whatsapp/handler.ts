@@ -1,6 +1,7 @@
 import "server-only";
 
 import {
+  getHumanHandoverChatLink,
   getHumanHandoverWhatsApp,
   MANAGED_WEBSITE_OFFER,
 } from "./config";
@@ -19,8 +20,9 @@ import type { WhatsAppLead, WhatsAppWebhookPayload } from "./types";
 const NON_TEXT_REPLY =
   "Thanks for your message. Please reply with a text message and I'll help you with the managed website offer.";
 
-const HANDOVER_CUSTOMER_REPLY =
-  "Thank you. I've got you. I'm handing you over to a Lulaweb team member now who will help get your website started.";
+function handoverCustomerReply(): string {
+  return `Thank you. I've got you. Please tap this link to chat to a Lulaweb team member who will help get your website started: ${getHumanHandoverChatLink()}`;
+}
 
 /**
  * Process a verified Cloud API webhook. Always safe to call — errors are logged
@@ -137,7 +139,7 @@ async function processInboundMessage(message: {
 
   let reply = result.reply;
   if (result.readyForHandoff) {
-    reply = HANDOVER_CUSTOMER_REPLY;
+    reply = handoverCustomerReply();
     lead.status = "handed_off";
   }
 
