@@ -22,11 +22,7 @@ const OPENAI_RESPONSES_URL = "https://api.openai.com/v1/responses";
 const OPENAI_MODEL = "gpt-5.5";
 
 const PAYMENT_LINK_PLACEHOLDER = "[INSERT_PAYMENT_LINK]";
-const PAYMENT_LINK_BRACKET = "[PAYMENT_LINK]";
 const DEFAULT_PAYMENT_LINK = "https://lulaweb.co.za/payfast/deposit";
-const MAX_ASSISTANT_TURNS = 15;
-const TURN_LIMIT_EXIT_MARKER = "turn_limit_exit";
-const ABUSE_EXIT_MARKER = "abuse_exit";
 
 const SALES_JSON_SCHEMA = {
   type: "object",
@@ -267,14 +263,6 @@ Do not invent other phone numbers or contact channels for human support.
 
 Lulaweb submits the website to Google and includes SEO setup. Never guarantee rankings or first position on Google.
 
-## Strict Message Counter & Abuse Protection
-
-- You are strictly allowed a maximum of ${MAX_ASSISTANT_TURNS} response turns per conversation.
-- If the user has sent ${MAX_ASSISTANT_TURNS} or more messages and has NOT paid or requested a payment link, drop the payment link directly:
-  "To keep our prices at R${price}/yr, I have to step out now! You can secure your design slot anytime here: ${paymentLink}. Our team will take over from there!"
-- If the user sends off-topic, abusive, or repetitive questions, send the payment link once and end the chat with that same style of exit (include ${paymentLink}), set status=closed, and do not continue a long sales conversation.
-- Never invent a different exit price or payment URL.
-
 ## WHATSAPP STYLE
 
 * 1–3 short sentences per response (EFT banking details may use a short multi-line block).
@@ -307,22 +295,30 @@ Silently check:
 
 **Core principle:** Understand the customer → show relevant value → establish trust → resolve objections → make starting easy. Once they're ready, stop selling and help them buy.
 
+## Strict Message Counter & Abuse Protection
+
+- You are strictly allowed a maximum of **30 response turns** per conversation (count customer messages).
+- If the customer has sent **30 or more messages** and has NOT paid and has NOT already been given a payment link, end with this exact style of exit (include both links):
+
+"To keep our prices at R${price}/yr, I have to step out now! You can secure your design slot anytime here: ${paymentLink}. Our team will take over from there! ${humanLink}"
+
+- If the customer sends off-topic, abusive, or repetitive questions, send the payment link once (and the human WhatsApp link) and end the chat. Set status=closed. Do not keep debating.
+- After you have sent this exit message, do not continue a long sales conversation. Brief redirects to the payment/human links only if they keep messaging.
+
 ## Structured output field rules
 
 - Merge newly learned details into fields; keep prior values when the user did not change them.
 - interested: "yes" | "no" | "unknown"
-- status: new → qualifying while answering questions → hot when buying intent / payment options offered → handed_off only via ready_for_handoff after they say they paid → closed if not interested.
+- status: new → qualifying while answering questions → hot when buying intent / payment options offered → handed_off only via ready_for_handoff after they say they paid → closed if not interested, abusive, off-topic, or turn-limit exit.
 - ready_for_handoff: true ONLY the first time the customer says they completed the R${deposit} payment and you are sending the human chat link. If they already handed off and keep chatting, set ready_for_handoff=false and keep answering helpfully.
 - If they are not interested, be polite, set interested=no and status=closed.
-- If the message is off-topic, abusive, or repetitive spam, send the payment exit once with ${paymentLink}, set status=closed, and stop selling.
-- Respect the ${MAX_ASSISTANT_TURNS}-turn limit: if you are at or over the limit and they have not paid or requested payment, use the strict exit message with ${paymentLink} and set status=closed.`;
+- If the message is off-topic spam or abusive, send the payment + human links once, set status=closed.`;
 }
 
 function applyPaymentLink(reply: string, waId?: string): string {
   const link = getDepositPaymentLink(waId) || DEFAULT_PAYMENT_LINK;
-  let next = reply
-    .replaceAll(PAYMENT_LINK_PLACEHOLDER, link)
-    .replaceAll(PAYMENT_LINK_BRACKET, link);
+  let next = reply.replaceAll(PAYMENT_LINK_PLACEHOLDER, link);
+  next = next.replaceAll("[PAYMENT_LINK]", link);
   if (waId) {
     // Ensure bare deposit URLs include this customer's WhatsApp id for PayFast tracking.
     next = next.replaceAll(
@@ -333,56 +329,48 @@ function applyPaymentLink(reply: string, waId?: string): string {
   return next;
 }
 
-function countAssistantTurns(lead: WhatsAppLead): number {
-  return lead.messages.filter((message) => message.role === "assistant").length;
+const MAX_USER_TURNS = 30;
+
+function countUserTurns(lead: WhatsAppLead): number {
+  return lead.messages.filter((message) => message.role === "user").length + 1;
 }
 
-function countUserTurns(lead: WhatsAppLead, extraUserText?: string): number {
-  const prior = lead.messages.filter((message) => message.role === "user").length;
-  return prior + (extraUserText?.trim() ? 1 : 0);
-}
-
-function conversationHasPaymentOffer(lead: WhatsAppLead): boolean {
+function conversationAlreadyHasPaymentLink(lead: WhatsAppLead, waId: string): boolean {
+  const link = getDepositPaymentLink(waId);
   return lead.messages.some(
     (message) =>
       message.role === "assistant" &&
-      (/payfast\/deposit/i.test(message.content) ||
-        /62788863241/.test(message.content) ||
-        /\bEFT\b/i.test(message.content) ||
-        /securely online here/i.test(message.content)),
+      (message.content.includes("payfast/deposit") ||
+        (link ? message.content.includes(link) : false)),
   );
 }
 
-function hasPaidOrHandedOff(lead: WhatsAppLead): boolean {
-  return lead.status === "handed_off" || Boolean(lead.notifiedAt);
+function hasPaidSignal(lead: WhatsAppLead): boolean {
+  return (
+    lead.status === "handed_off" ||
+    Boolean(lead.notifiedAt) ||
+    /payfast deposit confirmed|deposit claimed|says they paid/i.test(
+      lead.fields.notes || "",
+    )
+  );
 }
 
 function turnLimitExitReply(waId: string): string {
-  const link = getDepositPaymentLink(waId) || DEFAULT_PAYMENT_LINK;
   const price = MANAGED_WEBSITE_OFFER.priceZar;
-  return `To keep our prices at R${price}/yr, I have to step out now! You can secure your design slot anytime here: ${link}. Our team will take over from there!`;
+  const paymentLink = getDepositPaymentLink(waId) || DEFAULT_PAYMENT_LINK;
+  const humanLink = getHumanHandoverChatLink();
+  return `To keep our prices at R${price}/yr, I have to step out now! You can secure your design slot anytime here: ${paymentLink}. Our team will take over from there! ${humanLink}`;
 }
 
-function shouldForceTurnLimitExit(lead: WhatsAppLead, userText: string): boolean {
-  if (hasPaidOrHandedOff(lead)) return false;
-  if (conversationHasPaymentOffer(lead)) return false;
-  if (lead.fields.notes.includes(TURN_LIMIT_EXIT_MARKER)) return false;
-
-  const assistantTurns = countAssistantTurns(lead);
-  const userTurns = countUserTurns(lead, userText);
-  return assistantTurns >= MAX_ASSISTANT_TURNS || userTurns >= MAX_ASSISTANT_TURNS;
-}
-
-function forceTurnLimitExit(lead: WhatsAppLead): WhatsAppSalesBotResult {
-  return {
-    reply: turnLimitExitReply(lead.waId),
-    fields: {
-      ...lead.fields,
-      notes: [lead.fields.notes, TURN_LIMIT_EXIT_MARKER].filter(Boolean).join(" "),
-    },
-    status: "closed",
-    readyForHandoff: false,
-  };
+function looksAbusiveOrSpam(text: string): boolean {
+  const lower = text.toLowerCase();
+  if (
+    /\b(fuck|shit|bastard|idiot|scam artist|kill yourself|kys)\b/i.test(lower)
+  ) {
+    return true;
+  }
+  // Very short repetitive noise after many turns is handled by the counter.
+  return false;
 }
 
 interface OpenAIErrorBody {
@@ -548,17 +536,6 @@ function parseSalesResult(
   }
   if (fields.interested === true && status === "new") status = "qualifying";
 
-  // Mark hard exits so follow-ups stay short.
-  if (
-    status === "closed" &&
-    /secure your design slot|have to step out|off-topic|abusive/i.test(reply) &&
-    /payfast\/deposit/i.test(reply)
-  ) {
-    if (!fields.notes.includes(ABUSE_EXIT_MARKER) && !fields.notes.includes(TURN_LIMIT_EXIT_MARKER)) {
-      fields.notes = [fields.notes, ABUSE_EXIT_MARKER].filter(Boolean).join(" ");
-    }
-  }
-
   return { reply, fields, status, readyForHandoff };
 }
 
@@ -572,6 +549,28 @@ function mockSalesReply(
   const deposit = MANAGED_WEBSITE_OFFER.depositZar;
   const balance = price - deposit;
   const paymentLink = getDepositPaymentLink(lead.waId);
+
+  if (
+    countUserTurns(lead) >= MAX_USER_TURNS &&
+    !hasPaidSignal(lead) &&
+    !conversationAlreadyHasPaymentLink(lead, lead.waId)
+  ) {
+    return {
+      reply: turnLimitExitReply(lead.waId),
+      fields,
+      status: "closed",
+      readyForHandoff: false,
+    };
+  }
+
+  if (looksAbusiveOrSpam(userText) && !hasPaidSignal(lead)) {
+    return {
+      reply: turnLimitExitReply(lead.waId),
+      fields: { ...fields, interested: false },
+      status: "closed",
+      readyForHandoff: false,
+    };
+  }
 
   if (!fields.industry && userText.trim().length > 2 && lead.messages.length > 0) {
     fields.industry = userText.trim().slice(0, 80);
@@ -691,20 +690,27 @@ export async function runWhatsAppSalesBot(input: {
   lead: WhatsAppLead;
   userText: string;
 }): Promise<WhatsAppSalesBotResult> {
-  if (shouldForceTurnLimitExit(input.lead, input.userText)) {
-    return forceTurnLimitExit(input.lead);
+  const userTurns = countUserTurns(input.lead);
+  const paid = hasPaidSignal(input.lead);
+  const alreadySentLink = conversationAlreadyHasPaymentLink(
+    input.lead,
+    input.lead.waId,
+  );
+
+  // Hard enforce turn limit when they haven't paid and haven't gotten a link.
+  if (userTurns >= MAX_USER_TURNS && !paid && !alreadySentLink) {
+    return {
+      reply: turnLimitExitReply(input.lead.waId),
+      fields: input.lead.fields,
+      status: "closed",
+      readyForHandoff: false,
+    };
   }
 
-  // After a hard exit, stay brief — don't reopen a long sales chat.
-  if (
-    input.lead.status === "closed" &&
-    (input.lead.fields.notes.includes(TURN_LIMIT_EXIT_MARKER) ||
-      input.lead.fields.notes.includes(ABUSE_EXIT_MARKER))
-  ) {
-    const link = getDepositPaymentLink(input.lead.waId) || DEFAULT_PAYMENT_LINK;
+  if (looksAbusiveOrSpam(input.userText) && !paid) {
     return {
-      reply: `You can secure your design slot anytime here: ${link}. Our team will take over from there.`,
-      fields: input.lead.fields,
+      reply: turnLimitExitReply(input.lead.waId),
+      fields: { ...input.lead.fields, interested: false },
       status: "closed",
       readyForHandoff: false,
     };
@@ -733,10 +739,9 @@ export async function runWhatsAppSalesBot(input: {
   const priorJson = JSON.stringify({
     contact_name: input.lead.contactName,
     wa_id: input.lead.waId,
-    assistant_turns: countAssistantTurns(input.lead),
-    user_turns: countUserTurns(input.lead, input.userText),
-    max_assistant_turns: MAX_ASSISTANT_TURNS,
-    payment_offer_already_sent: conversationHasPaymentOffer(input.lead),
+    user_message_count: userTurns,
+    max_user_turns: MAX_USER_TURNS,
+    already_sent_payment_link: alreadySentLink,
     fields: {
       name: input.lead.fields.name,
       business_name: input.lead.fields.businessName,
