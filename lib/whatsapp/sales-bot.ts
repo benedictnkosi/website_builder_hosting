@@ -15,7 +15,7 @@ import type {
 } from "./types";
 
 const OPENAI_RESPONSES_URL = "https://api.openai.com/v1/responses";
-const OPENAI_MODEL = "gpt-5.6-terra";
+const OPENAI_MODEL = "gpt-5.5";
 
 const PAYMENT_LINK_PLACEHOLDER = "[INSERT_PAYMENT_LINK]";
 const DEFAULT_PAYMENT_LINK = "https://lulaweb.co.za/payfast/deposit";
