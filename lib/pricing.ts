@@ -1,8 +1,7 @@
+/** Legacy subscriptions may still store annual billing in Firestore. */
 export type BillingFrequency = "monthly" | "annual";
 
-export const MONTHLY_PLAN_ZAR = 15;
-export const ANNUAL_PLAN_MONTHLY_ZAR = 10;
-export const ANNUAL_PLAN_ZAR = ANNUAL_PLAN_MONTHLY_ZAR * 12;
+export const SUBSCRIPTION_PLAN_ZAR = 19;
 
 export const SUBSCRIPTION_TLD =
   (typeof process !== "undefined" && process.env?.NEXT_PUBLIC_DOMAIN_TLD?.trim()) || "co.za";
@@ -66,28 +65,24 @@ export function formatZar(amount: number): string {
   return `R${roundMoney(amount).toFixed(2)}`;
 }
 
-export function parseBillingFrequency(value: string): BillingFrequency {
-  return value === "monthly" ? "monthly" : "annual";
+export function parseBillingFrequency(_value: string): BillingFrequency {
+  return "monthly";
 }
 
 export function isBillingFrequency(value: unknown): value is BillingFrequency {
   return value === "monthly" || value === "annual";
 }
 
-export function subscriptionAmountZar(frequency: BillingFrequency): number {
-  return frequency === "annual" ? ANNUAL_PLAN_ZAR : MONTHLY_PLAN_ZAR;
+export function subscriptionAmountZar(_frequency?: BillingFrequency): number {
+  return SUBSCRIPTION_PLAN_ZAR;
 }
 
-export function payfastFrequencyCode(frequency: BillingFrequency): "3" | "6" {
-  if (frequency === "annual") return "6";
-  if (frequency === "monthly") return "3";
-  throw new Error(`Unsupported PayFast billing frequency: ${String(frequency)}`);
+export function payfastFrequencyCode(_frequency?: BillingFrequency): "3" {
+  return "3";
 }
 
-export function formatBilledAmount(amountZar: number, frequency: BillingFrequency): string {
-  return frequency === "annual"
-    ? `${formatZar(amountZar)} / year`
-    : `${formatZar(amountZar)} / month`;
+export function formatBilledAmount(amountZar: number, _frequency?: BillingFrequency): string {
+  return `${formatZar(amountZar)} / month`;
 }
 
 export function formatEdits(edits: number): string {

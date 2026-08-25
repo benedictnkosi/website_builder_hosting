@@ -10,7 +10,7 @@ import {
 } from "firebase/analytics";
 import { getFirebaseApp, isFirebaseClientConfigured } from "@/lib/firebase";
 import { trackGoogleAdsSubscription } from "@/lib/gtag";
-import { ANNUAL_PLAN_ZAR, EDIT_TOPUP_ZAR } from "@/lib/pricing";
+import { SUBSCRIPTION_PLAN_ZAR, EDIT_TOPUP_ZAR } from "@/lib/pricing";
 
 type EventParams = Record<string, string | number | boolean | undefined>;
 
@@ -115,7 +115,7 @@ export function trackBeginCheckout(domain: string, amountZar: number) {
 }
 
 export function trackPurchase(domain: string, amountZar?: number) {
-  const value = amountZar ?? ANNUAL_PLAN_ZAR;
+  const value = amountZar ?? SUBSCRIPTION_PLAN_ZAR;
   trackEvent("purchase", {
     currency: "ZAR",
     value,

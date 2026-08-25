@@ -11,7 +11,6 @@ import {
   isPayfastMockAllowed,
 } from "@/lib/payfast";
 import {
-  parseBillingFrequency,
   SUBSCRIPTION_TLD,
   subscriptionAmountZar,
   type BillingFrequency,
@@ -66,8 +65,8 @@ export async function POST(request: Request) {
   const domain = stringField(body, "domain").toLowerCase();
   const email = stringField(body, "email");
   const name = stringField(body, "name");
-  const frequency = parseBillingFrequency(stringField(body, "frequency"));
-  const amountZar = subscriptionAmountZar(frequency);
+  const frequency: BillingFrequency = "monthly";
+  const amountZar = subscriptionAmountZar();
 
   if (!websiteId || !isValidWebsiteId(websiteId)) {
     return NextResponse.json(

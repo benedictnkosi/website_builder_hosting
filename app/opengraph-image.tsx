@@ -1,9 +1,9 @@
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { ImageResponse } from "next/og";
-import { ANNUAL_PLAN_MONTHLY_ZAR } from "@/lib/pricing";
+import { SUBSCRIPTION_PLAN_ZAR } from "@/lib/pricing";
 
-export const alt = `Lulaweb — AI website builder for South African businesses. Design, a .co.za domain, and hosting from R${ANNUAL_PLAN_MONTHLY_ZAR} a month billed annually.`;
+export const alt = `Lulaweb — AI website builder for South African businesses. Design, a .co.za domain, and hosting from R${SUBSCRIPTION_PLAN_ZAR} a month.`;
 export const size = {
   width: 1200,
   height: 630,
@@ -61,7 +61,7 @@ export default async function Image() {
               maxWidth: 820,
             }}
           >
-            {`Chat about your business. Design, a .co.za domain, and hosting from R${ANNUAL_PLAN_MONTHLY_ZAR}/month billed annually.`}
+            {`Chat about your business. Design, a .co.za domain, and hosting from R${SUBSCRIPTION_PLAN_ZAR}/month.`}
           </div>
         </div>
         <div

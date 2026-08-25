@@ -1,10 +1,8 @@
 import {
-  ANNUAL_PLAN_MONTHLY_ZAR,
-  ANNUAL_PLAN_ZAR,
   EDIT_TOPUP_PACKAGES,
   EDIT_TOPUP_ZAR,
   formatEdits,
-  MONTHLY_PLAN_ZAR,
+  SUBSCRIPTION_PLAN_ZAR,
 } from "@/lib/pricing";
 
 export const SITE_NAME = "Lulaweb";
@@ -20,11 +18,11 @@ export function getSiteUrl(): string {
   return SITE_DEFAULT_URL;
 }
 
-export const SITE_TAGLINE = `The cheapest small business website in South Africa from R${ANNUAL_PLAN_MONTHLY_ZAR} a month`;
+export const SITE_TAGLINE = `The cheapest small business website in South Africa from R${SUBSCRIPTION_PLAN_ZAR} a month`;
 
-export const SITE_TITLE = `Small Business Website South Africa from R${ANNUAL_PLAN_MONTHLY_ZAR} | Lulaweb`;
+export const SITE_TITLE = `Small Business Website South Africa from R${SUBSCRIPTION_PLAN_ZAR} | Lulaweb`;
 
-export const SITE_DESCRIPTION = `A cheap small business website in South Africa from R${ANNUAL_PLAN_MONTHLY_ZAR} a month. Built for SMMEs — free website design to start, plus hosting and a .co.za domain included.`;
+export const SITE_DESCRIPTION = `A cheap small business website in South Africa from R${SUBSCRIPTION_PLAN_ZAR} a month. Built for SMMEs — free website design to start, plus hosting and a .co.za domain included.`;
 
 export const SITE_KEYWORDS = [
   "small business website South Africa",
@@ -36,10 +34,10 @@ export const SITE_KEYWORDS = [
   "small business web design South Africa",
   "local business website South Africa",
   "website for SMMEs",
-  "10 rand website",
-  "10 rand website South Africa",
-  `R${ANNUAL_PLAN_MONTHLY_ZAR} website`,
-  `R${ANNUAL_PLAN_MONTHLY_ZAR} website South Africa`,
+  `${SUBSCRIPTION_PLAN_ZAR} rand website`,
+  `${SUBSCRIPTION_PLAN_ZAR} rand website South Africa`,
+  `R${SUBSCRIPTION_PLAN_ZAR} website`,
+  `R${SUBSCRIPTION_PLAN_ZAR} website South Africa`,
   "cheapest website in South Africa",
   "cheapest website South Africa",
   "cheapest website builder South Africa",
@@ -65,11 +63,11 @@ export const HOME_FAQ = [
   },
   {
     question: "How much does a Lulaweb website cost?",
-    answer: `A 10 rand website: R${ANNUAL_PLAN_MONTHLY_ZAR} per month billed annually (R${ANNUAL_PLAN_ZAR} a year), or R${MONTHLY_PLAN_ZAR} per month. That includes website design, a .co.za domain, and hosting. Extra Edits start at R${EDIT_TOPUP_ZAR}: ${EDIT_TOPUP_PACKAGES.map((pack) => `${pack.name} R${pack.amountZar} (${formatEdits(pack.edits)})`).join(", ")}. A website change uses 1 Edit, and a full rebuild uses 2 Edits. Publishing on a .co.za domain requires an active subscription, billed through PayFast.`,
+    answer: `R${SUBSCRIPTION_PLAN_ZAR} per month. That includes website design, a .co.za domain, and hosting. Extra Edits start at R${EDIT_TOPUP_ZAR}: ${EDIT_TOPUP_PACKAGES.map((pack) => `${pack.name} R${pack.amountZar} (${formatEdits(pack.edits)})`).join(", ")}. A website change uses 1 Edit, and a full rebuild uses 2 Edits. Publishing on a .co.za domain requires an active subscription, billed monthly through PayFast.`,
   },
   {
     question: "Is Lulaweb the cheapest website in South Africa?",
-    answer: `Lulaweb is built as a 10 rand website for small South African businesses: R${ANNUAL_PLAN_MONTHLY_ZAR} a month billed annually, with website design, a .co.za domain, and hosting in one price. There is no separate designer, registrar, or hosting bill.`,
+    answer: `Lulaweb is built for small South African businesses at R${SUBSCRIPTION_PLAN_ZAR} a month, with website design, a .co.za domain, and hosting in one price. There is no separate designer, registrar, or hosting bill.`,
   },
   {
     question: "Do I get free website design and hosting?",
@@ -88,7 +86,7 @@ export const HOME_FAQ = [
   },
   {
     question: "Is Lulaweb for small businesses and SMMEs?",
-    answer: `Yes. Lulaweb is a website builder for South African small businesses and SMMEs. A live site is R${ANNUAL_PLAN_MONTHLY_ZAR} a month billed annually and includes design, a .co.za domain, and hosting — so a plumber, salon, clinic, restaurant, or consultant can get online without an agency.`,
+    answer: `Yes. Lulaweb is a website builder for South African small businesses and SMMEs. A live site is R${SUBSCRIPTION_PLAN_ZAR} a month and includes design, a .co.za domain, and hosting — so a plumber, salon, clinic, restaurant, or consultant can get online without an agency.`,
   },
   {
     question: "Who is Lulaweb for?",
@@ -134,7 +132,7 @@ export function buildGraphJsonLd(siteUrl: string) {
           "SMME website South Africa",
           "website for small businesses",
           "cheapest website in South Africa",
-          "10 rand website",
+          `${SUBSCRIPTION_PLAN_ZAR} rand website`,
           "free website design South Africa",
           "free website hosting South Africa",
           "AI website builder",
@@ -156,11 +154,9 @@ export function buildGraphJsonLd(siteUrl: string) {
             "Small, medium and micro enterprises (SMMEs) in South Africa",
         },
         offers: {
-          "@type": "AggregateOffer",
-          lowPrice: ANNUAL_PLAN_MONTHLY_ZAR,
-          highPrice: MONTHLY_PLAN_ZAR,
+          "@type": "Offer",
+          price: SUBSCRIPTION_PLAN_ZAR,
           priceCurrency: "ZAR",
-          offerCount: 2,
           availability: "https://schema.org/InStock",
           url: origin,
         },

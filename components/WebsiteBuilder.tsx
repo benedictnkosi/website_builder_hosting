@@ -52,6 +52,7 @@ import {
   EDIT_EDITS_COST,
   EDIT_TOPUP_ZAR,
   GENERATE_EDITS_COST,
+  SUBSCRIPTION_PLAN_ZAR,
   SUBSCRIPTION_EDITS_GRANT,
   formatEdits,
   formatZar,
@@ -61,7 +62,10 @@ type GenerationStatus = "idle" | "chatting" | "generating" | "success" | "error"
 type ChatPhase = "intake" | "edit";
 
 const WELCOME_MESSAGE =
-  "Hi! I'm here to help build your website. Tell me about your business, or upload one flyer, business card, or PDF if you have one.\n\nI'll need this information:\n• Business name\n• About us\n• List of services\n• Contact number\n• WhatsApp number, if WhatsApp is required\n• Email address, if a contact form is required\n• Trading hours, if you have them";
+  "Welcome! Let's get your business online in 60 seconds. 🚀\n\nWhat is your **Business Name** and **what products or services do you offer**?\n\n*(Or simply click the clip icon below to upload a flyer, business card, or logo!)*";
+
+const INTAKE_INPUT_PLACEHOLDER =
+  "e.g., Thando Plumbing in Durban, geyser repairs and blocked drains...";
 
 const READY_MESSAGE =
   "Your website is ready. Preview it, describe any changes, or attach one photo to replace an image. Subscribe when you want to deploy it live.";
@@ -71,7 +75,7 @@ function sleep(ms: number) {
 }
 
 function renderInlineMarkdown(text: string): ReactNode[] {
-  const parts = text.split(/(\*\*[^*]+\*\*)/g);
+  const parts = text.split(/(\*\*[^*]+\*\*|\*[^*]+\*)/g);
   return parts.map((part, index) => {
     const bold = part.match(/^\*\*([^*]+)\*\*$/);
     if (bold) {
@@ -79,6 +83,14 @@ function renderInlineMarkdown(text: string): ReactNode[] {
         <strong key={index} className="font-semibold text-stone-800">
           {bold[1]}
         </strong>
+      );
+    }
+    const italic = part.match(/^\*([^*]+)\*$/);
+    if (italic) {
+      return (
+        <em key={index} className="italic text-stone-600">
+          {italic[1]}
+        </em>
       );
     }
     return part;
@@ -187,23 +199,44 @@ function PayfastConfirmingBanner() {
   );
 }
 
+function FloatingPriceBadge({ className = "" }: { className?: string }) {
+  return (
+    <div
+      className={`pointer-events-none flex items-baseline gap-1 rounded-2xl bg-teal-800 px-5 py-3 shadow-[0_12px_40px_rgba(19,78,74,0.35)] ring-2 ring-white/20 ${className}`}
+    >
+      <span className="text-4xl font-bold tracking-tight text-white sm:text-5xl">
+        {formatZar(SUBSCRIPTION_PLAN_ZAR).replace(".00", "")}
+      </span>
+      <span className="text-sm font-semibold text-teal-100">/month</span>
+    </div>
+  );
+}
+
 function EmptyPreview({ generating }: { generating: boolean }) {
   return (
     <div className="relative flex h-full min-h-[22rem] items-center justify-center overflow-hidden bg-[#f7f3ea] p-6 sm:p-8">
       <div className="absolute -right-16 -top-16 h-56 w-56 rounded-full bg-teal-700/10" />
       <div className="absolute -bottom-20 -left-12 h-64 w-64 rounded-full bg-amber-200/45" />
+      {!generating ? (
+        <FloatingPriceBadge className="absolute left-1/2 top-4 z-10 -translate-x-1/2 sm:top-6" />
+      ) : null}
       <div className="relative w-full max-w-md rounded-2xl bg-white p-6 shadow-sm ring-1 ring-stone-200/70">
         <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-teal-800">
           Preview
         </p>
         <h3 className="mt-2 text-2xl font-semibold tracking-tight text-stone-900">
-          {generating ? "Building your website" : "Your website will appear here"}
+          {generating ? "Building your website" : "See your website preview here in 60 seconds"}
         </h3>
         <p className="mt-2 text-sm leading-relaxed text-stone-600">
           {generating
             ? "We're writing the pages and generating images. The live preview will show up here when it's ready."
-            : "Chat about your business, or upload a flyer if you have one. We'll design the site and show a live preview on this side."}
+            : "Type your business details in the chat on the left or upload a flyer. We will generate your live layout automatically."}
         </p>
+        {!generating ? (
+          <p className="mt-4 inline-flex rounded-full bg-stone-100 px-3 py-1.5 text-[11px] font-medium leading-snug text-stone-600 ring-1 ring-stone-200/80">
+            🔒 100% Free to test • {formatZar(SUBSCRIPTION_PLAN_ZAR)}/month when you publish • Includes .co.za domain
+          </p>
+        ) : null}
       </div>
     </div>
   );
@@ -1346,9 +1379,7 @@ Use these details on the website where they fit. Do not invent extras beyond wha
                             ? pendingEditImage
                               ? "Which photo should this replace?"
                               : "Describe a change, or attach a photo..."
-                            : showFlyerUpload
-                              ? "Message, or upload a flyer..."
-                              : "Message..."
+                            : INTAKE_INPUT_PLACEHOLDER
                     }
                     disabled={chatDisabled}
                     className="min-w-0 flex-1 rounded-full border border-stone-300 bg-white px-3.5 py-2.5 text-sm text-stone-800 outline-none transition placeholder:text-stone-400 focus:border-teal-700 focus:ring-2 focus:ring-teal-700/20 disabled:bg-stone-100 sm:px-4"

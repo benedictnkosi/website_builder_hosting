@@ -9,10 +9,8 @@ import LandingHeader from "@/components/LandingHeader";
 import SupportForm from "@/components/SupportForm";
 import { HOME_FAQ } from "@/lib/seo";
 import {
-  ANNUAL_PLAN_MONTHLY_ZAR,
-  ANNUAL_PLAN_ZAR,
   formatZar,
-  MONTHLY_PLAN_ZAR,
+  SUBSCRIPTION_PLAN_ZAR,
 } from "@/lib/pricing";
 
 const INCLUDED_IN_PRICE = [
@@ -172,14 +170,13 @@ export default function LandingPage() {
               <span className="mt-1 block text-teal-800">Get a website.</span>
             </h1>
             <p className="mt-8">
-              <span className="block text-6xl font-semibold tracking-tight text-teal-800 sm:text-8xl">
-                R{ANNUAL_PLAN_MONTHLY_ZAR}
-              </span>
-              <span className="mt-2 block text-lg font-medium text-stone-800 sm:text-2xl">
-                per month, billed annually
-              </span>
-              <span className="mt-1 block text-sm font-medium text-stone-500 sm:text-base">
-                or {formatZar(MONTHLY_PLAN_ZAR)} per month
+              <span className="inline-flex items-baseline gap-2 rounded-[1.75rem] bg-teal-800 px-8 py-5 shadow-[0_20px_60px_rgba(19,78,74,0.28)] ring-2 ring-white/15">
+                <span className="text-6xl font-bold tracking-tight text-white sm:text-8xl">
+                  R{SUBSCRIPTION_PLAN_ZAR}
+                </span>
+                <span className="text-lg font-semibold text-teal-100 sm:text-2xl">
+                  /month
+                </span>
               </span>
             </p>
             <ul
@@ -221,7 +218,7 @@ export default function LandingPage() {
               No templates, agencies, or long forms. Tell us what your small
               business does in plain language, get free website design, and
               publish a mobile-friendly South African site from{" "}
-              {formatZar(ANNUAL_PLAN_MONTHLY_ZAR)} a month.
+              {formatZar(SUBSCRIPTION_PLAN_ZAR)} a month.
             </p>
             <div className="mt-8 grid gap-4 sm:grid-cols-3">
               {[
@@ -238,7 +235,7 @@ export default function LandingPage() {
                 {
                   step: "03",
                   title: "Publish on a .co.za",
-                  body: `Design, domain, and hosting are included — from ${formatZar(ANNUAL_PLAN_MONTHLY_ZAR)} a month billed annually when the site looks right.`,
+                  body: `Design, domain, and hosting are included — ${formatZar(SUBSCRIPTION_PLAN_ZAR)} a month when the site looks right.`,
                   featured: true,
                 },
               ].map((item) => (
@@ -272,7 +269,7 @@ export default function LandingPage() {
               The cheapest small business website in South Africa
             </h2>
             <p className="mx-auto mt-3 max-w-2xl text-center text-sm leading-relaxed text-stone-600">
-              A 10 rand website for SMMEs and local services that need to be
+              A {SUBSCRIPTION_PLAN_ZAR} rand website for SMMEs and local services that need to be
               found on Google, called from a phone, or messaged on WhatsApp —
               not for giant ecommerce catalogues.
             </p>
@@ -300,7 +297,7 @@ export default function LandingPage() {
             className="mx-auto mt-16 w-full max-w-5xl scroll-mt-24"
           >
             <h2 className="text-center text-2xl font-semibold tracking-tight text-stone-900">
-              Free website design and hosting from {formatZar(ANNUAL_PLAN_MONTHLY_ZAR)} a month
+              Free website design and hosting from {formatZar(SUBSCRIPTION_PLAN_ZAR)} a month
             </h2>
             <p className="mx-auto mt-3 max-w-2xl text-center text-sm leading-relaxed text-stone-600">
               Website design is free to start. Hosting and a .co.za domain are
@@ -354,78 +351,41 @@ export default function LandingPage() {
             className="mx-auto mt-16 w-full max-w-5xl scroll-mt-24 text-center"
           >
             <h2 className="text-2xl font-semibold tracking-tight text-stone-900">
-              Small business website pricing from 10 rand
+              Small business website pricing — {formatZar(SUBSCRIPTION_PLAN_ZAR)} a month
             </h2>
             <p className="mx-auto mt-3 max-w-xl text-sm leading-relaxed text-stone-600">
               Built for SMMEs. Free website design and preview to start.
               Website hosting and a .co.za domain are included when you go live.
             </p>
-            <div className="mt-8 grid gap-4 text-left sm:grid-cols-2">
-              <article className="rounded-[1.6rem] border border-teal-800/30 bg-teal-50/60 p-8 shadow-[0_24px_80px_rgba(28,25,23,0.08)]">
+            <article className="mx-auto mt-8 max-w-lg rounded-[1.6rem] border border-teal-800/30 bg-teal-50/60 p-8 text-left shadow-[0_24px_80px_rgba(28,25,23,0.08)]">
+              <div className="text-center">
                 <p className="text-xs font-semibold uppercase tracking-[0.18em] text-teal-800">
-                  Annual · best value
+                  Everything included
                 </p>
-                <p className="mt-3 text-4xl font-semibold tracking-tight text-stone-900">
-                  {formatZar(ANNUAL_PLAN_MONTHLY_ZAR)}
-                  <span className="ml-2 text-base font-medium text-stone-500">
-                    / month
-                  </span>
+                <p className="mt-3 text-5xl font-bold tracking-tight text-stone-900">
+                  {formatZar(SUBSCRIPTION_PLAN_ZAR)}
+                  <span className="ml-2 text-lg font-medium text-stone-500">/ month</span>
                 </p>
-                <p className="mt-1 text-sm text-stone-600">
-                  Billed annually at {formatZar(ANNUAL_PLAN_ZAR)}
-                </p>
-                <ul className="mt-5 space-y-2 text-sm leading-relaxed text-stone-600">
-                  {INCLUDED_IN_PRICE.map((item) => (
-                    <li key={item.title} className="flex items-start gap-2">
-                      <IncludedCheckIcon />
-                      <span>
-                        <span className="font-semibold text-stone-800">
-                          {item.title}
-                        </span>
-                        {" — "}
-                        {item.body}
-                      </span>
-                    </li>
-                  ))}
-                  <li>Chat-based edits while you have Edits remaining</li>
-                  <li>Free preview before you pay</li>
-                </ul>
-                <div className="mt-6">
-                  <LandingCtaSignIn />
-                </div>
-              </article>
-              <article className="rounded-[1.6rem] border border-stone-200/80 bg-white p-8 shadow-[0_24px_80px_rgba(28,25,23,0.08)]">
-                <p className="text-xs font-semibold uppercase tracking-[0.18em] text-stone-500">
-                  Monthly
-                </p>
-                <p className="mt-3 text-4xl font-semibold tracking-tight text-stone-900">
-                  {formatZar(MONTHLY_PLAN_ZAR)}
-                  <span className="ml-2 text-base font-medium text-stone-500">
-                    / month
-                  </span>
-                </p>
-                <p className="mt-1 text-sm text-stone-600">Billed every month</p>
-                <ul className="mt-5 space-y-2 text-sm leading-relaxed text-stone-600">
-                  {INCLUDED_IN_PRICE.map((item) => (
-                    <li key={`monthly-${item.title}`} className="flex items-start gap-2">
-                      <IncludedCheckIcon />
-                      <span>
-                        <span className="font-semibold text-stone-800">
-                          {item.title}
-                        </span>
-                        {" — "}
-                        {item.body}
-                      </span>
-                    </li>
-                  ))}
-                  <li>Chat-based edits while you have Edits remaining</li>
-                  <li>Free preview before you pay</li>
-                </ul>
-                <div className="mt-6">
-                  <LandingCtaSignIn />
-                </div>
-              </article>
-            </div>
+                <p className="mt-1 text-sm text-stone-600">Billed monthly through PayFast</p>
+              </div>
+              <ul className="mt-5 space-y-2 text-sm leading-relaxed text-stone-600">
+                {INCLUDED_IN_PRICE.map((item) => (
+                  <li key={item.title} className="flex items-start gap-2">
+                    <IncludedCheckIcon />
+                    <span>
+                      <span className="font-semibold text-stone-800">{item.title}</span>
+                      {" — "}
+                      {item.body}
+                    </span>
+                  </li>
+                ))}
+                <li>Chat-based edits while you have Edits remaining</li>
+                <li>Free preview before you pay</li>
+              </ul>
+              <div className="mt-6 flex justify-center">
+                <LandingCtaSignIn />
+              </div>
+            </article>
           </section>
 
           <section id="faq" className="mx-auto mt-16 w-full max-w-3xl scroll-mt-24">
@@ -468,7 +428,7 @@ export default function LandingPage() {
             <p className="mt-3 max-w-sm text-sm leading-relaxed text-stone-600">
               The cheapest small business website in South Africa. Free website
               design to start, with hosting and a .co.za domain from{" "}
-              {formatZar(ANNUAL_PLAN_MONTHLY_ZAR)} a month billed annually.
+              {formatZar(SUBSCRIPTION_PLAN_ZAR)} a month.
             </p>
           </div>
           <nav aria-label="Footer" className="flex flex-wrap gap-x-6 gap-y-2 text-sm text-stone-600">
