@@ -54,12 +54,14 @@ function navLinkClass(active: boolean): string {
 }
 
 export default function AppHeader() {
-  const { user, signOut } = useAuth();
+  const { user, signOut, authFetch } = useAuth();
   const router = useRouter();
   const pathname = usePathname();
   const onDashboard = pathname === "/dashboard";
+  const onAdmin = pathname === "/admin" || pathname.startsWith("/admin/");
   const [mobileOpen, setMobileOpen] = useState(false);
   const [accountOpen, setAccountOpen] = useState(false);
+  const [isAdmin, setIsAdmin] = useState(false);
   const accountRef = useRef<HTMLDivElement>(null);
 
   const displayName = user?.displayName || user?.email || "Account";
@@ -71,6 +73,33 @@ export default function AppHeader() {
     setMobileOpen(false);
     setAccountOpen(false);
   }, [pathname]);
+
+  useEffect(() => {
+    if (!user) {
+      setIsAdmin(false);
+      return;
+    }
+
+    let cancelled = false;
+    async function checkAdmin() {
+      try {
+        const response = await authFetch("/api/admin/me");
+        const data = (await response.json()) as {
+          success?: boolean;
+          admin?: boolean;
+        };
+        if (!cancelled) {
+          setIsAdmin(Boolean(response.ok && data.success && data.admin));
+        }
+      } catch {
+        if (!cancelled) setIsAdmin(false);
+      }
+    }
+    void checkAdmin();
+    return () => {
+      cancelled = true;
+    };
+  }, [authFetch, user]);
 
   useEffect(() => {
     function onKey(event: KeyboardEvent) {
@@ -114,6 +143,11 @@ export default function AppHeader() {
             <Link href="/dashboard" className={navLinkClass(onDashboard)}>
               Sites
             </Link>
+            {isAdmin ? (
+              <Link href="/admin" className={navLinkClass(onAdmin)}>
+                Admin
+              </Link>
+            ) : null}
             <Link href={supportHref} className={navLinkClass(false)}>
               Support
             </Link>
@@ -206,6 +240,17 @@ export default function AppHeader() {
                 >
                   Sites
                 </Link>
+                {isAdmin ? (
+                  <Link
+                    href="/admin"
+                    onClick={() => setMobileOpen(false)}
+                    className={`rounded-2xl px-4 py-3 text-sm font-medium ${
+                      onAdmin ? "bg-teal-800 text-white" : "text-stone-700 hover:bg-white"
+                    }`}
+                  >
+                    Admin
+                  </Link>
+                ) : null}
                 <Link
                   href={supportHref}
                   onClick={() => setMobileOpen(false)}

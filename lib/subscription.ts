@@ -238,3 +238,113 @@ export async function requireActiveSubscription(
   }
   return subscription;
 }
+
+export type AdminPaidSite = {
+  websiteId: string;
+  businessName: string;
+  ownerUid: string;
+  ownerEmail?: string;
+  contactEmail?: string;
+  domain: string;
+  sld: string;
+  tld: string;
+  status: "active";
+  amountZar: number;
+  domainPriceZar: number;
+  websiteFeeZar: number;
+  currency: string;
+  frequency: BillingFrequency;
+  mocked: boolean;
+  billingEmail?: string;
+  paymentId: string;
+  payfastPaymentId?: string;
+  paidAt?: string;
+  createdAt: string;
+  updatedAt: string;
+  siteCreatedAt?: string;
+  siteUpdatedAt?: string;
+  seoOptimizedAt?: string;
+};
+
+export async function listActivePaidSites(): Promise<AdminPaidSite[]> {
+  if (!isFirebaseAdminConfigured()) {
+    throw new Error(
+      "Firebase Admin is required to list paid sites. Configure FIREBASE_SERVICE_ACCOUNT.",
+    );
+  }
+
+  const db = getAdminFirestore();
+  const snap = await db
+    .collection(SUBSCRIPTION_COLLECTION)
+    .where("status", "==", "active")
+    .get();
+
+  const rows: AdminPaidSite[] = [];
+
+  for (const doc of snap.docs) {
+    const subscription = asSubscription(
+      doc.id,
+      doc.data() as Record<string, unknown>,
+    );
+    if (!subscription || subscription.status !== "active") continue;
+
+    const siteSnap = await db.collection("sites").doc(subscription.websiteId).get();
+    const site = siteSnap.exists
+      ? (siteSnap.data() as Record<string, unknown>)
+      : null;
+
+    const ownerUid =
+      subscription.ownerUid ||
+      (typeof site?.ownerUid === "string" ? site.ownerUid : "") ||
+      "";
+
+    rows.push({
+      websiteId: subscription.websiteId,
+      businessName:
+        typeof site?.businessName === "string" && site.businessName.trim()
+          ? site.businessName.trim()
+          : "Untitled site",
+      ownerUid,
+      ownerEmail:
+        typeof site?.ownerEmail === "string" && site.ownerEmail.trim()
+          ? site.ownerEmail.trim()
+          : undefined,
+      contactEmail:
+        typeof site?.contactEmail === "string" && site.contactEmail.trim()
+          ? site.contactEmail.trim()
+          : undefined,
+      domain: subscription.domain,
+      sld: subscription.sld,
+      tld: subscription.tld,
+      status: "active",
+      amountZar: subscription.amountZar,
+      domainPriceZar: subscription.domainPriceZar,
+      websiteFeeZar: subscription.websiteFeeZar,
+      currency: subscription.currency,
+      frequency: subscription.frequency,
+      mocked: subscription.mocked,
+      billingEmail: subscription.email,
+      paymentId: subscription.paymentId,
+      payfastPaymentId: subscription.payfastPaymentId,
+      paidAt: subscription.paidAt,
+      createdAt: subscription.createdAt,
+      updatedAt: subscription.updatedAt,
+      siteCreatedAt:
+        typeof site?.createdAt === "string" ? site.createdAt : undefined,
+      siteUpdatedAt:
+        typeof site?.updatedAt === "string" ? site.updatedAt : undefined,
+      seoOptimizedAt:
+        typeof site?.seoOptimizedAt === "string" && site.seoOptimizedAt.trim()
+          ? site.seoOptimizedAt
+          : undefined,
+    });
+  }
+
+  rows.sort((a, b) => {
+    const aTime = Date.parse(a.paidAt || a.updatedAt || a.createdAt);
+    const bTime = Date.parse(b.paidAt || b.updatedAt || b.createdAt);
+    return (Number.isFinite(bTime) ? bTime : 0) - (Number.isFinite(aTime) ? aTime : 0);
+  });
+
+  return rows;
+}
