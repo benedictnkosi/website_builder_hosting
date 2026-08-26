@@ -21,8 +21,21 @@ import { extractInboundMessages } from "./parse";
 import { runWhatsAppSalesBot } from "./sales-bot";
 import type { WhatsAppLead, WhatsAppWebhookPayload } from "./types";
 
-const NON_TEXT_REPLY =
-  "Thanks for your message. Please reply with a text message and I'll help you with the managed website offer.";
+const ATTACHMENT_TYPES = new Set([
+  "image",
+  "sticker",
+  "document",
+  "audio",
+  "video",
+  "ptt",
+]);
+
+function attachmentOrNonTextReply(messageType?: string): string {
+  if (messageType && ATTACHMENT_TYPES.has(messageType)) {
+    return "This chat doesn't support attachments. When you're ready, I can connect you to one of our designers — just say you'd like to speak to a designer.";
+  }
+  return "Thanks for your message. Please reply with a text message and I'll help you with the managed website offer.";
+}
 
 /**
  * Process a verified Cloud API webhook. Always safe to call — errors are logged
@@ -126,15 +139,21 @@ async function processInboundMessage(message: {
       await saveWhatsAppLead(lead);
       return;
     }
-    await sendWhatsAppText({ to: message.from, body: NON_TEXT_REPLY });
+    const reply = attachmentOrNonTextReply(message.messageType);
+    await sendWhatsAppText({ to: message.from, body: reply });
     const at = new Date().toISOString();
+    const userNote = message.messageType
+      ? `(sent ${message.messageType} attachment)`
+      : "(non-text message)";
     lead.messages = [
       ...lead.messages,
-      { role: "assistant", content: NON_TEXT_REPLY, at },
+      { role: "user", content: userNote, at },
+      { role: "assistant", content: reply, at },
     ];
     await recordWhatsAppChatTurn({
       phone: message.from,
-      assistantText: NON_TEXT_REPLY,
+      userText: userNote,
+      assistantText: reply,
       contactName: lead.contactName,
       at,
     });

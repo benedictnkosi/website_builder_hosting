@@ -202,12 +202,22 @@ function PayfastConfirmingBanner() {
 function FloatingPriceBadge({ className = "" }: { className?: string }) {
   return (
     <div
-      className={`pointer-events-none flex items-baseline gap-1 rounded-2xl bg-teal-800 px-5 py-3 shadow-[0_12px_40px_rgba(19,78,74,0.35)] ring-2 ring-white/20 ${className}`}
+      className={`pointer-events-none max-w-[min(100%,22rem)] rounded-2xl bg-teal-800 px-5 py-3.5 text-center shadow-[0_12px_40px_rgba(19,78,74,0.35)] ring-2 ring-white/20 ${className}`}
+      role="note"
+      aria-label={`Publish from ${formatZar(SUBSCRIPTION_PLAN_ZAR)} per month. Includes website design, a .co.za domain, and hosting.`}
     >
-      <span className="text-4xl font-bold tracking-tight text-white sm:text-5xl">
-        {formatZar(SUBSCRIPTION_PLAN_ZAR).replace(".00", "")}
-      </span>
-      <span className="text-sm font-semibold text-teal-100">/month</span>
+      <div className="flex items-baseline justify-center gap-1">
+        <span className="text-4xl font-bold tracking-tight text-white sm:text-5xl">
+          {formatZar(SUBSCRIPTION_PLAN_ZAR).replace(".00", "")}
+        </span>
+        <span className="text-sm font-semibold text-teal-100">/month</span>
+      </div>
+      <p className="mt-1.5 text-[11px] font-semibold leading-snug text-teal-50/95 sm:text-xs">
+        Design · .co.za domain · Hosting included
+      </p>
+      <p className="mt-1 text-[10px] leading-snug text-teal-100/85 sm:text-[11px]">
+        Free to preview. Pay only when you publish.
+      </p>
     </div>
   );
 }

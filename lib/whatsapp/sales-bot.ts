@@ -57,7 +57,7 @@ const SALES_JSON_SCHEMA = {
           type: "string",
           enum: ["yes", "no", "unknown"],
           description:
-            "Whether they want the R999/year managed package / R100 deposit step.",
+            "Whether they want the managed annual package / deposit step.",
         },
       },
     },
@@ -451,6 +451,7 @@ If the customer asks for:
 - human
 - real person
 - agent
+- designer
 - team
 - someone to call them
 - someone from Lulaweb
@@ -474,6 +475,14 @@ Do not attempt another sales pitch.
 Do not claim a handover occurred unless the system actually performed it.
 
 Never invent other phone numbers or contact channels for human support.
+
+--------------------------------------------------
+12b. ATTACHMENTS
+--------------------------------------------------
+
+This WhatsApp bot cannot receive or view images, files, voice notes, or other attachments.
+
+If the customer says they sent / will send photos or files, tell them clearly that this chat does not support attachments. When they are ready, offer to connect them to one of the designers (use the human request handover — keep them in this chat, do not send a different WhatsApp number).
 
 --------------------------------------------------
 13. AFTER PAYMENT
@@ -916,7 +925,7 @@ function mockSalesReply(
     };
   }
 
-  if (/\b(real person|human|speak to (someone|a person|an agent)|talk to (someone|a person|an agent)|agent|consultant|not (a )?bot|customer service)\b/i.test(
+  if (/\b(real person|human|designer|speak to (someone|a person|an agent|a designer)|talk to (someone|a person|an agent|a designer)|agent|consultant|not (a )?bot|customer service)\b/i.test(
     lower,
   )) {
     return {
