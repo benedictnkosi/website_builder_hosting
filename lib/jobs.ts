@@ -21,6 +21,7 @@ import {
 import {
   listUserJobDocuments,
   readUserJobDocument,
+  upsertUserProfile,
   writeUserJobDocument,
 } from "@/lib/firestore";
 import { isMockAiEnabled, runWithMockAiOverride } from "@/lib/mock-ai";
@@ -432,6 +433,8 @@ export async function createGenerateJob(
     heartbeatAt: now,
   };
 
+  // Parent users/{uid} must exist; writing only to jobs/ leaves an empty ghost doc.
+  await upsertUserProfile(user);
   await writeJob(user, job);
   return job;
 }
@@ -480,6 +483,8 @@ export async function createEditJob(
     heartbeatAt: now,
   };
 
+  // Parent users/{uid} must exist; writing only to jobs/ leaves an empty ghost doc.
+  await upsertUserProfile(user);
   await writeJob(user, job);
   return job;
 }

@@ -2,6 +2,7 @@ import "server-only";
 
 import type { AuthUser } from "@/lib/auth-server";
 import { getAdminFirestore, isFirebaseAdminConfigured } from "@/lib/firebase-admin";
+import { isGuestUid } from "@/lib/guest";
 import type { WebsiteSubscription } from "@/lib/subscription";
 
 export class FirestoreError extends Error {
@@ -311,10 +312,12 @@ export async function upsertUserProfile(user: AuthUser): Promise<void> {
   } catch (error) {
     if (!isFirestorePermissionError(error)) throw error;
   }
+  const isGuest = user.isGuest === true || isGuestUid(user.uid);
   await setDocument(`users/${user.uid}`, user.idToken, {
     uid: user.uid,
     email: user.email ?? "",
     displayName: user.displayName ?? "",
+    isGuest,
     createdAt: typeof existing?.createdAt === "string" ? existing.createdAt : now,
     updatedAt: now,
     lastSeenAt: now,
