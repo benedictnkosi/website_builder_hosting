@@ -24,6 +24,8 @@ export type WhatsAppChatRecord = {
   highIntentAt?: string;
   /** When an admin last opened this chat in the dashboard. */
   adminReadAt?: string;
+  /** True when there are customer messages the admin has not opened yet. */
+  unread?: boolean;
 };
 
 function nowIso(): string {
@@ -48,6 +50,10 @@ export async function appendWhatsAppChatMessages(input: {
   const ref = getAdminFirestore().collection(COLLECTION).doc(phone);
   const snap = await ref.get();
 
+  const hasCustomerMessage = input.messages.some(
+    (message) => message.role === "user",
+  );
+
   if (!snap.exists) {
     await ref.set({
       phone,
@@ -55,6 +61,7 @@ export async function appendWhatsAppChatMessages(input: {
       messages: input.messages.slice(-MAX_CHAT_MESSAGES),
       createdAt: now,
       updatedAt: now,
+      unread: hasCustomerMessage,
       ...(input.contactName?.trim()
         ? { contactName: input.contactName.trim() }
         : {}),
@@ -74,6 +81,7 @@ export async function appendWhatsAppChatMessages(input: {
       date: now,
       messages: merged,
       updatedAt: now,
+      ...(hasCustomerMessage ? { unread: true } : {}),
       ...(input.contactName?.trim()
         ? { contactName: input.contactName.trim() }
         : {}),
@@ -158,20 +166,14 @@ function asChatRecord(
       typeof data.highIntentAt === "string" ? data.highIntentAt : undefined,
     adminReadAt:
       typeof data.adminReadAt === "string" ? data.adminReadAt : undefined,
+    unread: data.unread === true,
   };
 }
 
 export function whatsappChatHasUnread(chat: {
-  messages: WhatsAppChatMessage[];
-  adminReadAt?: string;
+  unread?: boolean;
 }): boolean {
-  const readMs = chat.adminReadAt ? Date.parse(chat.adminReadAt) : NaN;
-  const readThreshold = Number.isFinite(readMs) ? readMs : 0;
-  return chat.messages.some((message) => {
-    if (message.role !== "user") return false;
-    const at = Date.parse(message.at);
-    return Number.isFinite(at) && at > readThreshold;
-  });
+  return chat.unread === true;
 }
 
 export async function getWhatsAppChat(
@@ -282,6 +284,7 @@ export async function markWhatsAppChatRead(
   await ref.set(
     {
       adminReadAt: now,
+      unread: false,
       updatedAt: now,
     },
     { merge: true },

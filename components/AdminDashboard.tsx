@@ -50,6 +50,7 @@ type WhatsAppChat = {
   highIntent?: boolean;
   highIntentAt?: string;
   adminReadAt?: string;
+  unread?: boolean;
 };
 
 type WhatsAppPayment = {
@@ -94,13 +95,7 @@ function whatsappChatHref(phone: string): string | null {
 }
 
 function chatHasUnread(chat: WhatsAppChat): boolean {
-  const readMs = chat.adminReadAt ? Date.parse(chat.adminReadAt) : NaN;
-  const readThreshold = Number.isFinite(readMs) ? readMs : 0;
-  return chat.messages.some((message) => {
-    if (message.role !== "user") return false;
-    const at = Date.parse(message.at);
-    return Number.isFinite(at) && at > readThreshold;
-  });
+  return chat.unread === true;
 }
 
 function WhatsAppOpenLink({
@@ -402,7 +397,9 @@ export default function AdminDashboard() {
       if (!chat || !chatHasUnread(chat)) return prev;
       shouldPersist = true;
       return prev.map((item) =>
-        item.phone === phone ? { ...item, adminReadAt: readAt } : item,
+        item.phone === phone
+          ? { ...item, adminReadAt: readAt, unread: false }
+          : item,
       );
     });
     if (!shouldPersist) return;
@@ -414,12 +411,17 @@ export default function AdminDashboard() {
       const data = (await response.json()) as {
         success?: boolean;
         adminReadAt?: string | null;
+        unread?: boolean;
       };
-      if (response.ok && data.success && data.adminReadAt) {
+      if (response.ok && data.success) {
         setChats((prev) =>
           prev.map((item) =>
             item.phone === phone
-              ? { ...item, adminReadAt: data.adminReadAt! }
+              ? {
+                  ...item,
+                  adminReadAt: data.adminReadAt || item.adminReadAt,
+                  unread: false,
+                }
               : item,
           ),
         );

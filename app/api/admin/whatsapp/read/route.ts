@@ -51,6 +51,7 @@ export async function POST(request: Request) {
       success: true,
       phone,
       adminReadAt: chat.adminReadAt ?? null,
+      unread: false,
     });
   } catch (error) {
     const message =
