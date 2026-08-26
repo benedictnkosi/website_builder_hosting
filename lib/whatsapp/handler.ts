@@ -1,14 +1,15 @@
 import "server-only";
 
 import {
-  getHumanHandoverChatLink,
+  formatHumanJoinRequest,
   getHumanHandoverWhatsApp,
-  MANAGED_WEBSITE_OFFER,
+  getHumanJoiningCustomerReply,
 } from "./config";
 import { markWhatsAppMessageRead, sendWhatsAppText } from "./client";
 import {
   isWhatsAppHumanTakeover,
   recordWhatsAppChatTurn,
+  setWhatsAppHumanTakeover,
 } from "./chats";
 import {
   getOrCreateWhatsAppLead,
@@ -22,10 +23,6 @@ import type { WhatsAppLead, WhatsAppWebhookPayload } from "./types";
 
 const NON_TEXT_REPLY =
   "Thanks for your message. Please reply with a text message and I'll help you with the managed website offer.";
-
-function handoverCustomerReply(): string {
-  return `Thank you. I've got you. Please tap this link to chat to a Lulaweb team member who will help get your website started: ${getHumanHandoverChatLink()}`;
-}
 
 /**
  * Process a verified Cloud API webhook. Always safe to call — errors are logged
@@ -49,9 +46,12 @@ export async function handleWhatsAppWebhook(
 async function notifyHumanHandover(lead: WhatsAppLead): Promise<void> {
   const humanTo = getHumanHandoverWhatsApp();
   const f = lead.fields;
+  const joinRequest = formatHumanJoinRequest(lead.waId);
   const summary = [
-    "Lulaweb WhatsApp handover — customer says they paid the R100 deposit.",
-    "(Payment not independently verified by the bot.)",
+    joinRequest,
+    "",
+    "Lulaweb WhatsApp — please take over this chat in the admin inbox / business WhatsApp.",
+    "(Stay in this same thread — do not send the customer a different WhatsApp link.)",
     "",
     `Customer WhatsApp: +${lead.waId}`,
     `Contact name: ${lead.contactName || f.name || "—"}`,
@@ -147,13 +147,11 @@ async function processInboundMessage(message: {
   lead.status = result.status;
 
   let reply = result.reply;
-  // Only force the handover template on the first payment-claimed handoff.
-  // Keep chatting normally if the customer messages again afterwards.
+  // First handover: keep the customer in this chat and call Benedict in.
   if (result.readyForHandoff && !alreadyHandedOff && !lead.notifiedAt) {
-    reply = handoverCustomerReply();
+    reply = getHumanJoiningCustomerReply();
     lead.status = "handed_off";
   } else if (alreadyHandedOff && result.status === "handed_off") {
-    // Preserve handoff status without silencing the bot.
     lead.status = "handed_off";
   }
 
@@ -179,10 +177,14 @@ async function processInboundMessage(message: {
       lead.status = "handed_off";
       lead.fields.notes = [
         lead.fields.notes,
-        `Handed over to +${getHumanHandoverWhatsApp()} (R${MANAGED_WEBSITE_OFFER.depositZar} deposit claimed by customer).`,
+        `Asked Benedict (+${getHumanHandoverWhatsApp()}) to join chat with ${lead.waId}.`,
       ]
         .filter(Boolean)
         .join(" ");
+      await setWhatsAppHumanTakeover({
+        phone: message.from,
+        humanTakeover: true,
+      });
     } catch (error) {
       console.error("WhatsApp human handover notify failed:", error);
       // Keep conversation open so a later message can retry handover.

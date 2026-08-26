@@ -6,8 +6,8 @@ import {
   EFT_BANKING_DETAILS,
   formatEftBankingDetails,
   getDepositPaymentLink,
-  getHumanHandoverChatLink,
   getHumanHandoverWhatsApp,
+  getHumanJoiningCustomerReply,
   MANAGED_WEBSITE_OFFER,
 } from "./config";
 import type {
@@ -68,7 +68,7 @@ const SALES_JSON_SCHEMA = {
     ready_for_handoff: {
       type: "boolean",
       description:
-        "True ONLY when the customer says they have completed the R100 payment and you are initiating human handover. Not when offering EFT/card payment options.",
+        "True when initiating human handover: customer asked for a human/real person, OR said they paid the R100 deposit. Triggers notifying Benedict and pausing the AI. Not when only offering EFT/card payment options.",
     },
   },
 } as const;
@@ -79,8 +79,6 @@ function salesSystemPrompt(waId?: string): string {
   const balance = price - deposit;
   const paymentLink = getDepositPaymentLink(waId) || DEFAULT_PAYMENT_LINK;
   const eft = EFT_BANKING_DETAILS;
-  const humanPhone = getHumanHandoverWhatsApp();
-  const humanLink = getHumanHandoverChatLink();
 
   return `You are **Lula**, the automated WhatsApp sales assistant for **Lulaweb**, South Africa.
 
@@ -388,8 +386,11 @@ Bank: ${eft.bank}
 Account Name: ${eft.accountName}
 Account Number: ${eft.accountNumber}
 Account Type: ${eft.accountType}
+Payment Reference: ${eft.paymentReference}
 
 Amount: **R${deposit}**
+
+Always include **Payment Reference: Your phone number** (or their actual WhatsApp number digits when known).
 
 Never change these details.
 
@@ -397,7 +398,7 @@ Never provide a different deposit amount.
 
 Say:
 
-"Please use these details for the R${deposit} deposit and let me know once you've made the payment."
+"Please use these details for the R${deposit} deposit. Use your phone number as the payment reference and let me know once you've made the payment."
 
 ## CARD PAYMENT
 
@@ -434,22 +435,22 @@ Do not falsely claim you will contact/remind them later unless the system actual
 
 If the customer says payment has been made:
 
-* Thank them.
+* Thank them briefly if natural, then hand over.
 * Do NOT claim the payment has been verified unless the system verified it.
 * Stop selling.
-* Initiate human handover.
+* Initiate human handover in THIS same WhatsApp chat.
 
-Say:
+Reply with exactly (or very close to):
 
-"Thank you. I've got you. Please tap this link to chat to a Lulaweb team member who will help get your website started: ${humanLink}"
+"${getHumanJoiningCustomerReply()}"
 
-Always include this exact chat link in the first after-payment handover reply: ${humanLink}
-
-Set ready_for_handoff=true the first time so the system can notify the team.
+Set ready_for_handoff=true the first time so the system can notify Benedict to join.
 
 Never ask for another payment.
 
-If the customer keeps messaging after handover, continue helping normally — answer questions, resend the human chat link, or resend payment options if they ask. Never go silent.
+Never send a wa.me link, phone number, or ask them to message a different WhatsApp number.
+
+If the customer keeps messaging after handover while AI is still active, reassure them Benedict is joining — do not send external chat links.
 
 ## HUMAN HANDOVER — HIGHEST PRIORITY
 
@@ -462,6 +463,8 @@ If the customer asks for:
 * someone from Lulaweb
 * someone to call/contact them
 
+OR you clearly feel they need a human (e.g. complex trust/legal issue you cannot resolve):
+
 **STOP THE SALES CONVERSATION IMMEDIATELY.**
 
 Do not ask for payment first.
@@ -470,15 +473,15 @@ Do not repeat the payment link.
 
 Do not try to convince them to continue with the AI.
 
-Initiate human handover to:
+Keep them in THIS chat. Reply with exactly (or very close to):
 
-**+${humanPhone}**
+"${getHumanJoiningCustomerReply()}"
 
-Send:
+Set ready_for_handoff=true so the system can message Benedict to join this chat.
 
-"Of course. You can speak directly to the Lulaweb team here: ${humanLink}"
+Never send https://wa.me/ links for human support.
 
-Do not claim a handover occurred unless it actually occurred.
+Never give out a personal WhatsApp number for handover.
 
 Do not invent other phone numbers or contact channels for human support.
 
@@ -591,21 +594,22 @@ Once they ask for a human or say they paid, stop selling and hand over.
 ## Strict Message Counter & Abuse Protection
 
 - You are strictly allowed a maximum of **30 response turns** per conversation (count customer messages).
-- If the customer has sent **30 or more messages** and has NOT paid and has NOT already been given a payment link, end with this exact style of exit (include both links):
+- If the customer has sent **30 or more messages** and has NOT paid and has NOT already been given a payment link, end with this exact style of exit (payment link only — no wa.me human link):
 
-"To keep our prices at R${price}/yr, I have to step out now. You can start anytime here: ${paymentLink}. Our team can also help here: ${humanLink}"
+"To keep our prices at R${price}/yr, I have to step out now. You can start anytime here: ${paymentLink}."
 
-- If the customer sends off-topic, abusive, or repetitive questions, send the payment link once (and the human WhatsApp link) and end the chat. Set status=closed. Do not keep debating.
-- After you have sent this exit message, do not continue a long sales conversation. Brief redirects to the payment/human links only if they keep messaging.
+- If the customer sends off-topic, abusive, or repetitive questions, send the payment link once and end the chat. Set status=closed. Do not keep debating. Do not send a wa.me link.
+- After you have sent this exit message, do not continue a long sales conversation. Brief redirects to the payment link only if they keep messaging.
 
 ## Structured output field rules
 
 - Merge newly learned details into fields; keep prior values when the user did not change them.
 - interested: "yes" | "no" | "unknown"
-- status: new → qualifying while answering questions → hot when buying intent / payment options offered → handed_off only via ready_for_handoff after they say they paid → closed if not interested, abusive, off-topic, or turn-limit exit.
-- ready_for_handoff: true ONLY the first time the customer says they completed the R${deposit} payment and you are sending the human chat link. If they already handed off and keep chatting, set ready_for_handoff=false and keep answering helpfully.
+- status: new → qualifying while answering questions → hot when buying intent / payment options offered → handed_off via ready_for_handoff when they ask for a human or say they paid → closed if not interested, abusive, off-topic, or turn-limit exit.
+- ready_for_handoff: true when the customer asks for a human/real person OR says they completed the R${deposit} payment (first time only). The system will tell Benedict to join this chat and pause the AI. If already handed off, set ready_for_handoff=false.
 - If they are not interested, be polite, set interested=no and status=closed.
-- If the message is off-topic spam or abusive, send the payment + human links once, set status=closed.`;
+- If the message is off-topic spam or abusive, send the payment link once, set status=closed.
+- Never include wa.me links or the team personal WhatsApp number in customer replies.`;
 }
 
 function applyPaymentLink(reply: string, waId?: string): string {
@@ -620,6 +624,22 @@ function applyPaymentLink(reply: string, waId?: string): string {
     );
   }
   return next;
+}
+
+/** Never send customers to the team personal wa.me number. */
+function stripCustomerFacingHandoverLinks(reply: string): string {
+  const humanPhone = getHumanHandoverWhatsApp();
+  const escaped = humanPhone.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const waMe = new RegExp(`https?:\\/\\/wa\\.me\\/${escaped}\\S*`, "gi");
+  const apiSend = new RegExp(
+    `https?:\\/\\/api\\.whatsapp\\.com\\/send\\?[^\\s]*${escaped}[^\\s]*`,
+    "gi",
+  );
+  return reply
+    .replace(waMe, "")
+    .replace(apiSend, "")
+    .replace(/\s{2,}/g, " ")
+    .trim();
 }
 
 const MAX_USER_TURNS = 30;
@@ -651,8 +671,7 @@ function hasPaidSignal(lead: WhatsAppLead): boolean {
 function turnLimitExitReply(waId: string): string {
   const price = MANAGED_WEBSITE_OFFER.priceZar;
   const paymentLink = getDepositPaymentLink(waId) || DEFAULT_PAYMENT_LINK;
-  const humanLink = getHumanHandoverChatLink();
-  return `To keep our prices at R${price}/yr, I have to step out now! You can secure your design slot anytime here: ${paymentLink}. Our team will take over from there! ${humanLink}`;
+  return `To keep our prices at R${price}/yr, I have to step out now! You can secure your design slot anytime here: ${paymentLink}.`;
 }
 
 function looksAbusiveOrSpam(text: string): boolean {
@@ -802,11 +821,12 @@ function parseSalesResult(
     throw new GeneratorError("OpenAI returned an empty WhatsApp reply.", 502);
   }
   reply = applyPaymentLink(reply, waId);
+  reply = stripCustomerFacingHandoverLinks(reply);
 
   const paymentLink = getDepositPaymentLink(waId);
   const sentPaymentLink = Boolean(paymentLink && reply.includes(paymentLink));
 
-  // Human handover only when the model flags payment-claimed handover.
+  // Human handover when the model flags payment-claimed OR human-request handover.
   let readyForHandoff = Boolean(data.ready_for_handoff);
   if (fields.interested === false) {
     readyForHandoff = false;
@@ -894,7 +914,7 @@ function mockSalesReply(
       .filter(Boolean)
       .join(" ");
     return {
-      reply: `Thank you. I've got you. Please tap this link to chat to a Lulaweb team member who will help get your website started: ${getHumanHandoverChatLink()}`,
+      reply: getHumanJoiningCustomerReply(),
       fields,
       status: "handed_off",
       readyForHandoff: true,
@@ -904,12 +924,11 @@ function mockSalesReply(
   if (/\b(real person|human|speak to (someone|a person|an agent)|talk to (someone|a person|an agent)|agent|consultant|not (a )?bot|customer service)\b/i.test(
     lower,
   )) {
-    const humanLink = getHumanHandoverChatLink();
     return {
-      reply: `No problem. You can chat to a Lulaweb team member here: ${humanLink}`,
+      reply: getHumanJoiningCustomerReply(),
       fields,
-      status: lead.status === "closed" ? "closed" : "qualifying",
-      readyForHandoff: false,
+      status: "handed_off",
+      readyForHandoff: true,
     };
   }
 
@@ -936,7 +955,7 @@ function mockSalesReply(
   if (/\b(eft|bank transfer|banking details|bank details)\b/i.test(lower)) {
     fields.interested = true;
     return {
-      reply: formatEftBankingDetails(deposit),
+      reply: formatEftBankingDetails(deposit, lead.waId),
       fields,
       status: "hot",
       readyForHandoff: false,

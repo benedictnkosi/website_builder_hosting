@@ -47,6 +47,9 @@ type WhatsAppChat = {
   contactName?: string;
   humanTakeover?: boolean;
   humanTakeoverAt?: string;
+  highIntent?: boolean;
+  highIntentAt?: string;
+  adminReadAt?: string;
 };
 
 type WhatsAppPayment = {
@@ -90,6 +93,16 @@ function whatsappChatHref(phone: string): string | null {
   return digits ? `https://wa.me/${digits}` : null;
 }
 
+function chatHasUnread(chat: WhatsAppChat): boolean {
+  const readMs = chat.adminReadAt ? Date.parse(chat.adminReadAt) : NaN;
+  const readThreshold = Number.isFinite(readMs) ? readMs : 0;
+  return chat.messages.some((message) => {
+    if (message.role !== "user") return false;
+    const at = Date.parse(message.at);
+    return Number.isFinite(at) && at > readThreshold;
+  });
+}
+
 function WhatsAppOpenLink({
   phone,
   className,
@@ -130,6 +143,7 @@ export default function AdminDashboard() {
   const [waLoading, setWaLoading] = useState(true);
   const [waError, setWaError] = useState<string | null>(null);
   const [waQuery, setWaQuery] = useState("");
+  const [highIntentOnly, setHighIntentOnly] = useState(false);
   const [selectedPhone, setSelectedPhone] = useState<string | null>(null);
   const [exporting, setExporting] = useState(false);
   const [exportError, setExportError] = useState<string | null>(null);
@@ -137,6 +151,8 @@ export default function AdminDashboard() {
   const [replySending, setReplySending] = useState(false);
   const [replyError, setReplyError] = useState<string | null>(null);
   const [takeoverSaving, setTakeoverSaving] = useState(false);
+  const [highIntentSaving, setHighIntentSaving] = useState(false);
+  const [deletingChat, setDeletingChat] = useState(false);
 
   const loadSites = useCallback(async () => {
     try {
@@ -309,6 +325,118 @@ export default function AdminDashboard() {
     [authFetch, patchChat],
   );
 
+  const setHighIntent = useCallback(
+    async (phone: string, highIntent: boolean) => {
+      setHighIntentSaving(true);
+      setReplyError(null);
+      try {
+        const response = await authFetch("/api/admin/whatsapp/high-intent", {
+          method: "POST",
+          body: JSON.stringify({ phone, highIntent }),
+        });
+        const data = (await response.json()) as {
+          success?: boolean;
+          error?: string;
+          highIntent?: boolean;
+          highIntentAt?: string | null;
+        };
+        if (!response.ok || !data.success) {
+          setReplyError(data.error || "Could not update high intent label.");
+          return;
+        }
+        patchChat(phone, {
+          highIntent: Boolean(data.highIntent),
+          highIntentAt: data.highIntentAt || undefined,
+        });
+      } catch {
+        setReplyError("Could not update high intent label. Please try again.");
+      } finally {
+        setHighIntentSaving(false);
+      }
+    },
+    [authFetch, patchChat],
+  );
+
+  const deleteChat = useCallback(
+    async (phone: string) => {
+      const label = phone.replace(/\D/g, "") ? `+${phone.replace(/\D/g, "")}` : phone;
+      if (
+        !window.confirm(
+          `Delete chat with ${label}? This removes the conversation and sales-bot history for this number.`,
+        )
+      ) {
+        return;
+      }
+      setDeletingChat(true);
+      setReplyError(null);
+      try {
+        const response = await authFetch("/api/admin/whatsapp/delete", {
+          method: "POST",
+          body: JSON.stringify({ phone }),
+        });
+        const data = (await response.json()) as {
+          success?: boolean;
+          error?: string;
+        };
+        if (!response.ok || !data.success) {
+          setReplyError(data.error || "Could not delete chat.");
+          return;
+        }
+        setChats((prev) => prev.filter((chat) => chat.phone !== phone));
+        setSelectedPhone((current) => (current === phone ? null : current));
+        setReplyDraft("");
+      } catch {
+        setReplyError("Could not delete chat. Please try again.");
+      } finally {
+        setDeletingChat(false);
+      }
+    },
+    [authFetch],
+  );
+
+  const markChatRead = useCallback(async (phone: string) => {
+    let shouldPersist = false;
+    const readAt = new Date().toISOString();
+    setChats((prev) => {
+      const chat = prev.find((item) => item.phone === phone);
+      if (!chat || !chatHasUnread(chat)) return prev;
+      shouldPersist = true;
+      return prev.map((item) =>
+        item.phone === phone ? { ...item, adminReadAt: readAt } : item,
+      );
+    });
+    if (!shouldPersist) return;
+    try {
+      const response = await authFetch("/api/admin/whatsapp/read", {
+        method: "POST",
+        body: JSON.stringify({ phone }),
+      });
+      const data = (await response.json()) as {
+        success?: boolean;
+        adminReadAt?: string | null;
+      };
+      if (response.ok && data.success && data.adminReadAt) {
+        setChats((prev) =>
+          prev.map((item) =>
+            item.phone === phone
+              ? { ...item, adminReadAt: data.adminReadAt! }
+              : item,
+          ),
+        );
+      }
+    } catch {
+      // Keep optimistic read state; next refresh will reconcile.
+    }
+  }, [authFetch]);
+
+  const selectPhone = useCallback(
+    (phone: string | null) => {
+      setSelectedPhone(phone);
+      if (phone) void markChatRead(phone);
+    },
+    [markChatRead],
+  );
+
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
     if (!q) return sites;
@@ -347,10 +475,16 @@ export default function AdminDashboard() {
     [payments],
   );
 
+  const highIntentCount = useMemo(
+    () => chats.filter((chat) => chat.highIntent).length,
+    [chats],
+  );
+
   const filteredChats = useMemo(() => {
     const q = waQuery.trim().toLowerCase();
-    if (!q) return chats;
     return chats.filter((chat) => {
+      if (highIntentOnly && !chat.highIntent) return false;
+      if (!q) return true;
       const haystack = [
         chat.phone,
         chat.contactName,
@@ -361,7 +495,7 @@ export default function AdminDashboard() {
         .toLowerCase();
       return haystack.includes(q);
     });
-  }, [chats, waQuery]);
+  }, [chats, waQuery, highIntentOnly]);
 
   const selectedChat = selectedPhone
     ? chats.find((chat) => chat.phone === selectedPhone) ?? null
@@ -372,6 +506,12 @@ export default function AdminDashboard() {
     setReplyDraft("");
     setReplyError(null);
   }, [selectedChat?.phone]);
+
+  useEffect(() => {
+    if (selectedChat?.phone) {
+      void markChatRead(selectedChat.phone);
+    }
+  }, [selectedChat?.phone, markChatRead]);
 
   return (
     <div className="mx-auto w-full max-w-6xl flex-1 px-4 py-8 sm:px-6 lg:px-8">
@@ -425,6 +565,10 @@ export default function AdminDashboard() {
           exportError={exportError}
           exporting={exporting}
           onExport={exportAllChats}
+          onRefreshChats={() => {
+            setWaLoading(true);
+            void loadWhatsApp();
+          }}
           chats={filteredChats}
           allChatCount={chats.length}
           payments={completedPayments}
@@ -432,9 +576,12 @@ export default function AdminDashboard() {
           paidPhones={paidPhones}
           query={waQuery}
           onQueryChange={setWaQuery}
+          highIntentOnly={highIntentOnly}
+          onHighIntentOnlyChange={setHighIntentOnly}
+          highIntentCount={highIntentCount}
           selectedChat={selectedChat}
           selectedPhone={selectedChat?.phone ?? null}
-          onSelectPhone={setSelectedPhone}
+          onSelectPhone={selectPhone}
           replyDraft={replyDraft}
           onReplyDraftChange={setReplyDraft}
           replySending={replySending}
@@ -442,6 +589,10 @@ export default function AdminDashboard() {
           onSendReply={(phone) => void sendReply(phone, replyDraft)}
           takeoverSaving={takeoverSaving}
           onSetTakeover={(phone, value) => void setHumanTakeover(phone, value)}
+          highIntentSaving={highIntentSaving}
+          onSetHighIntent={(phone, value) => void setHighIntent(phone, value)}
+          deletingChat={deletingChat}
+          onDeleteChat={(phone) => void deleteChat(phone)}
         />
       ) : (
         <SitesAdminPanel
@@ -490,6 +641,7 @@ function WhatsAppAdminPanel({
   exportError,
   exporting,
   onExport,
+  onRefreshChats,
   chats,
   allChatCount,
   payments,
@@ -497,6 +649,9 @@ function WhatsAppAdminPanel({
   paidPhones,
   query,
   onQueryChange,
+  highIntentOnly,
+  onHighIntentOnlyChange,
+  highIntentCount,
   selectedChat,
   selectedPhone,
   onSelectPhone,
@@ -507,12 +662,17 @@ function WhatsAppAdminPanel({
   onSendReply,
   takeoverSaving,
   onSetTakeover,
+  highIntentSaving,
+  onSetHighIntent,
+  deletingChat,
+  onDeleteChat,
 }: {
   loading: boolean;
   error: string | null;
   exportError: string | null;
   exporting: boolean;
   onExport: () => void;
+  onRefreshChats: () => void;
   chats: WhatsAppChat[];
   allChatCount: number;
   payments: WhatsAppPayment[];
@@ -520,6 +680,9 @@ function WhatsAppAdminPanel({
   paidPhones: Set<string>;
   query: string;
   onQueryChange: (value: string) => void;
+  highIntentOnly: boolean;
+  onHighIntentOnlyChange: (value: boolean) => void;
+  highIntentCount: number;
   selectedChat: WhatsAppChat | null;
   selectedPhone: string | null;
   onSelectPhone: (phone: string | null) => void;
@@ -530,6 +693,10 @@ function WhatsAppAdminPanel({
   onSendReply: (phone: string) => void;
   takeoverSaving: boolean;
   onSetTakeover: (phone: string, humanTakeover: boolean) => void;
+  highIntentSaving: boolean;
+  onSetHighIntent: (phone: string, highIntent: boolean) => void;
+  deletingChat: boolean;
+  onDeleteChat: (phone: string) => void;
 }) {
   return (
     <div className="mt-8 space-y-10">
@@ -641,6 +808,25 @@ function WhatsAppAdminPanel({
           <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:items-center">
             <button
               type="button"
+              onClick={onRefreshChats}
+              disabled={loading}
+              className="inline-flex items-center justify-center rounded-full border border-stone-300 bg-white px-4 py-2.5 text-sm font-semibold text-stone-700 transition hover:bg-stone-50 disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              {loading ? "Refreshing…" : "Refresh chats"}
+            </button>
+            <button
+              type="button"
+              onClick={() => onHighIntentOnlyChange(!highIntentOnly)}
+              className={`inline-flex items-center justify-center rounded-full px-4 py-2.5 text-sm font-semibold transition ${
+                highIntentOnly
+                  ? "bg-rose-800 text-white"
+                  : "border border-stone-300 bg-white text-stone-700 hover:bg-stone-50"
+              }`}
+            >
+              High intent{highIntentCount > 0 ? ` (${highIntentCount})` : ""}
+            </button>
+            <button
+              type="button"
               onClick={onExport}
               disabled={exporting}
               className="inline-flex items-center justify-center rounded-full border border-stone-300 bg-white px-4 py-2.5 text-sm font-semibold text-stone-700 transition hover:bg-stone-50 disabled:cursor-not-allowed disabled:opacity-60"
@@ -667,7 +853,9 @@ function WhatsAppAdminPanel({
             <p className="text-sm text-stone-600">
               {allChatCount === 0
                 ? "No WhatsApp chats in the past 7 days."
-                : "No chats match that filter."}
+                : highIntentOnly
+                  ? "No high-intent chats match that filter."
+                  : "No chats match that filter."}
             </p>
           </div>
         ) : (
@@ -687,15 +875,27 @@ function WhatsAppAdminPanel({
                         }`}
                       >
                         <div className="flex items-start justify-between gap-2">
-                          <div>
-                            <p className="font-medium text-stone-900">
-                              {formatPhone(chat.phone)}
+                          <div className="min-w-0">
+                            <p className="flex items-center gap-2 font-medium text-stone-900">
+                              {chatHasUnread(chat) ? (
+                                <span
+                                  className="inline-block h-2 w-2 shrink-0 rounded-full bg-red-500"
+                                  aria-label="Unread messages"
+                                  title="Unread messages"
+                                />
+                              ) : null}
+                              <span className="truncate">{formatPhone(chat.phone)}</span>
                             </p>
                             <p className="mt-0.5 text-xs text-stone-500">
                               {chat.contactName || "Unknown contact"}
                             </p>
                           </div>
                           <div className="flex shrink-0 flex-col items-end gap-1">
+                            {chat.highIntent ? (
+                              <span className="rounded-full bg-rose-100 px-2 py-0.5 text-[11px] font-medium text-rose-900">
+                                High intent
+                              </span>
+                            ) : null}
                             {paid ? (
                               <span className="rounded-full bg-teal-100 px-2 py-0.5 text-[11px] font-medium text-teal-900">
                                 Paid
@@ -738,6 +938,27 @@ function WhatsAppAdminPanel({
                       <div className="flex flex-wrap items-center gap-2">
                         <button
                           type="button"
+                          disabled={highIntentSaving}
+                          onClick={() =>
+                            onSetHighIntent(
+                              selectedChat.phone,
+                              !selectedChat.highIntent,
+                            )
+                          }
+                          className={`inline-flex items-center justify-center rounded-full px-3 py-1.5 text-xs font-semibold transition disabled:cursor-not-allowed disabled:opacity-60 ${
+                            selectedChat.highIntent
+                              ? "border border-rose-300 bg-rose-50 text-rose-950 hover:bg-rose-100"
+                              : "border border-stone-300 bg-white text-stone-700 hover:bg-stone-50"
+                          }`}
+                        >
+                          {highIntentSaving
+                            ? "Saving…"
+                            : selectedChat.highIntent
+                              ? "High intent ✓"
+                              : "Mark high intent"}
+                        </button>
+                        <button
+                          type="button"
                           disabled={takeoverSaving}
                           onClick={() =>
                             onSetTakeover(
@@ -761,6 +982,14 @@ function WhatsAppAdminPanel({
                           phone={selectedChat.phone}
                           className="inline-flex shrink-0 items-center justify-center rounded-full border border-teal-700/30 bg-teal-50 px-3 py-1.5 text-xs font-semibold text-teal-900 transition hover:bg-teal-100"
                         />
+                        <button
+                          type="button"
+                          disabled={deletingChat}
+                          onClick={() => onDeleteChat(selectedChat.phone)}
+                          className="inline-flex items-center justify-center rounded-full border border-red-200 bg-white px-3 py-1.5 text-xs font-semibold text-red-700 transition hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-60"
+                        >
+                          {deletingChat ? "Deleting…" : "Delete chat"}
+                        </button>
                       </div>
                     </div>
                     {selectedChat.humanTakeover ? (
@@ -780,32 +1009,34 @@ function WhatsAppAdminPanel({
                   <div className="flex-1 space-y-3 overflow-y-auto px-4 py-4">
                     {selectedChat.messages.map((message, index) => {
                       const isHuman = message.source === "human";
-                      const label =
-                        message.role === "user"
-                          ? "Customer"
-                          : isHuman
-                            ? "You"
-                            : "Lula";
+                      const isCustomer = message.role === "user";
+                      // Admin ("You") and Lula stay on the left; customer on the right.
+                      const alignLeft = !isCustomer;
+                      const label = isCustomer
+                        ? "Customer"
+                        : isHuman
+                          ? "You"
+                          : "Lula";
                       return (
                         <div
                           key={`${message.at}-${index}`}
                           className={`flex ${
-                            message.role === "user" ? "justify-end" : "justify-start"
+                            alignLeft ? "justify-start" : "justify-end"
                           }`}
                         >
                           <div
                             className={`max-w-[85%] rounded-2xl px-3.5 py-2.5 text-sm leading-relaxed ${
-                              message.role === "user"
-                                ? "rounded-br-md bg-teal-800 text-white"
+                              isCustomer
+                                ? "rounded-br-md bg-stone-100 text-stone-800"
                                 : isHuman
-                                  ? "rounded-bl-md border border-teal-200 bg-teal-50 text-stone-800"
-                                  : "rounded-bl-md bg-stone-100 text-stone-800"
+                                  ? "rounded-bl-md bg-teal-800 text-white"
+                                  : "rounded-bl-md border border-stone-200 bg-white text-stone-800"
                             }`}
                           >
                             <p className="whitespace-pre-wrap">{message.content}</p>
                             <p
                               className={`mt-1 text-[10px] ${
-                                message.role === "user"
+                                isHuman
                                   ? "text-teal-100/80"
                                   : "text-stone-400"
                               }`}

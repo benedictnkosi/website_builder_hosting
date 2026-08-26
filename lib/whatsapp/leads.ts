@@ -144,3 +144,11 @@ export async function saveWhatsAppLead(lead: WhatsAppLead): Promise<void> {
 
   await getAdminFirestore().collection(COLLECTION).doc(lead.waId).set(trimmed, { merge: true });
 }
+
+export async function deleteWhatsAppLead(waId: string): Promise<boolean> {
+  if (!isFirebaseAdminConfigured()) return false;
+  const id = waId.replace(/\D/g, "");
+  if (!id) return false;
+  await getAdminFirestore().collection(COLLECTION).doc(id).delete();
+  return true;
+}

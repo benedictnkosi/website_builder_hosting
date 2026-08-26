@@ -19,6 +19,11 @@ export type WhatsAppChatRecord = {
   /** When true, the sales bot must not auto-reply. */
   humanTakeover?: boolean;
   humanTakeoverAt?: string;
+  /** Admin-marked high buying intent. */
+  highIntent?: boolean;
+  highIntentAt?: string;
+  /** When an admin last opened this chat in the dashboard. */
+  adminReadAt?: string;
 };
 
 function nowIso(): string {
@@ -148,7 +153,25 @@ function asChatRecord(
     humanTakeover: data.humanTakeover === true,
     humanTakeoverAt:
       typeof data.humanTakeoverAt === "string" ? data.humanTakeoverAt : undefined,
+    highIntent: data.highIntent === true,
+    highIntentAt:
+      typeof data.highIntentAt === "string" ? data.highIntentAt : undefined,
+    adminReadAt:
+      typeof data.adminReadAt === "string" ? data.adminReadAt : undefined,
   };
+}
+
+export function whatsappChatHasUnread(chat: {
+  messages: WhatsAppChatMessage[];
+  adminReadAt?: string;
+}): boolean {
+  const readMs = chat.adminReadAt ? Date.parse(chat.adminReadAt) : NaN;
+  const readThreshold = Number.isFinite(readMs) ? readMs : 0;
+  return chat.messages.some((message) => {
+    if (message.role !== "user") return false;
+    const at = Date.parse(message.at);
+    return Number.isFinite(at) && at > readThreshold;
+  });
 }
 
 export async function getWhatsAppChat(
@@ -203,6 +226,78 @@ export async function setWhatsAppHumanTakeover(input: {
   );
 
   return getWhatsAppChat(phone);
+}
+
+export async function setWhatsAppHighIntent(input: {
+  phone: string;
+  highIntent: boolean;
+}): Promise<WhatsAppChatRecord | null> {
+  if (!isFirebaseAdminConfigured()) return null;
+
+  const phone = normalizeWhatsAppPhone(input.phone);
+  if (!phone) return null;
+
+  const now = nowIso();
+  const ref = getAdminFirestore().collection(COLLECTION).doc(phone);
+  const snap = await ref.get();
+  const existing = snap.exists
+    ? (snap.data() as Record<string, unknown>)
+    : undefined;
+
+  await ref.set(
+    {
+      phone,
+      highIntent: input.highIntent,
+      ...(input.highIntent
+        ? { highIntentAt: now }
+        : { highIntentAt: null }),
+      updatedAt: now,
+      date: typeof existing?.date === "string" ? existing.date : now,
+      messages: Array.isArray(existing?.messages) ? existing.messages : [],
+      createdAt:
+        typeof existing?.createdAt === "string" ? existing.createdAt : now,
+      ...(typeof existing?.contactName === "string"
+        ? { contactName: existing.contactName }
+        : {}),
+    },
+    { merge: true },
+  );
+
+  return getWhatsAppChat(phone);
+}
+
+export async function markWhatsAppChatRead(
+  phone: string,
+): Promise<WhatsAppChatRecord | null> {
+  if (!isFirebaseAdminConfigured()) return null;
+
+  const id = normalizeWhatsAppPhone(phone);
+  if (!id) return null;
+
+  const now = nowIso();
+  const ref = getAdminFirestore().collection(COLLECTION).doc(id);
+  const snap = await ref.get();
+  if (!snap.exists) return null;
+
+  await ref.set(
+    {
+      adminReadAt: now,
+      updatedAt: now,
+    },
+    { merge: true },
+  );
+
+  return getWhatsAppChat(id);
+}
+
+export async function deleteWhatsAppChat(phone: string): Promise<boolean> {
+  if (!isFirebaseAdminConfigured()) return false;
+
+  const id = normalizeWhatsAppPhone(phone);
+  if (!id) return false;
+
+  await getAdminFirestore().collection(COLLECTION).doc(id).delete();
+  return true;
 }
 
 /** List every WhatsApp chat with full stored message history. */

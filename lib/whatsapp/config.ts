@@ -61,10 +61,21 @@ export function getHumanHandoverWhatsApp(): string {
   return raw.replace(/\D/g, "");
 }
 
-/** Click-to-chat link for customers who want a real person. */
+/** Click-to-chat link for the team number (internal use / admin only — never send to customers). */
 export function getHumanHandoverChatLink(): string {
   const phone = getHumanHandoverWhatsApp();
   return `https://wa.me/${phone}`;
+}
+
+/** What the customer sees when a human is joining this same chat. */
+export function getHumanJoiningCustomerReply(): string {
+  return "Benedict will join the chat shortly.";
+}
+
+/** Alert sent to the team WhatsApp number asking them to take over a customer chat. */
+export function formatHumanJoinRequest(customerPhone: string): string {
+  const digits = customerPhone.replace(/\D/g, "");
+  return `Please join the chat with ${digits || customerPhone}.`;
 }
 
 /** Exact FNB banking details for EFT deposits — never invent alternatives. */
@@ -73,17 +84,25 @@ export const EFT_BANKING_DETAILS = {
   accountName: "Sixty Five Group",
   accountNumber: "62788863241",
   accountType: "Gold Business Account",
+  /** Instruct customers to use their WhatsApp/phone number as the payment reference. */
+  paymentReference: "Your phone number",
 } as const;
 
-export function formatEftBankingDetails(depositZar: number): string {
+export function formatEftBankingDetails(
+  depositZar: number,
+  customerPhone?: string,
+): string {
   const d = EFT_BANKING_DETAILS;
+  const digits = customerPhone?.replace(/\D/g, "") || "";
+  const reference = digits || d.paymentReference;
   return [
     `Bank: ${d.bank}`,
     `Account Name: ${d.accountName}`,
     `Account Number: ${d.accountNumber}`,
     `Account Type: ${d.accountType}`,
+    `Payment Reference: ${reference}`,
     "",
-    `Please pay the R${depositZar} deposit and let me know once payment has been made.`,
+    `Please pay the R${depositZar} deposit using your phone number as the reference and let me know once payment has been made.`,
   ].join("\n");
 }
 
