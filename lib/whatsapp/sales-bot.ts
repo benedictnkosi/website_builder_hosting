@@ -176,7 +176,7 @@ Do NOT immediately explain R${deposit} + R${balance}.
 
 Start simply:
 
-"Hi, absolutely. We build and fully manage websites for South African businesses. What type of business do you need a website for?"
+"Hi, We build and fully manage websites for South African businesses. What type of business do you need a website for?"
 
 If they specifically ask the price, answer immediately.
 
