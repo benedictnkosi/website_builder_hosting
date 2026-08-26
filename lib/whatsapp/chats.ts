@@ -138,6 +138,23 @@ function asChatRecord(
   };
 }
 
+/** List every WhatsApp chat with full stored message history. */
+export async function listAllWhatsAppChats(): Promise<WhatsAppChatRecord[]> {
+  if (!isFirebaseAdminConfigured()) return [];
+
+  const snap = await getAdminFirestore().collection(COLLECTION).get();
+  const chats: WhatsAppChatRecord[] = [];
+
+  for (const doc of snap.docs) {
+    const chat = asChatRecord(doc.id, doc.data() as Record<string, unknown>);
+    if (!chat) continue;
+    chats.push(chat);
+  }
+
+  chats.sort((a, b) => Date.parse(b.date) - Date.parse(a.date));
+  return chats;
+}
+
 /** List WhatsApp chats with activity in the last `days` days (messages trimmed to that window). */
 export async function listRecentWhatsAppChats(
   days = 7,

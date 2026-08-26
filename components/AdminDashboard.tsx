@@ -98,6 +98,8 @@ export default function AdminDashboard() {
   const [waError, setWaError] = useState<string | null>(null);
   const [waQuery, setWaQuery] = useState("");
   const [selectedPhone, setSelectedPhone] = useState<string | null>(null);
+  const [exporting, setExporting] = useState(false);
+  const [exportError, setExportError] = useState<string | null>(null);
 
   const loadSites = useCallback(async () => {
     try {
@@ -148,6 +150,39 @@ export default function AdminDashboard() {
     void loadSites();
     void loadWhatsApp();
   }, [loadSites, loadWhatsApp]);
+
+  const exportAllChats = useCallback(async () => {
+    setExporting(true);
+    setExportError(null);
+    try {
+      const response = await authFetch("/api/admin/whatsapp/export");
+      const contentType = response.headers.get("Content-Type") || "";
+      if (!response.ok || !contentType.includes("application/json")) {
+        const data = (await response.json().catch(() => null)) as {
+          error?: string;
+        } | null;
+        setExportError(data?.error || "Could not export chats.");
+        return;
+      }
+
+      const blob = await response.blob();
+      const disposition = response.headers.get("Content-Disposition") || "";
+      const match = /filename="([^"]+)"/.exec(disposition);
+      const filename = match?.[1] || `whatsapp-chats-${new Date().toISOString().slice(0, 10)}.json`;
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = filename;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(url);
+    } catch {
+      setExportError("Could not export chats. Please try again.");
+    } finally {
+      setExporting(false);
+    }
+  }, [authFetch]);
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -256,6 +291,9 @@ export default function AdminDashboard() {
         <WhatsAppAdminPanel
           loading={waLoading}
           error={waError}
+          exportError={exportError}
+          exporting={exporting}
+          onExport={exportAllChats}
           chats={filteredChats}
           allChatCount={chats.length}
           payments={completedPayments}
@@ -311,6 +349,9 @@ function TabButton({
 function WhatsAppAdminPanel({
   loading,
   error,
+  exportError,
+  exporting,
+  onExport,
   chats,
   allChatCount,
   payments,
@@ -324,6 +365,9 @@ function WhatsAppAdminPanel({
 }: {
   loading: boolean;
   error: string | null;
+  exportError: string | null;
+  exporting: boolean;
+  onExport: () => void;
   chats: WhatsAppChat[];
   allChatCount: number;
   payments: WhatsAppPayment[];
@@ -340,6 +384,11 @@ function WhatsAppAdminPanel({
       {error ? (
         <p className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">
           {error}
+        </p>
+      ) : null}
+      {exportError ? (
+        <p className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">
+          {exportError}
         </p>
       ) : null}
 
@@ -437,13 +486,23 @@ function WhatsAppAdminPanel({
                 : `${chats.length} conversation${chats.length === 1 ? "" : "s"} (past 7 days)`}
             </h2>
           </div>
-          <input
-            type="search"
-            value={query}
-            onChange={(event) => onQueryChange(event.target.value)}
-            placeholder="Filter by phone or message…"
-            className="w-full rounded-full border border-stone-300 bg-white px-4 py-2.5 text-sm text-stone-900 outline-none ring-teal-700/30 placeholder:text-stone-400 focus:ring-2 sm:max-w-xs"
-          />
+          <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:items-center">
+            <button
+              type="button"
+              onClick={onExport}
+              disabled={exporting}
+              className="inline-flex items-center justify-center rounded-full border border-stone-300 bg-white px-4 py-2.5 text-sm font-semibold text-stone-700 transition hover:bg-stone-50 disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              {exporting ? "Exporting…" : "Export all JSON"}
+            </button>
+            <input
+              type="search"
+              value={query}
+              onChange={(event) => onQueryChange(event.target.value)}
+              placeholder="Filter by phone or message…"
+              className="w-full rounded-full border border-stone-300 bg-white px-4 py-2.5 text-sm text-stone-900 outline-none ring-teal-700/30 placeholder:text-stone-400 focus:ring-2 sm:max-w-xs"
+            />
+          </div>
         </div>
 
         {loading ? (
