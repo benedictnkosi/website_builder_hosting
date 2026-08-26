@@ -71,6 +71,30 @@ async function notifyHumanHandover(lead: WhatsAppLead): Promise<void> {
   await sendWhatsAppLeadEmail(lead);
 }
 
+/** Alert Benedict when a customer messages a chat that is on human takeover (AI paused). */
+async function notifyHumanOfManagedMessage(input: {
+  phone: string;
+  text: string;
+  contactName?: string;
+}): Promise<void> {
+  const humanTo = getHumanHandoverWhatsApp();
+  const customer = input.phone.replace(/\D/g, "");
+  if (!humanTo || !customer || customer === humanTo) return;
+
+  const preview =
+    input.text.length > 500 ? `${input.text.slice(0, 497)}...` : input.text;
+  const name = input.contactName?.trim();
+  const body = [
+    `New message in human-managed chat +${customer}${name ? ` (${name})` : ""}.`,
+    "",
+    preview,
+    "",
+    "Reply from the admin inbox / business WhatsApp — AI is paused on this chat.",
+  ].join("\n");
+
+  await sendWhatsAppText({ to: humanTo, body });
+}
+
 async function processInboundMessage(message: {
   messageId: string;
   from: string;
@@ -132,6 +156,15 @@ async function processInboundMessage(message: {
       at,
     });
     await saveWhatsAppLead(lead);
+    try {
+      await notifyHumanOfManagedMessage({
+        phone: message.from,
+        text: message.text,
+        contactName: lead.contactName || lead.fields.name,
+      });
+    } catch (error) {
+      console.error("WhatsApp human-managed message notify failed:", error);
+    }
     return;
   }
 
