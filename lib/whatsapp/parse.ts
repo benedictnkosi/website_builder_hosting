@@ -55,6 +55,8 @@ export function extractInboundMessages(
           timestamp: message.timestamp || String(Math.floor(Date.now() / 1000)),
           text: text ?? "",
           contactName,
+          messageType: message.type,
+          phoneNumberId: value.metadata?.phone_number_id,
         });
       }
     }

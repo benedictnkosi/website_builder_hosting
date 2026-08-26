@@ -4,6 +4,8 @@ export type WhatsAppInboundText = {
   timestamp: string;
   text: string;
   contactName?: string;
+  messageType?: string;
+  phoneNumberId?: string;
 };
 
 export type WhatsAppChatRole = "user" | "assistant";

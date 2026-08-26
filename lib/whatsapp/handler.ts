@@ -101,6 +101,8 @@ async function processInboundMessage(message: {
   timestamp: string;
   text: string;
   contactName?: string;
+  messageType?: string;
+  phoneNumberId?: string;
 }): Promise<void> {
   const lead = await getOrCreateWhatsAppLead({
     waId: message.from,
@@ -112,7 +114,11 @@ async function processInboundMessage(message: {
   }
 
   lead.processedMessageIds = [...lead.processedMessageIds, message.messageId];
-  await markWhatsAppMessageRead(message.messageId);
+  await markWhatsAppMessageRead({
+    messageId: message.messageId,
+    messageType: message.messageType,
+    phoneNumberId: message.phoneNumberId,
+  });
 
   if (!message.text.trim()) {
     const humanTakeover = await isWhatsAppHumanTakeover(message.from);

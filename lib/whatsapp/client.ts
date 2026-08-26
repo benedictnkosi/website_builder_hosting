@@ -69,7 +69,11 @@ async function graphPost(
 
   const payload = (await response.json().catch(() => null)) as GraphErrorBody | null;
   if (!response.ok) {
-    console.error("WhatsApp API error:", response.status, payload);
+    console.error(
+      "WhatsApp API error:",
+      response.status,
+      JSON.stringify(payload),
+    );
     throw new WhatsAppApiError(
       payload?.error?.message || `WhatsApp API failed with status ${response.status}.`,
       response.status === 401 || response.status === 403 ? 500 : 502,
@@ -110,10 +114,26 @@ export async function sendWhatsAppText(input: {
   });
 }
 
-export async function markWhatsAppMessageRead(messageId: string): Promise<void> {
-  const id = messageId.trim();
-  if (!id) return;
-  const { phoneNumberId } = assertConfigured();
+const SKIP_MARK_READ_TYPES = new Set([
+  "system",
+  "request_welcome",
+  "ephemeral",
+  "unknown",
+  "reaction",
+]);
+
+export async function markWhatsAppMessageRead(input: {
+  messageId: string;
+  messageType?: string;
+  phoneNumberId?: string;
+}): Promise<void> {
+  const id = input.messageId.trim();
+  // Cloud API only accepts inbound WhatsApp message IDs (wamid.…).
+  if (!id.toLowerCase().startsWith("wamid.")) return;
+  if (input.messageType && SKIP_MARK_READ_TYPES.has(input.messageType)) return;
+
+  const { phoneNumberId: configuredId } = assertConfigured();
+  const phoneNumberId = input.phoneNumberId?.trim() || configuredId;
 
   try {
     await graphPost(`/${encodeURIComponent(phoneNumberId)}/messages`, {
@@ -123,6 +143,12 @@ export async function markWhatsAppMessageRead(messageId: string): Promise<void> 
     });
   } catch (error) {
     // Non-fatal — still reply even if read receipt fails.
-    console.warn("WhatsApp mark-read failed:", error);
+    const details =
+      error instanceof WhatsAppApiError
+        ? error.message
+        : error instanceof Error
+          ? error.message
+          : String(error);
+    console.warn("WhatsApp mark-read skipped:", details);
   }
 }
