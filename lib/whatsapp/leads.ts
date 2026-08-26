@@ -51,7 +51,8 @@ function coerceMessages(raw: unknown): WhatsAppChatMessage[] {
     const content = typeof row.content === "string" ? row.content.trim() : "";
     const at = typeof row.at === "string" ? row.at : nowIso();
     if (!role || !content) continue;
-    out.push({ role, content, at });
+    const source = row.source === "human" || row.source === "ai" ? row.source : undefined;
+    out.push({ role, content, at, ...(source ? { source } : {}) });
   }
   return out.slice(-MAX_STORED_MESSAGES);
 }

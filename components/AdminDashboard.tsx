@@ -35,6 +35,7 @@ type WhatsAppChatMessage = {
   role: "user" | "assistant";
   content: string;
   at: string;
+  source?: "ai" | "human";
 };
 
 type WhatsAppChat = {
@@ -44,6 +45,8 @@ type WhatsAppChat = {
   createdAt: string;
   updatedAt: string;
   contactName?: string;
+  humanTakeover?: boolean;
+  humanTakeoverAt?: string;
 };
 
 type WhatsAppPayment = {
@@ -82,6 +85,36 @@ function formatPhone(phone: string): string {
   return digits ? `+${digits}` : "—";
 }
 
+function whatsappChatHref(phone: string): string | null {
+  const digits = phone.replace(/\D/g, "");
+  return digits ? `https://wa.me/${digits}` : null;
+}
+
+function WhatsAppOpenLink({
+  phone,
+  className,
+}: {
+  phone: string;
+  className?: string;
+}) {
+  const href = whatsappChatHref(phone);
+  if (!href) return null;
+  return (
+    <a
+      href={href}
+      target="_blank"
+      rel="noopener noreferrer"
+      onClick={(event) => event.stopPropagation()}
+      className={
+        className ||
+        "inline-flex shrink-0 items-center justify-center rounded-full border border-teal-700/30 bg-teal-50 px-2.5 py-1 text-[11px] font-semibold text-teal-900 transition hover:bg-teal-100"
+      }
+    >
+      WhatsApp
+    </a>
+  );
+}
+
 export default function AdminDashboard() {
   const { authFetch } = useAuth();
   const [tab, setTab] = useState<AdminTab>("whatsapp");
@@ -100,6 +133,10 @@ export default function AdminDashboard() {
   const [selectedPhone, setSelectedPhone] = useState<string | null>(null);
   const [exporting, setExporting] = useState(false);
   const [exportError, setExportError] = useState<string | null>(null);
+  const [replyDraft, setReplyDraft] = useState("");
+  const [replySending, setReplySending] = useState(false);
+  const [replyError, setReplyError] = useState<string | null>(null);
+  const [takeoverSaving, setTakeoverSaving] = useState(false);
 
   const loadSites = useCallback(async () => {
     try {
@@ -184,6 +221,94 @@ export default function AdminDashboard() {
     }
   }, [authFetch]);
 
+  const patchChat = useCallback(
+    (phone: string, patch: Partial<WhatsAppChat>) => {
+      setChats((prev) =>
+        prev.map((chat) =>
+          chat.phone === phone ? { ...chat, ...patch } : chat,
+        ),
+      );
+    },
+    [],
+  );
+
+  const sendReply = useCallback(
+    async (phone: string, message: string) => {
+      const text = message.trim();
+      if (!text) return;
+      setReplySending(true);
+      setReplyError(null);
+      try {
+        const response = await authFetch("/api/admin/whatsapp/reply", {
+          method: "POST",
+          body: JSON.stringify({ phone, message: text, pauseAi: true }),
+        });
+        const data = (await response.json()) as {
+          success?: boolean;
+          error?: string;
+          message?: WhatsAppChatMessage;
+          humanTakeover?: boolean;
+          at?: string;
+        };
+        if (!response.ok || !data.success || !data.message) {
+          setReplyError(data.error || "Could not send reply.");
+          return;
+        }
+        setChats((prev) =>
+          prev.map((chat) => {
+            if (chat.phone !== phone) return chat;
+            return {
+              ...chat,
+              messages: [...chat.messages, data.message!],
+              date: data.at || chat.date,
+              updatedAt: data.at || chat.updatedAt,
+              humanTakeover: data.humanTakeover ?? true,
+              humanTakeoverAt: data.at || chat.humanTakeoverAt,
+            };
+          }),
+        );
+        setReplyDraft("");
+      } catch {
+        setReplyError("Could not send reply. Please try again.");
+      } finally {
+        setReplySending(false);
+      }
+    },
+    [authFetch],
+  );
+
+  const setHumanTakeover = useCallback(
+    async (phone: string, humanTakeover: boolean) => {
+      setTakeoverSaving(true);
+      setReplyError(null);
+      try {
+        const response = await authFetch("/api/admin/whatsapp/takeover", {
+          method: "POST",
+          body: JSON.stringify({ phone, humanTakeover }),
+        });
+        const data = (await response.json()) as {
+          success?: boolean;
+          error?: string;
+          humanTakeover?: boolean;
+          humanTakeoverAt?: string | null;
+        };
+        if (!response.ok || !data.success) {
+          setReplyError(data.error || "Could not update AI pause.");
+          return;
+        }
+        patchChat(phone, {
+          humanTakeover: Boolean(data.humanTakeover),
+          humanTakeoverAt: data.humanTakeoverAt || undefined,
+        });
+      } catch {
+        setReplyError("Could not update AI pause. Please try again.");
+      } finally {
+        setTakeoverSaving(false);
+      }
+    },
+    [authFetch, patchChat],
+  );
+
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
     if (!q) return sites;
@@ -241,6 +366,12 @@ export default function AdminDashboard() {
   const selectedChat = selectedPhone
     ? chats.find((chat) => chat.phone === selectedPhone) ?? null
     : filteredChats[0] ?? null;
+
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- reset composer when switching chats
+    setReplyDraft("");
+    setReplyError(null);
+  }, [selectedChat?.phone]);
 
   return (
     <div className="mx-auto w-full max-w-6xl flex-1 px-4 py-8 sm:px-6 lg:px-8">
@@ -304,6 +435,13 @@ export default function AdminDashboard() {
           selectedChat={selectedChat}
           selectedPhone={selectedChat?.phone ?? null}
           onSelectPhone={setSelectedPhone}
+          replyDraft={replyDraft}
+          onReplyDraftChange={setReplyDraft}
+          replySending={replySending}
+          replyError={replyError}
+          onSendReply={(phone) => void sendReply(phone, replyDraft)}
+          takeoverSaving={takeoverSaving}
+          onSetTakeover={(phone, value) => void setHumanTakeover(phone, value)}
         />
       ) : (
         <SitesAdminPanel
@@ -362,6 +500,13 @@ function WhatsAppAdminPanel({
   selectedChat,
   selectedPhone,
   onSelectPhone,
+  replyDraft,
+  onReplyDraftChange,
+  replySending,
+  replyError,
+  onSendReply,
+  takeoverSaving,
+  onSetTakeover,
 }: {
   loading: boolean;
   error: string | null;
@@ -378,6 +523,13 @@ function WhatsAppAdminPanel({
   selectedChat: WhatsAppChat | null;
   selectedPhone: string | null;
   onSelectPhone: (phone: string | null) => void;
+  replyDraft: string;
+  onReplyDraftChange: (value: string) => void;
+  replySending: boolean;
+  replyError: string | null;
+  onSendReply: (phone: string) => void;
+  takeoverSaving: boolean;
+  onSetTakeover: (phone: string, humanTakeover: boolean) => void;
 }) {
   return (
     <div className="mt-8 space-y-10">
@@ -543,11 +695,19 @@ function WhatsAppAdminPanel({
                               {chat.contactName || "Unknown contact"}
                             </p>
                           </div>
-                          {paid ? (
-                            <span className="shrink-0 rounded-full bg-teal-100 px-2 py-0.5 text-[11px] font-medium text-teal-900">
-                              Paid
-                            </span>
-                          ) : null}
+                          <div className="flex shrink-0 flex-col items-end gap-1">
+                            {paid ? (
+                              <span className="rounded-full bg-teal-100 px-2 py-0.5 text-[11px] font-medium text-teal-900">
+                                Paid
+                              </span>
+                            ) : null}
+                            {chat.humanTakeover ? (
+                              <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-medium text-amber-900">
+                                AI paused
+                              </span>
+                            ) : null}
+                            <WhatsAppOpenLink phone={chat.phone} />
+                          </div>
                         </div>
                         <p className="mt-1 text-[11px] text-stone-400">
                           {formatDateTime(chat.date)} · {chat.messages.length} msg
@@ -562,46 +722,132 @@ function WhatsAppAdminPanel({
 
             <div className="overflow-hidden rounded-[1.4rem] border border-stone-200/80 bg-white shadow-sm">
               {selectedChat ? (
-                <div className="flex h-full max-h-[32rem] flex-col">
+                <div className="flex h-full max-h-[40rem] flex-col">
                   <div className="border-b border-stone-200 bg-[#f7f3ea]/50 px-4 py-3">
-                    <p className="font-semibold text-stone-900">
-                      {formatPhone(selectedChat.phone)}
-                    </p>
-                    <p className="mt-0.5 text-xs text-stone-500">
-                      {selectedChat.contactName || "WhatsApp conversation"} · last{" "}
-                      {formatDateTime(selectedChat.date)}
-                      {paidPhones.has(selectedChat.phone) ? " · Paid deposit" : ""}
-                    </p>
-                  </div>
-                  <div className="flex-1 space-y-3 overflow-y-auto px-4 py-4">
-                    {selectedChat.messages.map((message, index) => (
-                      <div
-                        key={`${message.at}-${index}`}
-                        className={`flex ${
-                          message.role === "user" ? "justify-end" : "justify-start"
-                        }`}
-                      >
-                        <div
-                          className={`max-w-[85%] rounded-2xl px-3.5 py-2.5 text-sm leading-relaxed ${
-                            message.role === "user"
-                              ? "rounded-br-md bg-teal-800 text-white"
-                              : "rounded-bl-md bg-stone-100 text-stone-800"
+                    <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                      <div>
+                        <p className="font-semibold text-stone-900">
+                          {formatPhone(selectedChat.phone)}
+                        </p>
+                        <p className="mt-0.5 text-xs text-stone-500">
+                          {selectedChat.contactName || "WhatsApp conversation"} · last{" "}
+                          {formatDateTime(selectedChat.date)}
+                          {paidPhones.has(selectedChat.phone) ? " · Paid deposit" : ""}
+                        </p>
+                      </div>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <button
+                          type="button"
+                          disabled={takeoverSaving}
+                          onClick={() =>
+                            onSetTakeover(
+                              selectedChat.phone,
+                              !selectedChat.humanTakeover,
+                            )
+                          }
+                          className={`inline-flex items-center justify-center rounded-full px-3 py-1.5 text-xs font-semibold transition disabled:cursor-not-allowed disabled:opacity-60 ${
+                            selectedChat.humanTakeover
+                              ? "border border-amber-300 bg-amber-50 text-amber-950 hover:bg-amber-100"
+                              : "border border-stone-300 bg-white text-stone-700 hover:bg-stone-50"
                           }`}
                         >
-                          <p className="whitespace-pre-wrap">{message.content}</p>
-                          <p
-                            className={`mt-1 text-[10px] ${
+                          {takeoverSaving
+                            ? "Saving…"
+                            : selectedChat.humanTakeover
+                              ? "Resume AI"
+                              : "Pause AI / take over"}
+                        </button>
+                        <WhatsAppOpenLink
+                          phone={selectedChat.phone}
+                          className="inline-flex shrink-0 items-center justify-center rounded-full border border-teal-700/30 bg-teal-50 px-3 py-1.5 text-xs font-semibold text-teal-900 transition hover:bg-teal-100"
+                        />
+                      </div>
+                    </div>
+                    {selectedChat.humanTakeover ? (
+                      <p className="mt-2 text-xs text-amber-800">
+                        AI replies are paused
+                        {selectedChat.humanTakeoverAt
+                          ? ` since ${formatDateTime(selectedChat.humanTakeoverAt)}`
+                          : ""}
+                        . Customer messages are still logged.
+                      </p>
+                    ) : (
+                      <p className="mt-2 text-xs text-stone-500">
+                        Sending a reply from here also pauses the AI for this chat.
+                      </p>
+                    )}
+                  </div>
+                  <div className="flex-1 space-y-3 overflow-y-auto px-4 py-4">
+                    {selectedChat.messages.map((message, index) => {
+                      const isHuman = message.source === "human";
+                      const label =
+                        message.role === "user"
+                          ? "Customer"
+                          : isHuman
+                            ? "You"
+                            : "Lula";
+                      return (
+                        <div
+                          key={`${message.at}-${index}`}
+                          className={`flex ${
+                            message.role === "user" ? "justify-end" : "justify-start"
+                          }`}
+                        >
+                          <div
+                            className={`max-w-[85%] rounded-2xl px-3.5 py-2.5 text-sm leading-relaxed ${
                               message.role === "user"
-                                ? "text-teal-100/80"
-                                : "text-stone-400"
+                                ? "rounded-br-md bg-teal-800 text-white"
+                                : isHuman
+                                  ? "rounded-bl-md border border-teal-200 bg-teal-50 text-stone-800"
+                                  : "rounded-bl-md bg-stone-100 text-stone-800"
                             }`}
                           >
-                            {message.role === "user" ? "Customer" : "Lula"} ·{" "}
-                            {formatDateTime(message.at)}
-                          </p>
+                            <p className="whitespace-pre-wrap">{message.content}</p>
+                            <p
+                              className={`mt-1 text-[10px] ${
+                                message.role === "user"
+                                  ? "text-teal-100/80"
+                                  : "text-stone-400"
+                              }`}
+                            >
+                              {label} · {formatDateTime(message.at)}
+                            </p>
+                          </div>
                         </div>
-                      </div>
-                    ))}
+                      );
+                    })}
+                  </div>
+                  <div className="border-t border-stone-200 bg-white px-4 py-3">
+                    {replyError ? (
+                      <p className="mb-2 text-xs text-red-700">{replyError}</p>
+                    ) : null}
+                    <form
+                      className="flex flex-col gap-2 sm:flex-row sm:items-end"
+                      onSubmit={(event) => {
+                        event.preventDefault();
+                        onSendReply(selectedChat.phone);
+                      }}
+                    >
+                      <label className="sr-only" htmlFor="admin-wa-reply">
+                        Reply as business WhatsApp number
+                      </label>
+                      <textarea
+                        id="admin-wa-reply"
+                        value={replyDraft}
+                        onChange={(event) => onReplyDraftChange(event.target.value)}
+                        rows={2}
+                        placeholder="Reply as the Lulaweb WhatsApp number…"
+                        className="min-h-[2.75rem] w-full flex-1 resize-y rounded-2xl border border-stone-300 bg-white px-3.5 py-2.5 text-sm text-stone-900 outline-none ring-teal-700/30 placeholder:text-stone-400 focus:ring-2"
+                        disabled={replySending}
+                      />
+                      <button
+                        type="submit"
+                        disabled={replySending || !replyDraft.trim()}
+                        className="inline-flex shrink-0 items-center justify-center rounded-full bg-teal-800 px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-teal-900 disabled:cursor-not-allowed disabled:opacity-60"
+                      >
+                        {replySending ? "Sending…" : "Send"}
+                      </button>
+                    </form>
                   </div>
                 </div>
               ) : (

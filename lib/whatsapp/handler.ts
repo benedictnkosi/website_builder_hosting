@@ -6,7 +6,10 @@ import {
   MANAGED_WEBSITE_OFFER,
 } from "./config";
 import { markWhatsAppMessageRead, sendWhatsAppText } from "./client";
-import { recordWhatsAppChatTurn } from "./chats";
+import {
+  isWhatsAppHumanTakeover,
+  recordWhatsAppChatTurn,
+} from "./chats";
 import {
   getOrCreateWhatsAppLead,
   hasProcessedMessage,
@@ -88,6 +91,11 @@ async function processInboundMessage(message: {
   await markWhatsAppMessageRead(message.messageId);
 
   if (!message.text.trim()) {
+    const humanTakeover = await isWhatsAppHumanTakeover(message.from);
+    if (humanTakeover) {
+      await saveWhatsAppLead(lead);
+      return;
+    }
     await sendWhatsAppText({ to: message.from, body: NON_TEXT_REPLY });
     const at = new Date().toISOString();
     lead.messages = [
@@ -109,6 +117,24 @@ async function processInboundMessage(message: {
     lead.fields.phone = message.from;
   }
 
+  const at = new Date().toISOString();
+
+  // Human takeover: log the customer message, do not run or reply with the AI.
+  if (await isWhatsAppHumanTakeover(message.from)) {
+    lead.messages = [
+      ...lead.messages,
+      { role: "user", content: message.text, at },
+    ];
+    await recordWhatsAppChatTurn({
+      phone: message.from,
+      userText: message.text,
+      contactName: lead.contactName || lead.fields.name,
+      at,
+    });
+    await saveWhatsAppLead(lead);
+    return;
+  }
+
   const alreadyHandedOff = lead.status === "handed_off" && Boolean(lead.notifiedAt);
 
   const result = await runWhatsAppSalesBot({
@@ -116,7 +142,6 @@ async function processInboundMessage(message: {
     userText: message.text,
   });
 
-  const at = new Date().toISOString();
   lead.fields = result.fields;
   if (!lead.fields.phone) lead.fields.phone = message.from;
   lead.status = result.status;

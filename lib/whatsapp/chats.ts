@@ -16,6 +16,9 @@ export type WhatsAppChatRecord = {
   createdAt: string;
   updatedAt: string;
   contactName?: string;
+  /** When true, the sales bot must not auto-reply. */
+  humanTakeover?: boolean;
+  humanTakeoverAt?: string;
 };
 
 function nowIso(): string {
@@ -83,6 +86,7 @@ export async function recordWhatsAppChatTurn(input: {
   assistantText?: string;
   contactName?: string;
   at?: string;
+  source?: "ai" | "human";
 }): Promise<void> {
   const at = input.at || nowIso();
   const messages: WhatsAppChatMessage[] = [];
@@ -90,7 +94,12 @@ export async function recordWhatsAppChatTurn(input: {
     messages.push({ role: "user", content: input.userText.trim(), at });
   }
   if (input.assistantText?.trim()) {
-    messages.push({ role: "assistant", content: input.assistantText.trim(), at });
+    messages.push({
+      role: "assistant",
+      content: input.assistantText.trim(),
+      at,
+      ...(input.source ? { source: input.source } : {}),
+    });
   }
   await appendWhatsAppChatMessages({
     phone: input.phone,
@@ -106,7 +115,8 @@ function coerceMessage(raw: unknown): WhatsAppChatMessage | null {
   const content = typeof row.content === "string" ? row.content.trim() : "";
   const at = typeof row.at === "string" ? row.at : "";
   if (!role || !content || !at) return null;
-  return { role, content, at };
+  const source = row.source === "human" || row.source === "ai" ? row.source : undefined;
+  return { role, content, at, ...(source ? { source } : {}) };
 }
 
 function asChatRecord(
@@ -135,7 +145,64 @@ function asChatRecord(
     updatedAt: typeof data.updatedAt === "string" ? data.updatedAt : date,
     contactName:
       typeof data.contactName === "string" ? data.contactName : undefined,
+    humanTakeover: data.humanTakeover === true,
+    humanTakeoverAt:
+      typeof data.humanTakeoverAt === "string" ? data.humanTakeoverAt : undefined,
   };
+}
+
+export async function getWhatsAppChat(
+  phone: string,
+): Promise<WhatsAppChatRecord | null> {
+  if (!isFirebaseAdminConfigured()) return null;
+  const id = normalizeWhatsAppPhone(phone);
+  if (!id) return null;
+  const snap = await getAdminFirestore().collection(COLLECTION).doc(id).get();
+  if (!snap.exists) return null;
+  return asChatRecord(id, snap.data() as Record<string, unknown>);
+}
+
+export async function isWhatsAppHumanTakeover(phone: string): Promise<boolean> {
+  const chat = await getWhatsAppChat(phone);
+  return Boolean(chat?.humanTakeover);
+}
+
+export async function setWhatsAppHumanTakeover(input: {
+  phone: string;
+  humanTakeover: boolean;
+}): Promise<WhatsAppChatRecord | null> {
+  if (!isFirebaseAdminConfigured()) return null;
+
+  const phone = normalizeWhatsAppPhone(input.phone);
+  if (!phone) return null;
+
+  const now = nowIso();
+  const ref = getAdminFirestore().collection(COLLECTION).doc(phone);
+  const snap = await ref.get();
+  const existing = snap.exists
+    ? (snap.data() as Record<string, unknown>)
+    : undefined;
+
+  await ref.set(
+    {
+      phone,
+      humanTakeover: input.humanTakeover,
+      ...(input.humanTakeover
+        ? { humanTakeoverAt: now }
+        : { humanTakeoverAt: null }),
+      updatedAt: now,
+      date: typeof existing?.date === "string" ? existing.date : now,
+      messages: Array.isArray(existing?.messages) ? existing.messages : [],
+      createdAt:
+        typeof existing?.createdAt === "string" ? existing.createdAt : now,
+      ...(typeof existing?.contactName === "string"
+        ? { contactName: existing.contactName }
+        : {}),
+    },
+    { merge: true },
+  );
+
+  return getWhatsAppChat(phone);
 }
 
 /** List every WhatsApp chat with full stored message history. */

@@ -12,6 +12,8 @@ export type WhatsAppChatMessage = {
   role: WhatsAppChatRole;
   content: string;
   at: string;
+  /** Present on admin replies sent from the dashboard. */
+  source?: "ai" | "human";
 };
 
 export type WhatsAppLeadStatus =
