@@ -69,7 +69,20 @@ type WhatsAppPayment = {
   createdAt: string;
 };
 
-type AdminTab = "sites" | "whatsapp";
+type AdminTab = "sites" | "whatsapp" | "email";
+
+const MAX_EMAIL_ATTACHMENT_BYTES = 10 * 1024 * 1024;
+
+async function fileToBase64(file: File): Promise<string> {
+  const buffer = await file.arrayBuffer();
+  const bytes = new Uint8Array(buffer);
+  let binary = "";
+  const chunk = 0x8000;
+  for (let i = 0; i < bytes.length; i += chunk) {
+    binary += String.fromCharCode(...bytes.subarray(i, i + chunk));
+  }
+  return btoa(binary);
+}
 
 function formatDateTime(value?: string): string {
   if (!value) return "—";
@@ -148,6 +161,14 @@ export default function AdminDashboard() {
   const [takeoverSaving, setTakeoverSaving] = useState(false);
   const [highIntentSaving, setHighIntentSaving] = useState(false);
   const [deletingChat, setDeletingChat] = useState(false);
+
+  const [emailTo, setEmailTo] = useState("");
+  const [emailSubject, setEmailSubject] = useState("");
+  const [emailBody, setEmailBody] = useState("");
+  const [emailAttachment, setEmailAttachment] = useState<File | null>(null);
+  const [emailSending, setEmailSending] = useState(false);
+  const [emailError, setEmailError] = useState<string | null>(null);
+  const [emailSuccess, setEmailSuccess] = useState<string | null>(null);
 
   const loadSites = useCallback(async () => {
     try {
@@ -389,6 +410,64 @@ export default function AdminDashboard() {
     [authFetch],
   );
 
+  const sendAdminEmail = useCallback(async () => {
+    const to = emailTo.trim();
+    const subject = emailSubject.trim();
+    const body = emailBody.trim();
+    if (!to || !subject || !body) {
+      setEmailError("To, subject, and body are required.");
+      setEmailSuccess(null);
+      return;
+    }
+    if (emailAttachment && emailAttachment.size > MAX_EMAIL_ATTACHMENT_BYTES) {
+      setEmailError("Attachment is too large (max 10 MB).");
+      setEmailSuccess(null);
+      return;
+    }
+
+    setEmailSending(true);
+    setEmailError(null);
+    setEmailSuccess(null);
+    try {
+      let attachment:
+        | { filename: string; content: string; contentType?: string }
+        | undefined;
+      if (emailAttachment) {
+        attachment = {
+          filename: emailAttachment.name,
+          content: await fileToBase64(emailAttachment),
+          contentType: emailAttachment.type || undefined,
+        };
+      }
+
+      const response = await authFetch("/api/admin/email", {
+        method: "POST",
+        body: JSON.stringify({
+          to,
+          subject,
+          body,
+          attachment,
+        }),
+      });
+      const data = (await response.json()) as {
+        success?: boolean;
+        error?: string;
+      };
+      if (!response.ok || !data.success) {
+        setEmailError(data.error || "Could not send email.");
+        return;
+      }
+      setEmailSuccess(`Email sent to ${to}.`);
+      setEmailSubject("");
+      setEmailBody("");
+      setEmailAttachment(null);
+    } catch {
+      setEmailError("Could not send email. Please try again.");
+    } finally {
+      setEmailSending(false);
+    }
+  }, [authFetch, emailAttachment, emailBody, emailSubject, emailTo]);
+
   const markChatRead = useCallback(async (phone: string) => {
     let shouldPersist = false;
     const readAt = new Date().toISOString();
@@ -526,25 +605,27 @@ export default function AdminDashboard() {
             Operations
           </h1>
           <p className="mt-2 max-w-xl text-sm leading-relaxed text-stone-600">
-            Review paid websites, WhatsApp chats from the past 7 days, and deposit
-            payments.
+            Review paid websites, WhatsApp chats from the past 7 days, deposit
+            payments, and send emails.
           </p>
         </div>
-        <button
-          type="button"
-          onClick={() => {
-            if (tab === "sites") {
-              setSitesLoading(true);
-              void loadSites();
-            } else {
-              setWaLoading(true);
-              void loadWhatsApp();
-            }
-          }}
-          className="inline-flex items-center justify-center rounded-full border border-stone-300 bg-white px-5 py-2.5 text-sm font-semibold text-stone-700 transition hover:bg-stone-50"
-        >
-          Refresh
-        </button>
+        {tab !== "email" ? (
+          <button
+            type="button"
+            onClick={() => {
+              if (tab === "sites") {
+                setSitesLoading(true);
+                void loadSites();
+              } else {
+                setWaLoading(true);
+                void loadWhatsApp();
+              }
+            }}
+            className="inline-flex items-center justify-center rounded-full border border-stone-300 bg-white px-5 py-2.5 text-sm font-semibold text-stone-700 transition hover:bg-stone-50"
+          >
+            Refresh
+          </button>
+        ) : null}
       </div>
 
       <div className="mt-6 flex flex-wrap gap-2">
@@ -557,6 +638,11 @@ export default function AdminDashboard() {
           active={tab === "sites"}
           onClick={() => setTab("sites")}
           label="Paid websites"
+        />
+        <TabButton
+          active={tab === "email"}
+          onClick={() => setTab("email")}
+          label="Email"
         />
       </div>
 
@@ -595,6 +681,21 @@ export default function AdminDashboard() {
           onSetHighIntent={(phone, value) => void setHighIntent(phone, value)}
           deletingChat={deletingChat}
           onDeleteChat={(phone) => void deleteChat(phone)}
+        />
+      ) : tab === "email" ? (
+        <EmailAdminPanel
+          to={emailTo}
+          onToChange={setEmailTo}
+          subject={emailSubject}
+          onSubjectChange={setEmailSubject}
+          body={emailBody}
+          onBodyChange={setEmailBody}
+          attachment={emailAttachment}
+          onAttachmentChange={setEmailAttachment}
+          sending={emailSending}
+          error={emailError}
+          success={emailSuccess}
+          onSend={() => void sendAdminEmail()}
         />
       ) : (
         <SitesAdminPanel
@@ -1091,6 +1192,186 @@ function WhatsAppAdminPanel({
             </div>
           </div>
         )}
+      </section>
+    </div>
+  );
+}
+
+function EmailAdminPanel({
+  to,
+  onToChange,
+  subject,
+  onSubjectChange,
+  body,
+  onBodyChange,
+  attachment,
+  onAttachmentChange,
+  sending,
+  error,
+  success,
+  onSend,
+}: {
+  to: string;
+  onToChange: (value: string) => void;
+  subject: string;
+  onSubjectChange: (value: string) => void;
+  body: string;
+  onBodyChange: (value: string) => void;
+  attachment: File | null;
+  onAttachmentChange: (file: File | null) => void;
+  sending: boolean;
+  error: string | null;
+  success: string | null;
+  onSend: () => void;
+}) {
+  const canSend = Boolean(to.trim() && subject.trim() && body.trim()) && !sending;
+
+  return (
+    <div className="mt-8">
+      <section>
+        <div>
+          <p className="text-xs font-semibold uppercase tracking-[0.22em] text-teal-800">
+            Compose
+          </p>
+          <h2 className="mt-2 text-xl font-semibold tracking-tight text-stone-900">
+            Send email
+          </h2>
+          <p className="mt-2 max-w-xl text-sm leading-relaxed text-stone-600">
+            Sends from your configured Resend from-address. Attachment is optional
+            (max 10 MB).
+          </p>
+        </div>
+
+        <form
+          className="mt-6 space-y-4 rounded-[1.4rem] border border-stone-200/80 bg-white p-5 shadow-sm sm:p-6"
+          onSubmit={(event) => {
+            event.preventDefault();
+            onSend();
+          }}
+        >
+          {error ? (
+            <p className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">
+              {error}
+            </p>
+          ) : null}
+          {success ? (
+            <p className="rounded-2xl border border-teal-200 bg-teal-50 px-4 py-3 text-sm text-teal-900">
+              {success}
+            </p>
+          ) : null}
+
+          <div>
+            <label
+              htmlFor="admin-email-to"
+              className="text-xs font-medium uppercase tracking-wide text-stone-500"
+            >
+              To
+            </label>
+            <input
+              id="admin-email-to"
+              type="email"
+              value={to}
+              onChange={(event) => onToChange(event.target.value)}
+              placeholder="customer@example.com"
+              autoComplete="email"
+              required
+              disabled={sending}
+              className="mt-1.5 w-full rounded-2xl border border-stone-300 bg-white px-4 py-2.5 text-sm text-stone-900 outline-none ring-teal-700/30 placeholder:text-stone-400 focus:ring-2 disabled:opacity-60"
+            />
+          </div>
+
+          <div>
+            <label
+              htmlFor="admin-email-subject"
+              className="text-xs font-medium uppercase tracking-wide text-stone-500"
+            >
+              Subject
+            </label>
+            <input
+              id="admin-email-subject"
+              type="text"
+              value={subject}
+              onChange={(event) => onSubjectChange(event.target.value)}
+              placeholder="Email subject"
+              required
+              maxLength={200}
+              disabled={sending}
+              className="mt-1.5 w-full rounded-2xl border border-stone-300 bg-white px-4 py-2.5 text-sm text-stone-900 outline-none ring-teal-700/30 placeholder:text-stone-400 focus:ring-2 disabled:opacity-60"
+            />
+          </div>
+
+          <div>
+            <label
+              htmlFor="admin-email-body"
+              className="text-xs font-medium uppercase tracking-wide text-stone-500"
+            >
+              Body
+            </label>
+            <textarea
+              id="admin-email-body"
+              value={body}
+              onChange={(event) => onBodyChange(event.target.value)}
+              rows={10}
+              placeholder="Write the email body…"
+              required
+              disabled={sending}
+              className="mt-1.5 w-full resize-y rounded-2xl border border-stone-300 bg-white px-4 py-3 text-sm leading-relaxed text-stone-900 outline-none ring-teal-700/30 placeholder:text-stone-400 focus:ring-2 disabled:opacity-60"
+            />
+          </div>
+
+          <div>
+            <label
+              htmlFor="admin-email-attachment"
+              className="text-xs font-medium uppercase tracking-wide text-stone-500"
+            >
+              Attachment
+            </label>
+            <div className="mt-1.5 flex flex-col gap-2 sm:flex-row sm:items-center">
+              <input
+                id="admin-email-attachment"
+                key={
+                  attachment
+                    ? `${attachment.name}-${attachment.size}-${attachment.lastModified}`
+                    : "no-attachment"
+                }
+                type="file"
+                disabled={sending}
+                onChange={(event) => {
+                  const file = event.target.files?.[0] ?? null;
+                  onAttachmentChange(file);
+                }}
+                className="block w-full text-sm text-stone-700 file:mr-3 file:rounded-full file:border-0 file:bg-stone-100 file:px-4 file:py-2 file:text-sm file:font-semibold file:text-stone-800 hover:file:bg-stone-200 disabled:opacity-60"
+              />
+              {attachment ? (
+                <button
+                  type="button"
+                  disabled={sending}
+                  onClick={() => onAttachmentChange(null)}
+                  className="inline-flex shrink-0 items-center justify-center rounded-full border border-stone-300 bg-white px-4 py-2 text-xs font-semibold text-stone-700 transition hover:bg-stone-50 disabled:opacity-60"
+                >
+                  Clear file
+                </button>
+              ) : null}
+            </div>
+            {attachment ? (
+              <p className="mt-2 text-xs text-stone-500">
+                {attachment.name} · {(attachment.size / 1024).toFixed(1)} KB
+              </p>
+            ) : (
+              <p className="mt-2 text-xs text-stone-500">Optional · max 10 MB</p>
+            )}
+          </div>
+
+          <div className="pt-2">
+            <button
+              type="submit"
+              disabled={!canSend}
+              className="inline-flex items-center justify-center rounded-full bg-teal-800 px-6 py-2.5 text-sm font-semibold text-white transition hover:bg-teal-900 disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              {sending ? "Sending…" : "Send email"}
+            </button>
+          </div>
+        </form>
       </section>
     </div>
   );

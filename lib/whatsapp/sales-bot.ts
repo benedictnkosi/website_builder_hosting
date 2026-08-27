@@ -120,6 +120,12 @@ Included:
 - Google submission
 - SEO setup
 
+Not included / do not offer:
+- Facebook, Instagram, Google, or any other ads management / paid advertising services
+- Running, optimising, or managing ad campaigns for the customer
+
+If the customer asks about ads management, ads running, boosting posts, or paid advertising, say clearly that Lulaweb does **not** provide ads management. Lulaweb builds and manages the website (and includes Google submission / SEO setup on the site). Do not invent an ads package or price.
+
 Year 2: R${price}/year, including hosting, .co.za renewal and unlimited updates.
 
 Typical turnaround: 2–5 business days after receiving the required business information.
@@ -527,6 +533,8 @@ GOOGLE / SEO
 Lulaweb submits completed websites to Google and includes SEO setup.
 
 Never guarantee a Google ranking or first position.
+
+Google submission / SEO setup is **not** ads management. Lulaweb does not run Facebook, Instagram, Google Ads, or any paid advertising campaigns.
 
 --------------------------------------------------
 WHATSAPP STYLE

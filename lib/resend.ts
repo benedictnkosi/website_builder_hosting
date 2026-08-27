@@ -38,14 +38,45 @@ export type SupportEmailInput = {
   accountEmail?: string;
 };
 
+export type ResendAttachment = {
+  filename: string;
+  content: string;
+  contentType?: string;
+};
+
 async function sendResendEmail(input: {
   to: string;
-  replyTo: string;
+  replyTo?: string;
   subject: string;
   html: string;
+  text?: string;
+  attachments?: ResendAttachment[];
 }): Promise<void> {
   const apiKey = getResendApiKey();
   const from = process.env.RESEND_FROM_EMAIL?.trim() || DEFAULT_FROM;
+
+  const payload: Record<string, unknown> = {
+    from,
+    to: [input.to],
+    subject: input.subject,
+    html: input.html,
+  };
+
+  if (input.replyTo) {
+    payload.reply_to = input.replyTo;
+  }
+  if (input.text) {
+    payload.text = input.text;
+  }
+  if (input.attachments?.length) {
+    payload.attachments = input.attachments.map((attachment) => ({
+      filename: attachment.filename,
+      content: attachment.content,
+      ...(attachment.contentType
+        ? { content_type: attachment.contentType }
+        : {}),
+    }));
+  }
 
   let response: Response;
 
@@ -56,14 +87,8 @@ async function sendResendEmail(input: {
         Authorization: `Bearer ${apiKey}`,
         "Content-Type": "application/json",
       },
-      body: JSON.stringify({
-        from,
-        to: [input.to],
-        reply_to: input.replyTo,
-        subject: input.subject,
-        html: input.html,
-      }),
-      signal: AbortSignal.timeout(20_000),
+      body: JSON.stringify(payload),
+      signal: AbortSignal.timeout(45_000),
     });
   } catch (error) {
     const aborted =
@@ -90,6 +115,85 @@ async function sendResendEmail(input: {
     console.error("Resend error response:", response.status, errorBody);
     throw new GeneratorError(messageText, response.status === 401 ? 500 : 502);
   }
+}
+
+const MAX_ADMIN_ATTACHMENT_BYTES = 10 * 1024 * 1024;
+
+export type AdminEmailInput = {
+  to: string;
+  subject: string;
+  body: string;
+  replyTo?: string;
+  attachment?: ResendAttachment;
+};
+
+export async function sendAdminEmail(input: AdminEmailInput): Promise<void> {
+  const to = input.to.trim();
+  const subject = input.subject.trim();
+  const body = input.body.trim();
+  const replyTo = input.replyTo?.trim() || undefined;
+
+  if (!isValidEmail(to)) {
+    throw new GeneratorError("A valid recipient email is required.", 400);
+  }
+  if (replyTo && !isValidEmail(replyTo)) {
+    throw new GeneratorError("Reply-to email is not valid.", 400);
+  }
+  if (!subject) {
+    throw new GeneratorError("Subject is required.", 400);
+  }
+  if (subject.length > 200) {
+    throw new GeneratorError("Subject is too long (max 200 characters).", 400);
+  }
+  if (!body) {
+    throw new GeneratorError("Body is required.", 400);
+  }
+  if (body.length > 50_000) {
+    throw new GeneratorError("Body is too long (max 50,000 characters).", 400);
+  }
+
+  let attachments: ResendAttachment[] | undefined;
+  if (input.attachment) {
+    const filename = input.attachment.filename.trim();
+    const content = input.attachment.content.trim();
+    if (!filename) {
+      throw new GeneratorError("Attachment filename is required.", 400);
+    }
+    if (filename.length > 200 || /[/\\]/.test(filename)) {
+      throw new GeneratorError("Attachment filename is invalid.", 400);
+    }
+    if (!content) {
+      throw new GeneratorError("Attachment content is required.", 400);
+    }
+    if (!/^[A-Za-z0-9+/=\s]+$/.test(content)) {
+      throw new GeneratorError("Attachment must be base64-encoded.", 400);
+    }
+    const approxBytes = Math.floor((content.replace(/\s/g, "").length * 3) / 4);
+    if (approxBytes > MAX_ADMIN_ATTACHMENT_BYTES) {
+      throw new GeneratorError(
+        "Attachment is too large (max 10 MB).",
+        400,
+      );
+    }
+    attachments = [
+      {
+        filename,
+        content: content.replace(/\s/g, ""),
+        contentType: input.attachment.contentType?.trim() || undefined,
+      },
+    ];
+  }
+
+  const safeHtml = escapeHtml(body).replaceAll("\n", "<br>");
+
+  await sendResendEmail({
+    to,
+    replyTo,
+    subject,
+    text: body,
+    html: `<p>${safeHtml}</p>`,
+    attachments,
+  });
 }
 
 function assertContactFields(name: string, email: string, message: string, to: string) {
